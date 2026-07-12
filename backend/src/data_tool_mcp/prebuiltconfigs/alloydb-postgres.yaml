@@ -1,0 +1,500 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: alloydb-pg-source
+type: alloydb-postgres
+project: ${ALLOYDB_POSTGRES_PROJECT}
+region: ${ALLOYDB_POSTGRES_REGION}
+cluster: ${ALLOYDB_POSTGRES_CLUSTER}
+instance: ${ALLOYDB_POSTGRES_INSTANCE}
+database: ${ALLOYDB_POSTGRES_DATABASE}
+user: ${ALLOYDB_POSTGRES_USER:}
+password: ${ALLOYDB_POSTGRES_PASSWORD:}
+ipType: ${ALLOYDB_POSTGRES_IP_TYPE:public}
+---
+kind: source
+name: cloud-monitoring-source
+type: cloud-monitoring
+---
+kind: source
+name: alloydb-admin-source
+type: alloydb-admin
+defaultProject: ${ALLOYDB_POSTGRES_PROJECT:}
+---
+kind: tool
+name: execute_sql
+type: postgres-execute-sql
+source: alloydb-pg-source
+description: 使用此工具执行单条 SQL 语句。
+---
+kind: tool
+name: list_tables
+type: postgres-list-tables
+source: alloydb-pg-source
+description: 以 JSON 格式列出用户创建的表（普通表或分区表）的详细模式信息（对象类型、列、约束、索引、触发器、所有者、注释）。支持按逗号分隔的名称列表进行过滤。如果省略名称，则列出用户模式中的所有表。
+---
+kind: tool
+name: list_active_queries
+type: postgres-list-active-queries
+source: alloydb-pg-source
+description: 列出 pg_stat_activity 中当前运行的（state='active'）前 N 条（默认 50）查询，按运行时间最长者优先排序。返回 pid、用户、数据库、application_name、client_addr、状态、wait_event_type/wait_event、backend/xact/query 开始时间、计算的 query_duration 以及 SQL 文本。
+---
+kind: tool
+name: list_available_extensions
+type: postgres-list-available-extensions
+source: alloydb-pg-source
+description: 发现此服务器上可安装的所有 PostgreSQL 扩展，返回名称、默认版本和描述。
+---
+kind: tool
+name: list_installed_extensions
+type: postgres-list-installed-extensions
+source: alloydb-pg-source
+description: 列出所有已安装的 PostgreSQL 扩展及其名称、版本、模式、所有者和描述。
+---
+kind: tool
+name: long_running_transactions
+type: postgres-long-running-transactions
+source: alloydb-pg-source
+---
+kind: tool
+name: list_locks
+type: postgres-list-locks
+source: alloydb-pg-source
+---
+kind: tool
+name: replication_stats
+type: postgres-replication-stats
+source: alloydb-pg-source
+---
+kind: tool
+name: list_autovacuum_configurations
+type: postgres-sql
+source: alloydb-pg-source
+description: 列出 pg_settings 中 PostgreSQL autovacuum 相关配置（名称和当前设置）。
+statement: |
+  SELECT name,
+      setting
+  FROM   pg_settings
+  WHERE  category = 'Autovacuum';
+---
+kind: tool
+name: list_memory_configurations
+type: postgres-sql
+source: alloydb-pg-source
+description: 列出 pg_settings 中 PostgreSQL 内存相关配置（名称和当前设置）。
+statement: |
+  (
+      SELECT
+      name,
+      pg_size_pretty((setting::bigint * 1024)::bigint) setting
+      FROM pg_settings
+      WHERE name IN ('work_mem', 'maintenance_work_mem')
+  )
+  UNION ALL
+  (
+      SELECT
+      name,
+      pg_size_pretty((((setting::bigint) * 8) * 1024)::bigint)
+      FROM pg_settings
+      WHERE name IN ('shared_buffers', 'wal_buffers', 'effective_cache_size', 'temp_buffers')
+  )
+  ORDER BY 1 DESC;
+---
+kind: tool
+name: list_top_bloated_tables
+type: postgres-sql
+source: alloydb-pg-source
+description: |
+  列出按死元组（近似膨胀信号）排序的前若干张表，返回模式、表、活/死元组、百分比以及上次 vacuum/analyze 的时间。
+statement: |
+  SELECT
+      schemaname AS schema_name,
+      relname AS relation_name,
+      n_live_tup AS live_tuples,
+      n_dead_tup AS dead_tuples,
+      TRUNC((n_dead_tup::NUMERIC / NULLIF(n_live_tup + n_dead_tup, 0)) * 100, 2) AS dead_tuple_percentage,
+      last_vacuum,
+      last_autovacuum,
+      last_analyze,
+      last_autoanalyze
+  FROM pg_stat_user_tables
+  ORDER BY n_dead_tup DESC
+  LIMIT COALESCE($1::int, 50);
+parameters:
+- name: limit
+  description: 要返回的最大结果数。
+  type: integer
+  default: 50
+---
+kind: tool
+name: list_replication_slots
+type: postgres-sql
+source: alloydb-pg-source
+description: 列出所有 PostgreSQL 复制槽的关键细节（例如类型、数据库、活动状态），并计算被该槽阻止删除的未处理 WAL 的大小。
+statement: |
+  SELECT
+  slot_name,
+  slot_type,
+  plugin,
+  database,
+  temporary,
+  active,
+  restart_lsn,
+  confirmed_flush_lsn,
+  xmin,
+  catalog_xmin,
+  pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS retained_wal
+  FROM pg_replication_slots;
+---
+kind: tool
+name: list_invalid_indexes
+type: postgres-sql
+source: alloydb-pg-source
+description: 列出所有无效的 PostgreSQL 索引，这些索引占用磁盘空间但查询规划器无法使用。通常由失败的 CREATE INDEX CONCURRENTLY 操作创建。
+statement: |
+  SELECT
+      nspname AS schema_name,
+      indexrelid::regclass AS index_name,
+      indrelid::regclass AS table_name,
+      pg_size_pretty(pg_total_relation_size(indexrelid)) AS index_size,
+      indisready,
+      indisvalid,
+      pg_get_indexdef(pg_class.oid) AS index_def
+  FROM pg_index
+  JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+  JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+  WHERE indisvalid = FALSE;
+---
+kind: tool
+name: get_query_plan
+type: postgres-sql
+source: alloydb-pg-source
+description: 为单条 SQL 语句生成 JSON 格式的 PostgreSQL EXPLAIN 计划——不会执行该语句。返回优化器估计的计划、成本和行数（无 ANALYZE，无额外选项）。可在生产环境中安全用于计划检查、回归测试和查询调优工作流。
+statement: |
+  EXPLAIN (FORMAT JSON) {{.query}};
+templateParameters:
+- name: query
+  type: string
+  description: 要为其生成计划的 SQL 语句（省略 EXPLAIN 关键字）。
+  required: true
+---
+kind: tool
+name: list_views
+type: postgres-list-views
+source: alloydb-pg-source
+---
+kind: tool
+name: list_schemas
+type: postgres-list-schemas
+source: alloydb-pg-source
+---
+kind: tool
+name: list_indexes
+type: postgres-list-indexes
+source: alloydb-pg-source
+---
+kind: tool
+name: list_sequences
+type: postgres-list-sequences
+source: alloydb-pg-source
+---
+kind: tool
+name: database_overview
+type: postgres-database-overview
+source: alloydb-pg-source
+---
+kind: tool
+name: list_triggers
+type: postgres-list-triggers
+source: alloydb-pg-source
+---
+kind: tool
+name: list_query_stats
+type: postgres-list-query-stats
+source: alloydb-pg-source
+---
+kind: tool
+name: get_column_cardinality
+type: postgres-get-column-cardinality
+source: alloydb-pg-source
+---
+kind: tool
+name: list_table_stats
+type: postgres-list-table-stats
+source: alloydb-pg-source
+---
+kind: tool
+name: list_publication_tables
+type: postgres-list-publication-tables
+source: alloydb-pg-source
+---
+kind: tool
+name: list_tablespaces
+type: postgres-list-tablespaces
+source: alloydb-pg-source
+---
+kind: tool
+name: list_pg_settings
+type: postgres-list-pg-settings
+source: alloydb-pg-source
+---
+kind: tool
+name: list_database_stats
+type: postgres-list-database-stats
+source: alloydb-pg-source
+---
+kind: tool
+name: list_roles
+type: postgres-list-roles
+source: alloydb-pg-source
+---
+kind: tool
+name: list_stored_procedure
+type: postgres-list-stored-procedure
+source: alloydb-pg-source
+---
+kind: tool
+name: get_system_metrics
+type: cloud-monitoring-query-prometheus
+source: cloud-monitoring-source
+description: |
+  获取 AlloyDB 集群、实例的系统级 cloudmonitoring 数据（时间序列指标）。
+  使用此工具时，必须提供 Google Cloud 的 `projectId` 和 PromQL `query`。
+  
+  使用提供的指标和规则生成 AlloyDB 系统指标的 PromQL `query`。从用户意图中获取 `cluster_id` 和 `instance_id` 等标签。
+  
+  默认值：
+  1. 时间间隔：除非用户指定了不同的时间窗口，否则 `_over_time` 聚合函数使用默认间隔 `5m`。
+  
+  PromQL 查询示例：
+  1. 基本时间序列：`avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance"}[5m])`
+  2. Top K：`topk(30, avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance"}[5m]))`
+  3. 平均值：`avg(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="my-instance","cluster_id"="my-cluster"}[5m]))`
+  4. 最小值：`min(min_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  5. 最大值：`max(max_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  6. 总和：`sum(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  7. 计数流：`count(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  8. 按 instanceid、clusterid 分组的百分位数：`quantile by ("instance_id","cluster_id")(0.99,avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","cluster_id"="my-cluster","instance_id"="my-instance"}[5m]))`
+  
+  可用指标列表：指标名称。描述。受监控资源。标签
+  1. `alloydb.googleapis.com/instance/cpu/average_utilization`: 实例上正在使用的 CPU 百分比。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  2. `alloydb.googleapis.com/instance/cpu/maximum_utilization`: 实例所有当前服务节点的最大 CPU 利用率（0 到 100）。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  3. `alloydb.googleapis.com/cluster/storage/usage`: 整个集群的 AlloyDB 存储总量（字节）。`alloydb.googleapis.com/Cluster`。`cluster_id`。
+  4. `alloydb.googleapis.com/instance/postgres/replication/replicas`: 连接到主实例的只读副本数量。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`, `state`, `replica_instance_id`。
+  5. `alloydb.googleapis.com/instance/postgres/replication/maximum_lag`: 在实例的所有服务只读副本中计算的最大复制时间延迟。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`, `replica_instance_id`。
+  6. `alloydb.googleapis.com/instance/memory/min_available_memory`: 实例所有当前服务节点的最小可用内存。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  7. `alloydb.googleapis.com/instance/postgres/instances`: 实例中的节点数量及其状态（up 或 down）。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`, `status`。
+  8. `alloydb.googleapis.com/database/postgresql/tuples`: 实例中每个数据库按状态统计的元组（行）数量。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`, `state`。
+  9. `alloydb.googleapis.com/database/postgresql/temp_bytes_written_for_top_databases`: 前 500 个数据库中每个数据库的查询写入临时文件的数据总量（字节）。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`。
+  10. `alloydb.googleapis.com/database/postgresql/temp_files_written_for_top_databases`: 前 500 个数据库中每个数据库在执行 join、sort 等内部算法时用于写入数据的临时文件数量。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`。
+  11. `alloydb.googleapis.com/database/postgresql/inserted_tuples_count_for_top_databases`: 前 500 个数据库中每个数据库作为实例中查询结果而插入的总行数。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`。
+  12. `alloydb.googleapis.com/database/postgresql/updated_tuples_count_for_top_databases`: 前 500 个数据库中每个数据库作为实例中查询结果而更新的总行数。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`。
+  13. `alloydb.googleapis.com/database/postgresql/deleted_tuples_count_for_top_databases`: 前 500 个数据库中每个数据库作为实例中查询结果而删除的总行数。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`。
+  14. `alloydb.googleapis.com/database/postgresql/backends_for_top_databases`: 前 500 个数据库中每个数据库连接到实例的当前连接数。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`。
+  15. `alloydb.googleapis.com/instance/postgresql/backends_by_state`: 实例的当前连接数，按状态分组（如 idle、active、idle_in_transaction、idle_in_transaction_aborted、disabled 和 fastpath_function_call）。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`, `state`。
+  16. `alloydb.googleapis.com/instance/postgresql/backends_for_top_applications`: AlloyDB 实例的当前连接数，按前 500 个应用程序分组。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`, `application_name`。
+  17. `alloydb.googleapis.com/database/postgresql/new_connections_for_top_databases`: 前 500 个数据库中每个数据库新增到实例的连接总数。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`。
+  18. `alloydb.googleapis.com/database/postgresql/deadlock_count_for_top_databases`: 前 500 个数据库中每个数据库在实例中检测到的死锁总数。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`。
+  19. `alloydb.googleapis.com/database/postgresql/statements_executed_count`: 实例中每个数据库按操作类型统计的已执行语句总数。`alloydb.googleapis.com/Database`。`cluster_id`, `instance_id`, `database`, `operation_type`。
+  20. `alloydb.googleapis.com/instance/postgresql/returned_tuples_count`: 自上次采样以来实例中处理查询时扫描的行数。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  21. `alloydb.googleapis.com/instance/postgresql/fetched_tuples_count`: 自上次采样以来实例中处理查询时获取的行数。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  22. `alloydb.googleapis.com/instance/postgresql/updated_tuples_count`: 自上次采样以来实例中处理查询时更新的行数。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  23. `alloydb.googleapis.com/instance/postgresql/inserted_tuples_count`: 自上次采样以来实例中处理查询时插入的行数。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  24. `alloydb.googleapis.com/instance/postgresql/deleted_tuples_count`: 自上次采样以来实例中处理查询时删除的行数。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  25. `alloydb.googleapis.com/instance/postgresql/written_tuples_count`: 自上次采样以来实例中处理查询时写入的行数。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  26. `alloydb.googleapis.com/instance/postgresql/deadlock_count`: 实例中检测到的死锁数量。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  27. `alloydb.googleapis.com/instance/postgresql/blks_read`: Postgres 读取的不在缓冲区缓存中的块数量。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  28. `alloydb.googleapis.com/instance/postgresql/blks_hit`: Postgres 在缓冲区缓存中找到请求块的次数。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  29. `alloydb.googleapis.com/instance/postgresql/temp_bytes_written_count`: 查询在执行 join、sort 等内部算法时写入临时文件的数据总量（字节）。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  30. `alloydb.googleapis.com/instance/postgresql/temp_files_written_count`: 实例中执行 join、sort 等内部算法时用于写入数据的临时文件数量。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  31. `alloydb.googleapis.com/instance/postgresql/new_connections_count`: 实例新增的连接数量。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+  32. `alloydb.googleapis.com/instance/postgresql/wait_count`: 实例中每个等待事件进程等待的总次数。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`, `wait_event_type`, `wait_event_name`。
+  33. `alloydb.googleapis.com/instance/postgresql/wait_time`: 实例中每个等待事件的总等待时间。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`, `wait_event_type`, `wait_event_name`。
+  34. `alloydb.googleapis.com/instance/postgres/transaction_count`: 实例所有服务节点中已提交和已回滚的事务数量。`alloydb.googleapis.com/Instance`。`cluster_id`, `instance_id`。
+---
+kind: tool
+name: list_clusters
+type: alloydb-list-clusters
+source: alloydb-admin-source
+---
+kind: tool
+name: create_cluster
+type: alloydb-create-cluster
+source: alloydb-admin-source
+---
+kind: tool
+name: list_users
+type: alloydb-list-users
+source: alloydb-admin-source
+---
+kind: tool
+name: create_user
+type: alloydb-create-user
+source: alloydb-admin-source
+---
+kind: tool
+name: get_user
+type: alloydb-get-user
+source: alloydb-admin-source
+---
+kind: tool
+name: wait_for_operation
+type: alloydb-wait-for-operation
+source: alloydb-admin-source
+delay: 1s
+maxDelay: 4m
+multiplier: 2
+maxRetries: 10
+---
+kind: tool
+name: get_query_metrics
+type: cloud-monitoring-query-prometheus
+source: cloud-monitoring-source
+description: |
+  获取 AlloyDB 实例中运行查询的查询级 cloudmonitoring 数据（时间序列指标）。
+  使用此工具时，必须提供 Google Cloud 的 `projectId` 和 PromQL `query`。
+  
+  使用提供的指标和规则生成 AlloyDB 查询指标的 PromQL `query`。从用户意图中获取 `cluster_id`、`instance_id` 和 `query_hash` 等标签。如果提供了 `query_hash`，则使用按查询指标。
+  
+  默认值：
+  1. 时间间隔：除非用户指定了不同的时间窗口，否则 `_over_time` 聚合函数使用默认间隔 `5m`。
+  
+  PromQL 查询示例：
+  1. 基本时间序列：`avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance"}[5m])`
+  2. Top K：`topk(30, avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance"}[5m]))`
+  3. 平均值：`avg(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="my-instance","cluster_id"="my-cluster"}[5m]))`
+  4. 最小值：`min(min_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  5. 最大值：`max(max_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  6. 总和：`sum(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  7. 计数流：`count(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  8. 按 instanceid、clusterid 分组的百分位数：`quantile by ("instance_id","cluster_id")(0.99,avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","cluster_id"="my-cluster","instance_id"="my-instance"}[5m]))`
+  
+  可用指标列表：指标名称。描述。受监控资源。标签。aggregate 是所有查询统计的聚合值，如果未提供查询 ID，请使用聚合指标。对于 perquery 指标，除非用户明确指定，否则不要获取 querystring。请在 query hash 上进行聚合以避免获取 querystring。不要将延迟指标用于任何用途。
+  1. `alloydb.googleapis.com/database/postgresql/insights/aggregate/latencies`: 聚合查询延迟分布。`alloydb.googleapis.com/Database`。`user`, `client_addr`。
+  2. `alloydb.googleapis.com/database/postgresql/insights/aggregate/execution_time`: 自上次采样以来累计的聚合查询执行时间。`alloydb.googleapis.com/Database`。`user`, `client_addr`。
+  3. `alloydb.googleapis.com/database/postgresql/insights/aggregate/io_time`: 自上次采样以来累计的聚合 IO 时间。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `io_type`。
+  4. `alloydb.googleapis.com/database/postgresql/insights/aggregate/lock_time`: 自上次采样以来累计的聚合锁等待时间。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `lock_type`。
+  5. `alloydb.googleapis.com/database/postgresql/insights/aggregate/row_count`: 自上次采样以来检索或受影响行的聚合数量。`alloydb.googleapis.com/Database`。`user`, `client_addr`。
+  6. `alloydb.googleapis.com/database/postgresql/insights/aggregate/shared_blk_access_count`: 语句执行访问的聚合共享块数量。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `access_type`。
+  7. `alloydb.googleapis.com/database/postgresql/insights/perquery/latencies`: 每查询延迟分布。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `querystring`, `query_hash`。
+  8. `alloydb.googleapis.com/database/postgresql/insights/perquery/execution_time`: 每用户每数据库每查询的累计执行时间。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `querystring`, `query_hash`。
+  9. `alloydb.googleapis.com/database/postgresql/insights/perquery/io_time`: 自上次采样以来每查询的累计 IO 时间。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `io_type`, `querystring`, `query_hash`。
+  10. `alloydb.googleapis.com/database/postgresql/insights/perquery/lock_time`: 自上次采样以来每查询的累计锁等待时间。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `lock_type`, `querystring`, `query_hash`。
+  11. `alloydb.googleapis.com/database/postgresql/insights/perquery/row_count`: 自上次采样以来每查询检索或受影响的行数。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `querystring`, `query_hash`。
+  12. `alloydb.googleapis.com/database/postgresql/insights/perquery/shared_blk_access_count`: 每查询语句执行访问的共享块数量。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `access_type`, `querystring`, `query_hash`。
+  13. `alloydb.googleapis.com/database/postgresql/insights/pertag/latencies`: 查询延迟分布。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`。
+  14. `alloydb.googleapis.com/database/postgresql/insights/pertag/execution_time`: 自上次采样以来累计的执行时间。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`。
+  15. `alloydb.googleapis.com/database/postgresql/insights/pertag/io_time`: 自上次采样以来每标签的累计 IO 时间。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `io_type`, `tag_hash`。
+  16. `alloydb.googleapis.com/database/postgresql/insights/pertag/lock_time`: 自上次采样以来每标签的累计锁等待时间。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `lock_type`, `tag_hash`。
+  17. `alloydb.googleapis.com/database/postgresql/insights/pertag/shared_blk_access_count`: 每标签语句执行访问的共享块数量。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `access_type`, `tag_hash`。
+  18. `alloydb.googleapis.com/database/postgresql/insights/pertag/row_count`: 自上次采样以来每标签检索或受影响的行数。`alloydb.googleapis.com/Database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`。
+---
+kind: tool
+name: get_instance
+type: alloydb-get-instance
+source: alloydb-admin-source
+---
+kind: tool
+name: get_cluster
+type: alloydb-get-cluster
+source: alloydb-admin-source
+---
+kind: tool
+name: create_instance
+type: alloydb-create-instance
+source: alloydb-admin-source
+---
+kind: tool
+name: list_instances
+type: alloydb-list-instances
+source: alloydb-admin-source
+---
+kind: toolset
+name: admin
+tools:
+- create_cluster
+- get_cluster
+- list_clusters
+- create_instance
+- get_instance
+- list_instances
+- database_overview
+- wait_for_operation
+---
+kind: toolset
+name: access-management
+tools:
+- create_user
+- list_users
+- get_user
+- list_roles
+- list_pg_settings
+- database_overview
+---
+kind: toolset
+name: data
+tools:
+- execute_sql
+- list_tables
+- list_views
+- list_schemas
+- list_triggers
+- list_indexes
+- list_sequences
+- list_stored_procedure
+---
+kind: toolset
+name: monitor
+tools:
+- list_active_queries
+- list_query_stats
+- get_query_plan
+- get_query_metrics
+- get_system_metrics
+- long_running_transactions
+- list_locks
+- list_database_stats
+---
+kind: toolset
+name: health
+tools:
+- list_top_bloated_tables
+- list_invalid_indexes
+- list_table_stats
+- get_column_cardinality
+- list_autovacuum_configurations
+- list_tablespaces
+- database_overview
+- get_instance
+---
+kind: toolset
+name: optimize
+tools:
+- list_available_extensions
+- list_installed_extensions
+- list_memory_configurations
+- list_pg_settings
+- database_overview
+- get_cluster
+---
+kind: toolset
+name: replication
+tools:
+- replication_stats
+- list_replication_slots
+- list_publication_tables
+- list_instances
+- get_instance
+- database_overview

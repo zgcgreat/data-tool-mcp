@@ -1,0 +1,41 @@
+# One-command launch: MCP server (backend) + Admin UI (frontend/nginx)
+#
+#   docker compose up --build
+#
+#   MCP endpoint : http://localhost:5000/sse   (or http://localhost:5000/)
+#   Admin UI     : http://localhost:8080/data-tool-mcp-ui/
+#
+# Enable global API-key auth:
+#   export TOOLBOX_API_KEY="$(openssl rand -hex 24)"
+#   docker compose up --build
+
+services:
+  backend:
+    build: ./backend
+    image: data-tool-mcp-backend:latest
+    command: ["--prebuilt", "sqlite", "--address", "0.0.0.0", "--port", "5000"]
+    environment:
+      # Empty by default = no auth (intranet trust model). Set a strong key for any exposed deploy.
+      TOOLBOX_API_KEY: ${TOOLBOX_API_KEY:-}
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:5000/admin/health', timeout=5).read(); sys.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+
+  ui:
+    build: ./frontend
+    image: data-tool-mcp-ui:latest
+    environment:
+      # Reverse-proxies /admin and MCP endpoints to the backend service on the compose network.
+      BACKEND_URL: http://backend:5000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    restart: unless-stopped

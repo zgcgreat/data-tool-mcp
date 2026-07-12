@@ -1,0 +1,101 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: firestore-source
+type: firestore
+project: ${FIRESTORE_PROJECT}
+database: ${FIRESTORE_DATABASE:}
+---
+kind: tool
+name: get_documents
+type: firestore-get-documents
+source: firestore-source
+description: 通过路径从 Firestore 获取多个文档
+---
+kind: tool
+name: add_documents
+type: firestore-add-documents
+source: firestore-source
+description: |
+  向 Firestore 集合添加新文档。请遵循以下最佳实践：
+   1. 始终在 documentData 中使用类型化值：每个字段都必须用其适当的类型指示符包装（例如，{"stringValue": "text"}）
+   2. documentData 中的整数值可以是字符串：此工具接受整数值作为字符串（例如，{"integerValue": "1500"}）
+   3. 谨慎使用 returnData：仅在需要验证写入的确切数据时设置为 true
+   4. 发送前验证数据：确保您的数据与 Firestore 的原生 JSON 格式匹配
+   5. 正确处理时间戳：对时间戳字符串使用 RFC3339 格式
+   6. 对二进制数据进行 Base64 编码：二进制数据必须在 bytesValue 字段中进行 base64 编码
+   7. 考虑安全规则：确保您的 Firestore 安全规则允许在目标集合中创建文档
+---
+kind: tool
+name: update_document
+type: firestore-update-document
+source: firestore-source
+description: |
+  更新 Firestore 中的现有文档。支持完整文档更新和使用更新掩码的选择性字段更新。请遵循以下最佳实践：
+   1. 使用更新掩码以获得精确性：当您只需更新特定字段时，请使用 updateMask 参数以避免意外更改
+   2. 始终在 documentData 中使用类型化值：每个字段都必须用其适当的类型指示符包装（例如，{"stringValue": "text"}）
+   3. 使用更新掩码删除字段：要删除字段，请将它们包含在 updateMask 中，但从 documentData 中省略
+   4. 整数值可以是字符串：此工具接受整数值作为字符串（例如，{"integerValue": "1500"}）
+   5. 谨慎使用 returnData：仅在需要验证更新后的确切数据时设置为 true
+   6. 正确处理时间戳：对时间戳字符串使用 RFC3339 格式
+   7. 考虑安全规则：确保您的 Firestore 安全规则允许文档更新
+---
+kind: tool
+name: list_collections
+type: firestore-list-collections
+source: firestore-source
+description: 列出给定父路径下的 Firestore 集合
+---
+kind: tool
+name: delete_documents
+type: firestore-delete-documents
+source: firestore-source
+description: 从 Firestore 删除多个文档
+---
+kind: tool
+name: query_collection
+type: firestore-query-collection
+source: firestore-source
+description: |
+  通过具有完整文档路径的集合，从当前项目的数据库中的集合检索一个或多个 Firestore 文档。
+  如果您知道集合的确切路径以及您想要用于文档的过滤子句，请使用此工具。
+---
+kind: tool
+name: get_rules
+type: firestore-get-rules
+source: firestore-source
+description: 检索当前项目的活动 Firestore 安全规则
+---
+kind: tool
+name: validate_rules
+type: firestore-validate-rules
+source: firestore-source
+description: 检查提供的 Firestore 规则源代码是否存在语法和验证错误。提供要验证的源代码。
+---
+kind: toolset
+name: data
+tools:
+- get_documents
+- add_documents
+- update_document
+- delete_documents
+- query_collection
+- list_collections
+---
+kind: toolset
+name: security
+tools:
+- get_rules
+- validate_rules

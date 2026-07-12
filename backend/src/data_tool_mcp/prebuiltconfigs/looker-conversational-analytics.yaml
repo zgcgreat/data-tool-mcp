@@ -1,0 +1,71 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: looker-source
+type: looker
+base_url: ${LOOKER_BASE_URL}
+client_id: ${LOOKER_CLIENT_ID:}
+client_secret: ${LOOKER_CLIENT_SECRET:}
+verify_ssl: ${LOOKER_VERIFY_SSL:true}
+timeout: 600s
+use_client_oauth: ${LOOKER_USE_CLIENT_OAUTH:false}
+project: ${LOOKER_PROJECT:}
+location: ${LOOKER_LOCATION:}
+---
+kind: tool
+name: ask_data_insights
+type: looker-conversational-analytics
+source: looker-source
+description: |
+  使用此工具通过 Looker Conversational Analytics API 询问有关您的数据的问题。
+  您必须提供一个自然语言查询以及 1 到 5 个 model 和 explore 组合的列表
+  （例如 [{'model': 'the_model', 'explore': 'the_explore'}]）。
+  使用 'get_models' 和 'get_explores' 工具来发现可用的 model 和 explore。
+---
+kind: tool
+name: get_models
+type: looker-get-models
+source: looker-source
+description: |
+  get_models 工具
+
+  此工具检索 Looker 实例中可用的 LookML 模型列表。
+  LookML 模型定义了用户可以查询的数据结构和关系。
+  输出包含模型的 `name` 和 `label` 等详细信息，
+  这对于后续调用 `get_explores` 或 `query` 等工具至关重要。
+
+  此工具不需要任何参数。
+---
+kind: tool
+name: get_explores
+type: looker-get-explores
+source: looker-source
+description: |
+  get_explores 工具
+
+  此工具检索在特定 LookML 模型中定义的 explore 列表。
+  Explore 代表数据的精选视图，通常将多个表连接在一起，
+  以便对特定主题领域进行集中分析。
+  输出提供 explore 的 `name` 和 `label` 等详细信息。
+
+  参数：
+  - model_name（必填）：LookML 模型的名称，可通过 `get_models` 获取。
+---
+kind: toolset
+name: looker_conversational_analytics_tools
+tools:
+- ask_data_insights
+- get_models
+- get_explores

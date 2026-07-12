@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "data-tool-mcp"
+version = "0.1.0"
+description = "data-tool-mcp — MCP Toolbox for Databases (Python rewrite)"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = [
+    # HTTP + ASGI
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn[standard]>=0.34.0,<1.0.0",
+    # Config
+    "pydantic>=2.10.0,<3.0.0",
+    "pyyaml>=6.0,<7.0.0",
+    # Database — SQL (core)
+    "sqlalchemy[asyncio]>=2.0.0,<3.0.0",
+    "aiosqlite>=0.20.0,<1.0.0",
+    # MySQL driver — Config DB 和持久化存储的核心依赖
+    "aiomysql>=0.2.0,<1.0.0",
+    "cryptography>=41.0.0,<46.0.0",
+]
+
+[project.optional-dependencies]
+# --- Database drivers (install only what you need) ---
+postgres = ["asyncpg>=0.30.0,<1.0.0"]
+mysql = ["pymysql>=1.1.0,<2.0.0", "aiomysql>=0.2.0,<1.0.0", "cryptography>=41.0.0,<46.0.0"]
+mssql = ["aioodbc>=0.5.0,<1.0.0"]
+redis = ["redis[hiredis]>=5.0.0,<6.0.0"]
+http = ["httpx>=0.28.0,<1.0.0"]
+mongodb = ["motor>=4.0.0,<5.0.0"]
+# All SQL drivers at once
+sql-all = ["asyncpg>=0.30.0,<1.0.0", "pymysql>=1.1.0,<2.0.0", "aioodbc>=0.5.0,<1.0.0"]
+
+# --- Features ---
+hot-reload = ["watchdog>=6.0.0,<7.0.0"]
+telemetry = [
+    "opentelemetry-api>=1.30.0,<2.0.0",
+    "opentelemetry-sdk>=1.30.0,<2.0.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0,<1.0.0",
+]
+
+# --- All optional deps combined ---
+all = [
+    "asyncpg>=0.30.0,<1.0.0",
+    "pymysql>=1.1.0,<2.0.0",
+    "aiomysql>=0.2.0,<1.0.0",
+    "cryptography>=41.0.0,<46.0.0",
+    "aioodbc>=0.5.0,<1.0.0",
+    "redis[hiredis]>=5.0.0,<6.0.0",
+    "httpx>=0.28.0,<1.0.0",
+    "motor>=4.0.0,<5.0.0",
+    "watchdog>=6.0.0,<7.0.0",
+    "opentelemetry-api>=1.30.0,<2.0.0",
+    "opentelemetry-sdk>=1.30.0,<2.0.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0,<1.0.0",
+]
+
+# --- Dev tools ---
+dev = [
+    "pytest>=8.0,<9.0.0",
+    "pytest-asyncio>=0.24.0,<1.0.0",
+    "httpx>=0.28.0,<1.0.0",
+    "mypy>=1.13.0,<2.0.0",
+    "ruff>=0.8.0,<1.0.0",
+]
+
+[project.scripts]
+toolbox = "data_tool_mcp.cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_tool_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

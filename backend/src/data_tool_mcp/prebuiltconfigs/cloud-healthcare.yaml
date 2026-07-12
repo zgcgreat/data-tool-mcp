@@ -1,0 +1,138 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the License);
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an AS IS BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: healthcare-source
+type: cloud-healthcare
+project: ${CLOUD_HEALTHCARE_PROJECT}
+region: ${CLOUD_HEALTHCARE_REGION}
+dataset: ${CLOUD_HEALTHCARE_DATASET}
+useClientOAuth: ${CLOUD_HEALTHCARE_USE_CLIENT_OAUTH:false}
+---
+kind: tool
+name: get_dataset
+type: cloud-healthcare-get-dataset
+description: 使用此工具获取医疗保健数据集的详细信息
+source: healthcare-source
+---
+kind: tool
+name: list_dicom_stores
+type: cloud-healthcare-list-dicom-stores
+description: 使用此工具列出医疗保健数据集中的 DICOM 存储
+source: healthcare-source
+---
+kind: tool
+name: list_fhir_stores
+type: cloud-healthcare-list-fhir-stores
+description: 使用此工具列出医疗保健数据集中的 FHIR 存储
+source: healthcare-source
+---
+kind: tool
+name: get_fhir_store
+type: cloud-healthcare-get-fhir-store
+description: 使用此工具获取医疗保健数据集中 FHIR 存储的详细信息
+source: healthcare-source
+---
+kind: tool
+name: get_fhir_store_metrics
+type: cloud-healthcare-get-fhir-store-metrics
+description: 使用此工具获取医疗保健数据集中 FHIR 存储的指标
+source: healthcare-source
+---
+kind: tool
+name: get_fhir_resource
+type: cloud-healthcare-get-fhir-resource
+description: 使用此工具从 FHIR 存储中获取 FHIR 资源
+source: healthcare-source
+---
+kind: tool
+name: fhir_patient_search
+type: cloud-healthcare-fhir-patient-search
+description: 使用此工具根据一组条件在 FHIR 存储中搜索患者资源
+source: healthcare-source
+---
+kind: tool
+name: fhir_patient_everything
+type: cloud-healthcare-fhir-patient-everything
+description: 使用此工具从 FHIR 存储中检索与指定患者相关的资源
+source: healthcare-source
+---
+kind: tool
+name: fhir_fetch_page
+type: cloud-healthcare-fhir-fetch-page
+description: 使用此工具从 FHIR 存储中获取一页 FHIR 资源
+source: healthcare-source
+---
+kind: tool
+name: get_dicom_store
+type: cloud-healthcare-get-dicom-store
+description: 使用此工具获取医疗保健数据集中 DICOM 存储的详细信息
+source: healthcare-source
+---
+kind: tool
+name: get_dicom_store_metrics
+type: cloud-healthcare-get-dicom-store-metrics
+description: 使用此工具获取医疗保健数据集中 DICOM 存储的指标
+source: healthcare-source
+---
+kind: tool
+name: search_dicom_studies
+type: cloud-healthcare-search-dicom-studies
+description: 使用此工具在 DICOM 存储中搜索 DICOM 研究
+source: healthcare-source
+---
+kind: tool
+name: search_dicom_series
+type: cloud-healthcare-search-dicom-series
+description: 使用此工具在 DICOM 存储中搜索 DICOM 系列
+source: healthcare-source
+---
+kind: tool
+name: search_dicom_instances
+type: cloud-healthcare-search-dicom-instances
+description: 使用此工具在 DICOM 存储中搜索 DICOM 实例
+source: healthcare-source
+---
+kind: tool
+name: retrieve_rendered_dicom_instance
+type: cloud-healthcare-retrieve-rendered-dicom-instance
+description: 使用此工具从 DICOM 存储中检索 JPEG 格式渲染的 DICOM 实例的 base64 编码
+source: healthcare-source
+---
+kind: toolset
+name: cloud_healthcare_dataset_tools
+tools:
+- get_dataset
+- list_dicom_stores
+- list_fhir_stores
+---
+kind: toolset
+name: cloud_healthcare_fhir_tools
+tools:
+- get_fhir_store
+- get_fhir_store_metrics
+- get_fhir_resource
+- fhir_patient_search
+- fhir_patient_everything
+- fhir_fetch_page
+---
+kind: toolset
+name: cloud_healthcare_dicom_tools
+tools:
+- get_dicom_store
+- get_dicom_store_metrics
+- search_dicom_studies
+- search_dicom_series
+- search_dicom_instances
+- retrieve_rendered_dicom_instance

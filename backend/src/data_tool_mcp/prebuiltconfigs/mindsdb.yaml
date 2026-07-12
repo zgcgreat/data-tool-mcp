@@ -1,0 +1,64 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: mindsdb
+type: mindsdb
+host: ${MINDSDB_HOST}
+port: ${MINDSDB_PORT}
+database: ${MINDSDB_DATABASE}
+user: ${MINDSDB_USER}
+password: ${MINDSDB_PASS}
+---
+kind: tool
+name: execute_sql
+type: mindsdb-execute-sql
+source: mindsdb
+description: |
+  直接在 MindsDB 数据库上执行 SQL 查询。
+  使用此工具对 MindsDB 实例运行任意 SQL 语句。
+  示例：SELECT * FROM my_table LIMIT 10
+---
+kind: tool
+name: parameterized_sql
+type: mindsdb-sql
+source: mindsdb
+statement: |
+  SELECT * FROM {{.table_name}} 
+  WHERE {{.condition_column}} = ?
+  LIMIT {{.limit}}
+description: |
+  在 MindsDB 数据库上执行参数化 SQL 查询。
+  使用此工具对 MindsDB 实例运行参数化 SQL 语句。
+  示例：{"table_name": "users", "condition_column": "status", "limit": 10}
+templateParameters:
+- name: table_name
+  type: string
+  description: 要查询的表名
+- name: condition_column
+  type: string
+  description: 用于 WHERE 子句的列名
+- name: limit
+  type: integer
+  description: 返回的最大行数
+parameters:
+- name: value
+  type: string
+  description: WHERE 子句中要匹配的值
+---
+kind: toolset
+name: mindsdb-tools
+tools:
+- execute_sql
+- parameterized_sql

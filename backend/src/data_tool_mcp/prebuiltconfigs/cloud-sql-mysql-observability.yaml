@@ -1,0 +1,114 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+kind: source
+name: cloud-monitoring-source
+type: cloud-monitoring
+---
+kind: tool
+name: get_system_metrics
+type: cloud-monitoring-query-prometheus
+source: cloud-monitoring-source
+description: |
+  使用 PromQL 查询获取 MySQL 实例的系统级 cloudmonitoring 数据（时间序列指标）。从用户处获取需要获取指标时间序列数据的 projectId 和 instanceId。
+  使用此工具时，必须提供 Google Cloud `projectId` 和 PromQL `query`。
+
+  为 MySQL 系统指标生成 PromQL `query`。使用提供的指标和规则构建查询，从用户意图中获取 `instance_id` 等标签。
+
+  默认值：
+  1. 时间间隔：除非用户指定了不同的窗口，否则 `_over_time` 聚合函数使用默认间隔 `5m`。
+
+  PromQL 查询示例：
+  1. 基本时间序列：`avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m])`
+  2. 前 K 个：`topk(30, avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  3. 平均值：`avg(avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  4. 最小值：`min(min_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  5. 最大值：`max(max_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  6. 总和：`sum(avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  7. 计数流：`count(avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  8. 按 database_id 分组的百分位数：`quantile by ("database_id")(0.99,avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+
+  可用指标列表：指标名称。描述。受监控资源。标签。database_id 实际上是实例 ID，格式为 `project_id:instance_id`。
+  1. `cloudsql.googleapis.com/database/cpu/utilization`：当前 CPU 利用率占预留 CPU 的百分比。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  2. `cloudsql.googleapis.com/database/network/connections`：连接到数据库实例的连接数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  3. `cloudsql.googleapis.com/database/network/received_bytes_count`：通过网络接收的字节数增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  4. `cloudsql.googleapis.com/database/network/sent_bytes_count`：通过网络发送的字节数增量计数。`cloudsql_database`。`destination`, `database`, `project_id`, `database_id`。
+  5. `cloudsql.googleapis.com/database/memory/components`：各组件（如使用量、缓存和空闲内存）的内存使用情况。`cloudsql_database`。`component`, `database`, `project_id`, `database_id`。
+  6. `cloudsql.googleapis.com/database/disk/bytes_used_by_data_type`：数据使用量（字节）。`cloudsql_database`。`data_type`, `database`, `project_id`, `database_id`。
+  7. `cloudsql.googleapis.com/database/disk/read_ops_count`：数据磁盘读取 IO 操作的增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  8. `cloudsql.googleapis.com/database/disk/write_ops_count`：数据磁盘写入 IO 操作的增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  9. `cloudsql.googleapis.com/database/mysql/queries`：服务器执行的语句增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  10. `cloudsql.googleapis.com/database/mysql/questions`：客户端发送的语句增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  11. `cloudsql.googleapis.com/database/mysql/received_bytes_count`：MySQL 进程接收的字节数增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  12. `cloudsql.googleapis.com/database/mysql/sent_bytes_count`：MySQL 进程发送的字节数增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  13. `cloudsql.googleapis.com/database/mysql/innodb_buffer_pool_pages_dirty`：InnoDB 缓冲池中未刷新页面的数量。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  14. `cloudsql.googleapis.com/database/mysql/innodb_buffer_pool_pages_free`：InnoDB 缓冲池中未使用页面的数量。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  15. `cloudsql.googleapis.com/database/mysql/innodb_buffer_pool_pages_total`：InnoDB 缓冲池中的总页面数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  16. `cloudsql.googleapis.com/database/mysql/innodb_data_fsyncs`：InnoDB fsync() 调用的增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  17. `cloudsql.googleapis.com/database/mysql/innodb_os_log_fsyncs`：对日志文件的 InnoDB fsync() 调用的增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  18. `cloudsql.googleapis.com/database/mysql/innodb_pages_read`：InnoDB 读取页面的增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  19. `cloudsql.googleapis.com/database/mysql/innodb_pages_written`：InnoDB 写入页面的增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  20. `cloudsql.googleapis.com/database/mysql/open_tables`：当前打开的表数量。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  21. `cloudsql.googleapis.com/database/mysql/opened_table_count`：自上次采样以来打开的表数量。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  22. `cloudsql.googleapis.com/database/mysql/open_table_definitions`：当前缓存的表定义数量。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  23. `cloudsql.googleapis.com/database/mysql/opened_table_definitions_count`：自上次采样以来缓存的表定义数量。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  24. `cloudsql.googleapis.com/database/mysql/innodb/dictionary_memory`：为 InnoDB 字典缓存分配的内存。`cloudsql_database`。`database`, `project_id`, `database_id`。
+---
+kind: tool
+name: get_query_metrics
+type: cloud-monitoring-query-prometheus
+source: cloud-monitoring-source
+description: |
+  使用 PromQL 查询获取 MySQL 实例中运行查询的查询级 cloudmonitoring 数据（时间序列指标）。从用户处获取需要获取指标时间序列数据的 projectID 和 instanceID。
+  使用此工具时，必须提供 Google Cloud `projectId` 和 PromQL `query`。
+
+  为 MySQL 查询指标生成 PromQL `query`。使用提供的指标和规则构建查询，从用户意图中获取 `instance_id`、`query_hash` 等标签。如果提供了 query_hash，则使用 per_query 指标。查询哈希和查询 ID 相同。
+
+  默认值：
+  1. 时间间隔：除非用户指定了不同的窗口，否则 `_over_time` 聚合函数使用默认间隔 `5m`。
+
+  PromQL 查询示例：
+  1. 基本时间序列：`avg_over_time({"__name__"="dbinsights.googleapis.com/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m])`
+  2. 前 K 个：`topk(30, avg_over_time({"__name__"="dbinsights.googleapis.com/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  3. 平均值：`avg(avg_over_time({"__name__"="dbinsights.googleapis.com/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  4. 最小值：`min(min_over_time({"__name__"="dbinsights.googleapis.com/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  5. 最大值：`max(max_over_time({"__name__"="dbinsights.googleapis.com/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  6. 总和：`sum(avg_over_time({"__name__"="dbinsights.googleapis.com/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  7. 计数流：`count(avg_over_time({"__name__"="dbinsights.googleapis.com/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  8. 按 resource_id、database 分组的百分位数：`quantile by ("resource_id","database")(0.99,avg_over_time({"__name__"="dbinsights.googleapis.com/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+
+  可用指标列表：指标名称。描述。受监控资源。标签。resource_id 标签格式为 `project_id:instance_id`，实际上仅是实例 ID。aggregate 是所有查询统计的聚合值，如果未提供查询 ID，请使用 aggregate 指标。对于 perquery 指标，除非用户明确指定，否则不要获取 querystring。基于查询哈希进行聚合以避免获取 querystring。不要使用延迟指标。
+  1. `dbinsights.googleapis.com/aggregate/latencies`：按用户和数据库的累计查询延迟分布。`cloudsql_instance_database`。`user`, `client_addr`, `database`, `project_id`, `resource_id`。
+  2. `dbinsights.googleapis.com/aggregate/execution_time`：按用户和数据库的累计查询执行时间。`cloudsql_instance_database`。`user`, `client_addr`, `database`, `project_id`, `resource_id`。
+  3. `dbinsights.googleapis.com/aggregate/execution_count`：按用户和数据库的查询执行总次数。`cloudsql_instance_database`。`user`, `client_addr`, `database`, `project_id`, `resource_id`。
+  4. `dbinsights.googleapis.com/aggregate/lock_time`：按用户和数据库的累计锁等待时间。`cloudsql_instance_database`。`user`, `client_addr`, `lock_type`, `database`, `project_id`, `resource_id`。
+  5. `dbinsights.googleapis.com/aggregate/io_time`：按用户和数据库的累计 IO 等待时间。`cloudsql_instance_database`。`user`, `client_addr`, `database`, `project_id`, `resource_id`。
+  6. `dbinsights.googleapis.com/aggregate/row_count`：查询执行期间受影响的总行数。`cloudsql_instance_database`。`user`, `client_addr`, `row_status`, `database`, `project_id`, `resource_id`。
+  7. `dbinsights.googleapis.com/perquery/latencies`：按用户、数据库和查询的累计查询延迟分布。`cloudsql_instance_database`。`querystring`, `user`, `client_addr`, `query_hash`, `database`, `project_id`, `resource_id`。
+  8. `dbinsights.googleapis.com/perquery/execution_time`：按用户、数据库和查询的累计查询执行时间。`cloudsql_instance_database`。`querystring`, `user`, `client_addr`, `query_hash`, `database`, `project_id`, `resource_id`。
+  9. `dbinsights.googleapis.com/perquery/execution_count`：按用户、数据库和查询的查询执行总次数。`cloudsql_instance_database`。`querystring`, `user`, `client_addr`, `query_hash`, `database`, `project_id`, `resource_id`。
+  10. `dbinsights.googleapis.com/perquery/lock_time`：按用户、数据库和查询的累计锁等待时间。`cloudsql_instance_database`。`querystring`, `user`, `client_addr`, `lock_type`, `query_hash`, `database`, `project_id`, `resource_id`。
+  11. `dbinsights.googleapis.com/perquery/io_time`：按用户、数据库和查询的累计 IO 等待时间。`cloudsql_instance_database`。`querystring`, `user`, `client_addr`, `query_hash`, `database`, `project_id`, `resource_id`。
+  12. `dbinsights.googleapis.com/perquery/row_count`：查询执行期间受影响的总行数。`cloudsql_instance_database`。`querystring`, `user`, `client_addr`, `query_hash`, `row_status`, `database`, `project_id`, `resource_id`。
+  13. `dbinsights.googleapis.com/pertag/latencies`：按用户、数据库和标签的累计查询延迟分布。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`, `database`, `project_id`, `resource_id`。
+  14. `dbinsights.googleapis.com/pertag/execution_time`：按用户、数据库和标签的累计查询执行时间。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`, `database`, `project_id`, `resource_id`。
+  15. `dbinsights.googleapis.com/pertag/execution_count`：按用户、数据库和标签的查询执行总次数。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`, `database`, `project_id`, `resource_id`。
+  16. `dbinsights.googleapis.com/pertag/lock_time`：按用户、数据库和标签的累计锁等待时间。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `lock_type`, `tag_hash`, `database`, `project_id`, `resource_id`。
+  17. `dbinsights.googleapis.com/pertag/io_time`：按用户、数据库和标签的累计 IO 等待时间。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`, `database`, `project_id`, `resource_id`。
+  18. `dbinsights.googleapis.com/pertag/row_count`：查询执行期间受影响的总行数。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`, `row_status`, `database`, `project_id`, `resource_id`。
+---
+kind: toolset
+name: cloud_sql_mysql_cloud_monitoring_tools
+tools:
+- get_system_metrics
+- get_query_metrics

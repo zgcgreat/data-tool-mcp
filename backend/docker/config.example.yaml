@@ -1,0 +1,58 @@
+# Example config: PostgreSQL + Redis
+# Maps to Go version YAML format
+
+sources:
+  my-pg:
+    kind: source
+    type: postgresql
+    host: ${PG_HOST:-localhost}
+    port: 5432
+    database: ${PG_DATABASE:-mydb}
+    user: ${PG_USER:-postgres}
+    password: ${PG_PASSWORD}
+    maxOpenConns: 4
+
+  my-redis:
+    kind: source
+    type: redis
+    address: ${REDIS_HOST:-localhost}:${REDIS_PORT:-6379}
+    password: ${REDIS_PASSWORD:-}
+
+tools:
+  pg-exec-sql:
+    kind: tool
+    type: postgres-exec-sql
+    source: my-pg
+    description: "Execute a SQL statement on PostgreSQL"
+
+  pg-list-tables:
+    kind: tool
+    type: postgres-list-tables
+    source: my-pg
+    description: "List all tables in PostgreSQL"
+
+  pg-describe-table:
+    kind: tool
+    type: postgres-describe-table
+    source: my-pg
+    description: "Describe the structure of a PostgreSQL table"
+
+  redis-get:
+    kind: tool
+    type: redis-get
+    source: my-redis
+    description: "Get a Redis key value"
+
+  redis-set:
+    kind: tool
+    type: redis-set
+    source: my-redis
+    description: "Set a Redis key value"
+
+toolsets:
+  dept-analytics:
+    kind: toolset
+    tools:
+      - name: pg-exec-sql
+      - name: pg-list-tables
+      - name: pg-describe-table

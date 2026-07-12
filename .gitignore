@@ -1,0 +1,45 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# ===== Node / Frontend =====
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# ===== 虚拟环境 =====
+.venv/
+venv/
+env/
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===== 本地配置 / 敏感凭据 =====
+.env
+backend/.env
+
+# ===== 数据库文件 =====
+*.db
+*.sqlite
+*.sqlite3
+
+# ===== AI 助手工作目录 =====
+.workbuddy/
+
+# ===== 内部安全审查文档（不公开） =====
+REVIEW-*.md
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db

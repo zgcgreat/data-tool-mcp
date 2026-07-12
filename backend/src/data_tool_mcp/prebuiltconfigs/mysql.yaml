@@ -1,0 +1,97 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: mysql-source
+type: mysql
+host: ${MYSQL_HOST:localhost}
+port: ${MYSQL_PORT:3306}
+database: ${MYSQL_DATABASE}
+user: ${MYSQL_USER}
+password: ${MYSQL_PASSWORD}
+queryParams: ${MYSQL_QUERY_PARAMS:}
+queryTimeout: 30s
+---
+kind: tool
+name: execute_sql
+type: mysql-execute-sql
+source: mysql-source
+description: 使用此工具执行 SQL。
+---
+kind: tool
+name: list_active_queries
+type: mysql-list-active-queries
+source: mysql-source
+description: 列出 processlist 和 innodb_trx 中正在执行的查询的前 N 条（默认 10），按执行时间降序排序。以 JSON 格式返回详细信息，包括进程 ID、查询语句、事务持续时间、事务等待持续时间、处理时间、事务状态、进程状态、用户名和主机、事务锁定行数、事务修改行数以及数据库 Schema。
+---
+kind: tool
+name: get_query_plan
+type: mysql-get-query-plan
+source: mysql-source
+description: "提供 MySQL 如何执行 SQL 语句的信息。常见用途包括：1）分析查询计划以提升性能；2）评估现有索引的有效性并考虑新索引。在 sql_statement 中传入单条 SQL 语句，工具返回其执行计划但不会执行。"
+---
+kind: tool
+name: list_tables
+type: mysql-list-tables
+source: mysql-source
+description: 以 JSON 格式列出用户创建的表（普通表或分区表）的详细 Schema 信息（对象类型、列、约束、索引、触发器、注释）。支持按表名列表过滤，省略则列出所有用户 Schema 中的表。
+---
+kind: tool
+name: list_table_stats
+type: mysql-list-table-stats
+source: mysql-source
+description: 显示表统计信息，包括整个实例、指定数据库或指定表的表大小、总延迟、读取行数、写入行数、读写延迟。指定数据库名或表名可将输出过滤到该特定数据库或表。默认限制 10 条结果。
+---
+kind: tool
+name: list_tables_missing_unique_indexes
+type: mysql-list-tables-missing-unique-indexes
+source: mysql-source
+description: 查找没有主键或唯一键约束的表。主键或唯一键是保证行唯一性的唯一机制，缺少它们将失去数据库级的数据完整性保护。
+---
+kind: tool
+name: list_table_fragmentation
+type: mysql-list-table-fragmentation
+source: mysql-source
+description: 列出 MySQL 中的表碎片情况，通过计算每张表的数据和索引文件大小及分配的空闲空间。查询计算出碎片百分比，表示空闲空间相对于总数据和索引大小的比例。可使用 OPTIMIZE TABLE 回收高碎片表的存储空间。
+---
+kind: tool
+name: list_all_locks
+type: mysql-list-all-locks
+source: mysql-source
+description: 列出指定数据库中按查询执行时间降序排序的前 N 条锁（默认 10）。
+---
+kind: tool
+name: show_query_stats
+type: mysql-show-query-stats
+source: mysql-source
+description: 显示查询执行统计信息，包括执行次数、总延迟和平均延迟、最大延迟、总扫描行数、全表扫描和低效索引使用情况。
+---
+kind: toolset
+name: data
+tools:
+- execute_sql
+- list_tables
+- get_query_plan
+- list_active_queries
+---
+kind: toolset
+name: monitor
+tools:
+- get_query_plan
+- list_active_queries
+- list_all_locks
+- list_table_fragmentation
+- list_table_stats
+- list_tables_missing_unique_indexes
+- show_query_stats

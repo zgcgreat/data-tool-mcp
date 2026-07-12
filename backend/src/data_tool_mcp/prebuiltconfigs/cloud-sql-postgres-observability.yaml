@@ -1,0 +1,116 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+kind: source
+name: cloud-monitoring-source
+type: cloud-monitoring
+---
+kind: tool
+name: get_system_metrics
+type: cloud-monitoring-query-prometheus
+source: cloud-monitoring-source
+description: |
+  使用 PromQL 查询获取 Postgres 实例的系统级 cloudmonitoring 数据（时间序列指标）。从用户处获取需要获取指标时间序列数据的 projectId 和 instanceId。
+  使用此工具时，必须提供 Google Cloud 的 `projectId` 和 PromQL `query`。
+  
+  为 Postgres 系统指标生成 PromQL `query`。使用提供的指标和规则构建查询，从用户意图中获取 `instance_id` 等标签。
+  
+  默认值：
+  1. 时间间隔：除非用户指定了不同的时间窗口，否则 `_over_time` 聚合函数使用默认间隔 `5m`。
+  
+  PromQL 查询示例：
+  1. 基本时间序列：`avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m])`
+  2. Top K：`topk(30, avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  3. 平均值：`avg(avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  4. 最小值：`min(min_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  5. 最大值：`max(max_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  6. 总和：`sum(avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  7. 计数流：`count(avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  8. 按 database_id 分组的百分位数：`quantile by ("database_id")(0.99,avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  
+  可用指标列表：指标名称。描述。受监控资源。标签。database_id 实际上是实例 ID，格式为 `project_id:instance_id`。
+  1. `cloudsql.googleapis.com/database/postgresql/new_connection_count`: 添加到 postgres 实例的新连接数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  2. `cloudsql.googleapis.com/database/postgresql/backends_in_wait`: postgres 实例中处于等待状态的后端数量。`cloudsql_database`。`backend_type`, `wait_event`, `wait_event_type`, `project_id`, `database_id`。
+  3. `cloudsql.googleapis.com/database/postgresql/transaction_count`: 事务数量的增量计数。`cloudsql_database`。`database`, `transaction_type`, `project_id`, `database_id`。
+  4. `cloudsql.googleapis.com/database/memory/components`: 数据库的内存统计组件百分比（使用率、缓存和可用内存）。`cloudsql_database`。`component`, `project_id`, `database_id`。
+  5. `cloudsql.googleapis.com/database/postgresql/external_sync/max_replica_byte_lag`: Postgres 外部服务器 (ES) 副本的复制延迟（字节）。在副本上的所有数据库中聚合。`cloudsql_database`。`project_id`, `database_id`。
+  6. `cloudsql.googleapis.com/database/cpu/utilization`: 当前 CPU 利用率，表示为当前使用的预留 CPU 的百分比。值通常是 0.0 到 1.0 之间的数字（但可能超过 1.0）。图表以 0% 到 100%（或更多）的百分比显示值。`cloudsql_database`。`project_id`, `database_id`。
+  7. `cloudsql.googleapis.com/database/disk/bytes_used_by_data_type`: 数据利用率（字节）。`cloudsql_database`。`data_type`, `project_id`, `database_id`。
+  8. `cloudsql.googleapis.com/database/disk/read_ops_count`: 数据磁盘读取 IO 操作的增量计数。`cloudsql_database`。`project_id`, `database_id`。
+  9. `cloudsql.googleapis.com/database/disk/write_ops_count`: 数据磁盘写入 IO 操作的增量计数。`cloudsql_database`。`project_id`, `database_id`。
+  10. `cloudsql.googleapis.com/database/postgresql/num_backends_by_state`: 连接到 Cloud SQL PostgreSQL 实例的连接数，按状态分组。`cloudsql_database`。`database`, `state`, `project_id`, `database_id`。
+  11. `cloudsql.googleapis.com/database/postgresql/num_backends`: 连接到 Cloud SQL PostgreSQL 实例的连接数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  12. `cloudsql.googleapis.com/database/network/received_bytes_count`: 通过网络接收的字节数的增量计数。`cloudsql_database`。`project_id`, `database_id`。
+  13. `cloudsql.googleapis.com/database/network/sent_bytes_count`: 通过网络发送的字节数的增量计数。`cloudsql_database`。`destination`, `project_id`, `database_id`。
+  14. `cloudsql.googleapis.com/database/postgresql/deadlock_count`: 此数据库检测到的死锁数量。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  15. `cloudsql.googleapis.com/database/postgresql/blocks_read_count`: 此数据库读取的磁盘块数量。source 字段区分实际从磁盘读取与从缓冲区缓存读取。`cloudsql_database`。`database`, `source`, `project_id`, `database_id`。
+  16. `cloudsql.googleapis.com/database/postgresql/tuples_processed_count`: 给定数据库中为插入、更新或删除等操作处理的元组（行）数量。`cloudsql_database`。`operation_type`, `database`, `project_id`, `database_id`。
+  17. `cloudsql.googleapis.com/database/postgresql/tuple_size`: 数据库中的元组（行）数量。`cloudsql_database`。`database`, `tuple_state`, `project_id`, `database_id`。
+  18. `cloudsql.googleapis.com/database/postgresql/vacuum/oldest_transaction_age`: Cloud SQL PostgreSQL 实例中尚未 vacuum 的最旧事务的年龄，以自最旧事务以来发生的事务数量来衡量。`cloudsql_database`。`oldest_transaction_type`, `project_id`, `database_id`。
+  19. `cloudsql.googleapis.com/database/replication/log_archive_success_count`: 归档复制日志文件的成功尝试次数。`cloudsql_database`。`project_id`, `database_id`。
+  20. `cloudsql.googleapis.com/database/replication/log_archive_failure_count`: 归档复制日志文件的失败尝试次数。`cloudsql_database`。`project_id`, `database_id`。
+  21. `cloudsql.googleapis.com/database/postgresql/transaction_id_utilization`: 当前利用率，表示为 Cloud SQL PostgreSQL 实例消耗的事务 ID 的百分比。值通常是 0.0 到 1.0 之间的数字。图表以 0% 到 100% 的百分比显示值。`cloudsql_database`。`project_id`, `database_id`。
+  22. `cloudsql.googleapis.com/database/postgresql/num_backends_by_application`: 连接到 Cloud SQL PostgreSQL 实例的连接数，按应用程序分组。`cloudsql_database`。`application`, `project_id`, `database_id`。
+  23. `cloudsql.googleapis.com/database/postgresql/tuples_fetched_count`: PostgreSQL 实例中每个数据库作为查询结果获取的总行数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  24. `cloudsql.googleapis.com/database/postgresql/tuples_returned_count`: PostgreSQL 实例中处理查询时每个数据库扫描的总行数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  25. `cloudsql.googleapis.com/database/postgresql/temp_bytes_written_count`: 查询每个数据库写入临时文件的数据总量（字节）。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  26. `cloudsql.googleapis.com/database/postgresql/temp_files_written_count`: 执行 join 和 sort 等算法时用于写入数据的临时文件总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+---
+kind: tool
+name: get_query_metrics
+type: cloud-monitoring-query-prometheus
+source: cloud-monitoring-source
+description: |
+  使用 PromQL 查询获取 Postgres 实例中运行查询的查询级 cloudmonitoring 数据（时间序列指标）。从用户处获取需要获取指标时间序列数据的 projectID 和 instanceID。
+  使用此工具时，必须提供 Google Cloud 的 `projectId` 和 PromQL `query`。
+  
+  为 Postgres 查询指标生成 PromQL `query`。使用提供的指标和规则构建查询，从用户意图中获取 `instance_id`、`query_hash` 等标签。如果提供了 query_hash，则使用按查询指标。查询哈希和查询 ID 相同。
+  
+  默认值：
+  1. 时间间隔：除非用户指定了不同的时间窗口，否则 `_over_time` 聚合函数使用默认间隔 `5m`。
+  
+  PromQL 查询示例：
+  1. 基本时间序列：`avg_over_time({"__name__"="cloudsql.googleapis.com/database/postgresql/insights/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m])`
+  2. Top K：`topk(30, avg_over_time({"__name__"="cloudsql.googleapis.com/database/postgresql/insights/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  3. 平均值：`avg(avg_over_time({"__name__"="cloudsql.googleapis.com/database/postgresql/insights/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  4. 最小值：`min(min_over_time({"__name__"="cloudsql.googleapis.com/database/postgresql/insights/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  5. 最大值：`max(max_over_time({"__name__"="cloudsql.googleapis.com/database/postgresql/insights/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  6. 总和：`sum(avg_over_time({"__name__"="cloudsql.googleapis.com/database/postgresql/insights/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  7. 计数流：`count(avg_over_time({"__name__"="cloudsql.googleapis.com/database/postgresql/insights/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  8. 按 resource_id、database 分组的百分位数：`quantile by ("resource_id","database")(0.99,avg_over_time({"__name__"="cloudsql.googleapis.com/database/postgresql/insights/aggregate/execution_time","monitored_resource"="cloudsql_instance_database","project_id"="my-projectId","resource_id"="my-projectId:my-instanceId"}[5m]))`
+  
+  可用指标列表：指标名称。描述。受监控资源。标签。resource_id 标签格式为 `project_id:instance_id`，实际上只是实例 ID。aggregate 是所有查询统计的聚合值，如果未提供查询 ID，请使用聚合指标。对于 perquery 指标，除非用户明确指定，否则不要获取 querystring。请在 query hash 上进行聚合以避免获取 querystring。不要将延迟指标用于任何用途。
+  1. `cloudsql.googleapis.com/database/postgresql/insights/aggregate/latencies`: 聚合查询延迟分布。`cloudsql_instance_database`。`user`, `client_addr`, `project_id`, `resource_id`。
+  2. `cloudsql.googleapis.com/database/postgresql/insights/aggregate/execution_time`: 自上次采样以来累计的聚合查询执行时间。`cloudsql_instance_database`。`user`, `client_addr`, `project_id`, `resource_id`。
+  3. `cloudsql.googleapis.com/database/postgresql/insights/aggregate/io_time`: 自上次采样以来累计的聚合 IO 时间。`cloudsql_instance_database`。`user`, `client_addr`, `io_type`, `project_id`, `resource_id`。
+  4. `cloudsql.googleapis.com/database/postgresql/insights/aggregate/lock_time`: 自上次采样以来累计的聚合锁等待时间。`cloudsql_instance_database`。`user`, `client_addr`, `lock_type`, `project_id`, `resource_id`。
+  5. `cloudsql.googleapis.com/database/postgresql/insights/aggregate/row_count`: 自上次采样以来检索或受影响行的聚合数量。`cloudsql_instance_database`。`user`, `client_addr`, `project_id`, `resource_id`。
+  6. `cloudsql.googleapis.com/database/postgresql/insights/aggregate/shared_blk_access_count`: 语句执行访问的聚合共享块数量。`cloudsql_instance_database`。`user`, `client_addr`, `access_type`, `project_id`, `resource_id`。
+  7. `cloudsql.googleapis.com/database/postgresql/insights/perquery/latencies`: 每查询延迟分布。`cloudsql_instance_database`。`user`, `client_addr`, `querystring`, `query_hash`, `project_id`, `resource_id`。
+  8. `cloudsql.googleapis.com/database/postgresql/insights/perquery/execution_time`: 每用户每数据库每查询的累计执行时间。`cloudsql_instance_database`。`user`, `client_addr`, `querystring`, `query_hash`, `project_id`, `resource_id`。
+  9. `cloudsql.googleapis.com/database/postgresql/insights/perquery/io_time`: 自上次采样以来每查询的累计 IO 时间。`cloudsql_instance_database`。`user`, `client_addr`, `io_type`, `querystring`, `query_hash`, `project_id`, `resource_id`。
+  10. `cloudsql.googleapis.com/database/postgresql/insights/perquery/lock_time`: 自上次采样以来每查询的累计锁等待时间。`cloudsql_instance_database`。`user`, `client_addr`, `lock_type`, `querystring`, `query_hash`, `project_id`, `resource_id`。
+  11. `cloudsql.googleapis.com/database/postgresql/insights/perquery/row_count`: 自上次采样以来每查询检索或受影响的行数。`cloudsql_instance_database`。`user`, `client_addr`, `querystring`, `query_hash`, `project_id`, `resource_id`。
+  12. `cloudsql.googleapis.com/database/postgresql/insights/perquery/shared_blk_access_count`: 每查询语句执行访问的共享块数量。`cloudsql_instance_database`。`user`, `client_addr`, `access_type`, `querystring`, `query_hash`, `project_id`, `resource_id`。
+  13. `cloudsql.googleapis.com/database/postgresql/insights/pertag/latencies`: 查询延迟分布。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`, `project_id`, `resource_id`。
+  14. `cloudsql.googleapis.com/database/postgresql/insights/pertag/execution_time`: 自上次采样以来累计的执行时间。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`, `project_id`, `resource_id`。
+  15. `cloudsql.googleapis.com/database/postgresql/insights/pertag/io_time`: 自上次采样以来每标签的累计 IO 时间。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `io_type`, `tag_hash`, `project_id`, `resource_id`。
+  16. `cloudsql.googleapis.com/database/postgresql/insights/pertag/lock_time`: 自上次采样以来每标签的累计锁等待时间。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `lock_type`, `tag_hash`, `project_id`, `resource_id`。
+  17. `cloudsql.googleapis.com/database/postgresql/insights/pertag/shared_blk_access_count`: 每标签语句执行访问的共享块数量。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `access_type`, `tag_hash`, `project_id`, `resource_id`。
+  18. `cloudsql.googleapis.com/database/postgresql/insights/pertag/row_count`: 自上次采样以来每标签检索或受影响的行数。`cloudsql_instance_database`。`user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`, `project_id`, `resource_id`。
+---
+kind: toolset
+name: cloud_sql_postgres_cloud_monitoring_tools
+tools:
+- get_system_metrics
+- get_query_metrics

@@ -1,0 +1,850 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: looker-source
+type: looker
+base_url: ${LOOKER_BASE_URL}
+client_id: ${LOOKER_CLIENT_ID:}
+client_secret: ${LOOKER_CLIENT_SECRET:}
+verify_ssl: ${LOOKER_VERIFY_SSL:true}
+timeout: 600s
+use_client_oauth: ${LOOKER_USE_CLIENT_OAUTH:false}
+show_hidden_models: ${LOOKER_SHOW_HIDDEN_MODELS:true}
+show_hidden_explores: ${LOOKER_SHOW_HIDDEN_EXPLORES:true}
+show_hidden_fields: ${LOOKER_SHOW_HIDDEN_FIELDS:true}
+---
+kind: tool
+name: get_models
+type: looker-get-models
+source: looker-source
+description: |
+  此工具检索 Looker 实例中可用的 LookML 模型列表。
+  LookML 模型定义了用户可以查询的数据结构和关系。
+  输出包括模型的 `name` 和 `label` 等详细信息，
+  这些信息对于后续调用 `get_explores` 或 `query` 等工具至关重要。
+
+  此工具不接受任何参数。
+---
+kind: tool
+name: get_explores
+type: looker-get-explores
+source: looker-source
+description: |
+  此工具检索特定 LookML 模型中定义的探索列表。
+  探索代表数据的精选视图，通常将多个表连接在一起，
+  以便对特定主题领域进行聚焦分析。
+  输出提供探索的 `name` 和 `label` 等详细信息。
+
+  参数：
+  - model_name（必填）：LookML 模型的名称，从 `get_models` 获取。
+---
+kind: tool
+name: get_dimensions
+type: looker-get-dimensions
+source: looker-source
+description: |
+  此工具检索特定 Looker 探索中定义的维度列表。
+  维度是数据的非聚合属性或特征
+  （例如，产品名称、订单日期、客户城市），可用于分组、
+  过滤或分段查询结果。
+
+  参数：
+  - model_name（必填）：LookML 模型的名称，从 `get_models` 获取。
+  - explore_name（必填）：模型中探索的名称，从 `get_explores` 获取。
+
+  输出详情：
+  - 如果维度包含 `suggestions` 字段，其内容是有效值，
+    可直接用作该维度的过滤器。
+  - 如果提供了 `suggest_explore` 和 `suggest_dimension`，可以查询
+    指定的探索和维度以检索有效的过滤器值列表。
+---
+kind: tool
+name: get_measures
+type: looker-get-measures
+source: looker-source
+description: |
+  此工具检索特定 Looker 探索中定义的度量列表。
+  度量是可聚合的指标（例如，总销售额、平均价格、用户数），
+  用于查询中的计算和定量分析。
+
+  参数：
+  - model_name（必填）：LookML 模型的名称，从 `get_models` 获取。
+  - explore_name（必填）：模型中探索的名称，从 `get_explores` 获取。
+
+  输出详情：
+  - 如果度量包含 `suggestions` 字段，其内容是有效值，
+    可直接用作该度量的过滤器。
+  - 如果提供了 `suggest_explore` 和 `suggest_dimension`，可以查询
+    指定的探索和维度以检索有效的过滤器值列表。
+---
+kind: tool
+name: get_filters
+type: looker-get-filters
+source: looker-source
+description: |
+  此工具检索特定 Looker 探索中定义的"仅过滤字段"列表。
+  这些是在 LookML 中专门定义的特殊字段，用于
+  创建面向用户的过滤控件，不直接影响 SQL 查询的 `GROUP BY`
+  子句。它们通常与 liquid 模板结合使用
+  来创建动态查询。
+
+  注意：常规维度和度量也可以用作查询中的过滤器。
+  此工具*仅*返回在 LookML 中明确定义为 `filter:` 的字段。
+
+  参数：
+  - model_name（必填）：LookML 模型的名称，从 `get_models` 获取。
+  - explore_name（必填）：模型中探索的名称，从 `get_explores` 获取。
+---
+kind: tool
+name: get_parameters
+type: looker-get-parameters
+source: looker-source
+description: |
+  此工具检索特定 Looker 探索中定义的参数列表。
+  LookML 参数是动态输入字段，允许用户影响查询行为
+  而无需直接修改底层 LookML。它们通常与
+  `liquid` 模板一起使用来创建灵活的仪表板和报告，
+  使用户能够在运行时选择维度、度量或其他查询组件。
+
+  参数：
+  - model_name（必填）：LookML 模型的名称，从 `get_models` 获取。
+  - explore_name（必填）：模型中探索的名称，从 `get_explores` 获取。
+---
+kind: tool
+name: query
+type: looker-query
+source: looker-source
+description: |
+  此工具对 LookML 模型运行查询并以 JSON 格式返回结果。
+
+  必填参数：
+  - model_name：LookML 模型的名称（来自 `get_models`）。
+  - explore_name：探索的名称（来自 `get_explores`）。
+  - fields：要包含在查询中的字段名列表（维度、度量、过滤器或参数）。
+
+  可选参数：
+  - pivots：用于透视结果的字段列表。这些字段也必须包含在 `fields` 列表中。
+  - filters：过滤器表达式的映射，例如 `{"view.field": "value", "view.date": "7 days"}`。
+    - 字段名不要加引号。
+    - 使用 `not null` 而不是 `-NULL`。
+    - 如果值包含逗号，请用单引号括起来（例如 "'New York, NY'"）。
+  - filter_expression：Looker 表达式过滤字符串（自定义过滤器）。允许复杂逻辑和字段比较。
+    - 使用 `${view.field_name}` 语法引用字段。
+    - 支持逻辑运算符（`AND`、`OR`、`NOT`）和比较运算符。
+    - 支持 Looker 函数（例如 `matches_filter`、`now`、`add_days`、`diff_days`）。
+    - 示例：
+      - `${orders.order_date} < add_years(-1, now())`
+      - `${activity.email} != ${activity_drive_facts.current_owner_email}`
+      - `matches_filter(${order.order_month}, '24 months') AND matches_filter(${order.order_month}, 'before 2024/07/01')`
+  - dynamic_fields：动态字段（表格计算、自定义度量、自定义维度）的可选数组，定义为 JSON 对象。
+    - 适用于 LookML 模型中未定义的临时计算。
+    - 使用 `${view.field_name}` 语法引用字段。
+    - 示例：
+      - 表格计算：`[{"table_calculation": "test", "label": "test", "expression": "${order_items.total_sale_price} * 0.8", "_type_hint": "number"}]`
+      - 自定义维度：`[{"dimension": "days_since_order", "label": "days since order", "expression": "diff_days(${order.order_date}, now())", "_type_hint": "number"}]`
+      - 自定义度量：`[{"measure": "sum_of_revenue", "label": "Sum of Revenue", "based_on": "training.revenue", "type": "sum", "_type_hint": "number"}]`
+  - sorts：用于排序的字段列表，可选包含方向（例如 `["view.field desc"]`）。
+  - limit：行数限制（默认 500）。使用 "-1" 表示无限制。
+  - query_timezone：查询的特定时区（例如 `America/Los_Angeles`）。
+
+  注意：使用 `get_dimensions`、`get_measures`、`get_filters` 和 `get_parameters` 查找有效字段。
+---
+kind: tool
+name: query_sql
+type: looker-query-sql
+source: looker-source
+description: |
+  此工具生成 Looker 针对给定参数集将对数据库执行的
+  底层 SQL 查询。它对于理解 Looker 如何将请求转换为 SQL
+  很有用。
+
+  参数：
+  此工具的所有参数与 `query` 工具的参数相同。
+  包括 `model_name`、`explore_name`、`fields`（必填），
+  以及可选参数如 `pivots`、`filters`、`filter_expression`、`dynamic_fields`、`sorts`、`limit` 和 `query_timezone`。
+
+  输出：
+  此工具的结果是原始 SQL 文本。
+---
+kind: tool
+name: query_url
+type: looker-query-url
+source: looker-source
+description: |
+  此工具为 Looker 查询生成可共享的 URL，允许用户
+  在 Looker UI 中进一步探索查询。它返回生成的 URL，
+  以及 `query_id` 和 `slug`。
+
+  参数：
+  所有查询参数（例如 `model_name`、`explore_name`、`fields`、`pivots`、
+  `filters`、`filter_expression`、`dynamic_fields`、`sorts`、`limit`、`query_timezone`）与 `query` 工具相同。
+
+  此外，它接受可选的 `vis_config` 参数：
+  - vis_config（可选）：控制默认可视化设置的 JSON 对象。
+
+  vis_config 详情：
+  `vis_config` 对象支持多种图表类型的各种属性。
+  以下是关于制作可视化的一些说明。
+
+  ### 笛卡尔图表（面积图、柱状图、条形图、折线图、散点图）
+
+  这些图表类型共享大量配置选项。
+
+  **通用**
+  *   `type`：可视化类型（`looker_area`、`looker_bar`、`looker_column`、`looker_line`、`looker_scatter`）。
+  *   `series_types`：覆盖单个系列的图表类型。
+  *   `show_view_names`：在标签和工具提示中显示视图名称（`true`/`false`）。
+  *   `series_labels`：为系列提供自定义名称。
+
+  **样式与颜色**
+  *   `colors`：用于图表系列的颜色值数组。
+  *   `series_colors`：系列名称到特定颜色值的映射。
+  *   `color_application`：调色板应用的高级控件（集合、调色板、反转等）。
+  *   `font_size`：标签的字体大小（例如 '12px'）。
+
+  **图例**
+  *   `hide_legend`：显示或隐藏图表图例（`true`/`false`）。
+  *   `legend_position`：图例的位置（`'center'`、`'left'`、`'right'`）。
+
+  **坐标轴**
+  *   `swap_axes`：交换 X 轴和 Y 轴（`true`/`false`）。
+  *   `x_axis_scale`：x 轴的刻度（`'auto'`、`'ordinal'`、`'linear'`、`'time'`）。
+  *   `x_axis_reversed`、`y_axis_reversed`：反转坐标轴方向（`true`/`false`）。
+  *   `x_axis_gridlines`、`y_axis_gridlines`：显示坐标轴网格线（`true`/`false`）。
+  *   `show_x_axis_label`、`show_y_axis_label`：显示或隐藏坐标轴标题（`true`/`false`）。
+  *   `show_x_axis_ticks`、`show_y_axis_ticks`：显示或隐藏坐标轴刻度标记（`true`/`false`）。
+  *   `x_axis_label`、`y_axis_label`：为坐标轴设置自定义标题。
+  *   `x_axis_datetime_label`：x 轴上日期时间标签的格式字符串（例如 `'%Y-%m'`）。
+  *   `x_padding_left`、`x_padding_right`：调整 x 轴两端的内边距。
+  *   `x_axis_label_rotation`、`x_axis_label_rotation_bar`：设置 x 轴标签的旋转角度。
+  *   `x_axis_zoom`、`y_axis_zoom`：在坐标轴上启用缩放（`true`/`false`）。
+  *   `y_axes`：多个 y 轴的配置对象数组。
+
+  **数据与系列**
+  *   `stacking`：系列的堆叠方式（`''` 表示无，`'normal'`、`'percent'`）。
+  *   `ordering`：堆叠中系列的顺序（`'none'` 等）。
+  *   `limit_displayed_rows`：启用或禁用限制显示的行数（`true`/`false`）。
+  *   `limit_displayed_rows_values`：行限制的配置（例如 `{ "first_last": "first", "show_hide": "show", "num_rows": 10 }`）。
+  *   `discontinuous_nulls`：折线图中空值的渲染方式（`true`/`false`）。
+  *   `point_style`：折线图和面积图上点的样式（`'none'`、`'circle'`、`'circle_outline'`）。
+  *   `series_point_styles`：覆盖单个系列的点样式。
+  *   `interpolation`：线条插值样式（`'linear'`、`'monotone'`、`'step'` 等）。
+  *   `show_value_labels`：在数据点上显示值（`true`/`false`）。
+  *   `label_value_format`：值标签的格式字符串。
+  *   `show_totals_labels`：在堆叠图表上显示总计标签（`true`/`false`）。
+  *   `totals_color`：总计标签的颜色。
+  *   `show_silhouette`：在堆叠图表中显示隐藏系列的"轮廓"（`true`/`false`）。
+  *   `hidden_series`：要从可视化中隐藏的系列名称数组。
+
+  **散点图/气泡图特有**
+  *   `size_by_field`：用于确定气泡大小的字段。
+  *   `color_by_field`：用于确定气泡颜色的字段。
+  *   `plot_size_by_field`：是否在图例中显示大小依据字段。
+  *   `cluster_points`：将附近的点分组为簇（`true`/`false`）。
+  *   `quadrants_enabled`：在图表上显示象限（`true`/`false`）。
+  *   `quadrant_properties`：象限标签和颜色的配置。
+  *   `custom_quadrant_value_x`、`custom_quadrant_value_y`：以百分比设置象限边界。
+  *   `custom_quadrant_point_x`、`custom_quadrant_point_y`：将象限边界设置为特定值。
+
+  **其他**
+  *   `reference_lines`：显示参考线的配置。
+  *   `trend_lines`：显示趋势线的配置。
+  *   `trellis`：创建 trellis（小多重图）图表的配置。
+  *   `crossfilterEnabled`、`crossfilters`：交叉过滤交互的配置。
+
+  ### 箱线图
+
+  *   继承大多数笛卡尔图表选项。
+  *   `type`：必须为 `looker_boxplot`。
+
+  ### 漏斗图
+
+  *   `type`：必须为 `looker_funnel`。
+  *   `orientation`：数据的读取方式（`'automatic'`、`'dataInRows'`、`'dataInColumns'`）。
+  *   `percentType`：百分比的计算方式（`'percentOfMaxValue'`、`'percentOfPriorRow'`）。
+  *   `labelPosition`、`valuePosition`、`percentPosition`：标签的位置（`'left'`、`'right'`、`'inline'`、`'hidden'`）。
+  *   `labelColor`、`labelColorEnabled`：为标签设置自定义颜色。
+  *   `labelOverlap`：允许标签重叠（`true`/`false`）。
+  *   `barColors`：漏斗步骤的颜色数组。
+  *   `color_application`：高级调色板控件。
+  *   `crossfilterEnabled`、`crossfilters`：交叉过滤配置。
+
+  ### 饼图/环形图
+
+  *   饼图必须恰好有一个维度和一个数值度量。
+  *   `type`：必须为 `looker_pie`。
+  *   `value_labels`：值的显示位置（`'legend'`、`'labels'`）。
+  *   `label_type`：数据标签的格式（`'labPer'`、`'labVal'`、`'lab'`、`'val'`、`'per'`）。
+  *   `start_angle`、`end_angle`：饼图的起始和结束角度。
+  *   `inner_radius`：内半径，用于创建环形图。
+  *   `series_colors`、`series_labels`：覆盖特定切片的颜色和标签。
+  *   `color_application`：高级调色板控件。
+  *   `crossfilterEnabled`、`crossfilters`：交叉过滤配置。
+  *   `advanced_vis_config`：包含高级 Highcharts 配置 JSON 的字符串。
+
+  ### 瀑布图
+
+  *   继承大多数笛卡尔图表选项。
+  *   `type`：必须为 `looker_waterfall`。
+  *   `up_color`：正（增加）值的颜色。
+  *   `down_color`：负（减少）值的颜色。
+  *   `total_color`：总计条的颜色。
+
+  ### 词云
+
+  *   `type`：必须为 `looker_wordcloud`。
+  *   `rotation`：启用随机词语旋转（`true`/`false`）。
+  *   `colors`：词语的颜色数组。
+  *   `color_application`：高级调色板控件。
+  *   `crossfilterEnabled`、`crossfilters`：交叉过滤配置。
+
+  以下是一些 vis_config 设置示例。
+
+  柱状图 -
+  {{
+    "defaults_version": 1,
+    "label_density": 25,
+    "legend_position": "center",
+    "limit_displayed_rows": false,
+    "ordering": "none",
+    "plot_size_by_field": false,
+    "point_style": "none",
+    "show_null_labels": false,
+    "show_silhouette": false,
+    "show_totals_labels": false,
+    "show_value_labels": false,
+    "show_view_names": false,
+    "show_x_axis_label": true,
+    "show_x_axis_ticks": true,
+    "show_y_axis_labels": true,
+    "show_y_axis_ticks": true,
+    "stacking": "normal",
+    "totals_color": "#808080",
+    "trellis": "",
+    "type": "looker_bar",
+    "x_axis_gridlines": false,
+    "x_axis_reversed": false,
+    "x_axis_scale": "auto",
+    "x_axis_zoom": true,
+    "y_axis_combined": true,
+    "y_axis_gridlines": true,
+    "y_axis_reversed": false,
+    "y_axis_scale_mode": "linear",
+    "y_axis_tick_density": "default",
+    "y_axis_tick_density_custom": 5,
+    "y_axis_zoom": true
+  }}
+
+  带有可选 advanced_vis_config 的柱状图 -
+  {{
+    "advanced_vis_config": "{ chart: { type: 'pie', spacingBottom: 50, spacingLeft: 50, spacingRight: 50, spacingTop: 50, }, legend: { enabled: false, }, plotOptions: { pie: { dataLabels: { enabled: true, format: '\\u003cb\\u003e{key}\\u003c/b\\u003e\\u003cspan style=\"font-weight: normal\"\\u003e - {percentage:.2f}%\\u003c/span\\u003e', }, showInLegend: false, }, }, series: [], }",
+    "colors": [
+      "grey"
+    ],
+    "defaults_version": 1,
+    "hidden_fields": [],
+    "label_density": 25,
+    "legend_position": "center",
+    "limit_displayed_rows": false,
+    "note_display": "below",
+    "note_state": "collapsed",
+    "note_text": "Unsold inventory only",
+    "ordering": "none",
+    "plot_size_by_field": false,
+    "point_style": "none",
+    "series_colors": {},
+    "show_null_labels": false,
+    "show_silhouette": false,
+    "show_totals_labels": false,
+    "show_value_labels": true,
+    "show_view_names": false,
+    "show_x_axis_label": true,
+    "show_x_axis_ticks": true,
+    "show_y_axis_labels": true,
+    "show_y_axis_ticks": true,
+    "stacking": "normal",
+    "totals_color": "#808080",
+    "trellis": "",
+    "type": "looker_column",
+    "x_axis_gridlines": false,
+    "x_axis_reversed": false,
+    "x_axis_scale": "auto",
+    "x_axis_zoom": true,
+    "y_axes": [],
+    "y_axis_combined": true,
+    "y_axis_gridlines": true,
+    "y_axis_reversed": false,
+    "y_axis_scale_mode": "linear",
+    "y_axis_tick_density": "default",
+    "y_axis_tick_density_custom": 5,
+    "y_axis_zoom": true
+  }}
+
+  折线图 -
+  {{
+    "defaults_version": 1,
+    "hidden_pivots": {},
+    "hidden_series": [],
+    "interpolation": "linear",
+    "label_density": 25,
+    "legend_position": "center",
+    "limit_displayed_rows": false,
+    "plot_size_by_field": false,
+    "point_style": "none",
+    "series_types": {},
+    "show_null_points": true,
+    "show_value_labels": false,
+    "show_view_names": false,
+    "show_x_axis_label": true,
+    "show_x_axis_ticks": true,
+    "show_y_axis_labels": true,
+    "show_y_axis_ticks": true,
+    "stacking": "",
+    "trellis": "",
+    "type": "looker_line",
+    "x_axis_gridlines": false,
+    "x_axis_reversed": false,
+    "x_axis_scale": "auto",
+    "y_axis_combined": true,
+    "y_axis_gridlines": true,
+    "y_axis_reversed": false,
+    "y_axis_scale_mode": "linear",
+    "y_axis_tick_density": "default",
+    "y_axis_tick_density_custom": 5
+  }}
+
+  面积图 -
+  {{
+    "defaults_version": 1,
+    "interpolation": "linear",
+    "label_density": 25,
+    "legend_position": "center",
+    "limit_displayed_rows": false,
+    "plot_size_by_field": false,
+    "point_style": "none",
+    "series_types": {},
+    "show_null_points": true,
+    "show_silhouette": false,
+    "show_totals_labels": false,
+    "show_value_labels": false,
+    "show_view_names": false,
+    "show_x_axis_label": true,
+    "show_x_axis_ticks": true,
+    "show_y_axis_labels": true,
+    "show_y_axis_ticks": true,
+    "stacking": "normal",
+    "totals_color": "#808080",
+    "trellis": "",
+    "type": "looker_area",
+    "x_axis_gridlines": false,
+    "x_axis_reversed": false,
+    "x_axis_scale": "auto",
+    "x_axis_zoom": true,
+    "y_axis_combined": true,
+    "y_axis_gridlines": true,
+    "y_axis_reversed": false,
+    "y_axis_scale_mode": "linear",
+    "y_axis_tick_density": "default",
+    "y_axis_tick_density_custom": 5,
+    "y_axis_zoom": true
+  }}
+
+  散点图 -
+  {{
+    "cluster_points": false,
+    "custom_quadrant_point_x": 5,
+    "custom_quadrant_point_y": 5,
+    "custom_value_label_column": "",
+    "custom_x_column": "",
+    "custom_y_column": "",
+    "defaults_version": 1,
+    "hidden_fields": [],
+    "hidden_pivots": {},
+    "hidden_points_if_no": [],
+    "hidden_series": [],
+    "interpolation": "linear",
+    "label_density": 25,
+    "legend_position": "center",
+    "limit_displayed_rows": false,
+    "limit_displayed_rows_values": {
+      "first_last": "first",
+      "num_rows": 0,
+      "show_hide": "hide"
+    },
+    "plot_size_by_field": false,
+    "point_style": "circle",
+    "quadrant_properties": {
+      "0": {
+        "color": "",
+        "label": "Quadrant 1"
+      },
+      "1": {
+        "color": "",
+        "label": "Quadrant 2"
+      },
+      "2": {
+        "color": "",
+        "label": "Quadrant 3"
+      },
+      "3": {
+        "color": "",
+        "label": "Quadrant 4"
+      }
+    },
+    "quadrants_enabled": false,
+    "series_labels": {},
+    "series_types": {},
+    "show_null_points": false,
+    "show_value_labels": false,
+    "show_view_names": true,
+    "show_x_axis_label": true,
+    "show_x_axis_ticks": true,
+    "show_y_axis_labels": true,
+    "show_y_axis_ticks": true,
+    "size_by_field": "roi",
+    "stacking": "normal",
+    "swap_axes": true,
+    "trellis": "",
+    "type": "looker_scatter",
+    "x_axis_gridlines": false,
+    "x_axis_reversed": false,
+    "x_axis_scale": "auto",
+    "x_axis_zoom": true,
+    "y_axes": [
+      {
+        "label": "",
+        "orientation": "bottom",
+        "series": [
+          {
+            "axisId": "Channel_0 - average_of_roi_first",
+            "id": "Channel_0 - average_of_roi_first",
+            "name": "Channel_0"
+          },
+          {
+            "axisId": "Channel_1 - average_of_roi_first",
+            "id": "Channel_1 - average_of_roi_first",
+            "name": "Channel_1"
+          },
+          {
+            "axisId": "Channel_2 - average_of_roi_first",
+            "id": "Channel_2 - average_of_roi_first",
+            "name": "Channel_2"
+          },
+          {
+            "axisId": "Channel_3 - average_of_roi_first",
+            "id": "Channel_3 - average_of_roi_first",
+            "name": "Channel_3"
+          },
+          {
+            "axisId": "Channel_4 - average_of_roi_first",
+            "id": "Channel_4 - average_of_roi_first",
+            "name": "Channel_4"
+          }
+        ],
+        "showLabels": true,
+        "showValues": true,
+        "tickDensity": "custom",
+        "tickDensityCustom": 100,
+        "type": "linear",
+        "unpinAxis": false
+      }
+    ],
+    "y_axis_combined": true,
+    "y_axis_gridlines": true,
+    "y_axis_reversed": false,
+    "y_axis_scale_mode": "linear",
+    "y_axis_tick_density": "default",
+    "y_axis_tick_density_custom": 5,
+    "y_axis_zoom": true
+  }}
+
+  单条记录可视化 -
+  {{
+    "defaults_version": 1,
+    "show_view_names": false,
+    "type": "looker_single_record"
+  }}
+
+  单值可视化 -
+  {{
+    "comparison_reverse_colors": false,
+    "comparison_type": "value",                                                                                                                                            "conditional_formatting_include_nulls": false,                                                                                                                         "conditional_formatting_include_totals": false,
+    "custom_color": "#1A73E8",
+    "custom_color_enabled": true,
+    "defaults_version": 1,
+    "enable_conditional_formatting": false,
+    "series_types": {},
+    "show_comparison": false,
+    "show_comparison_label": true,
+    "show_single_value_title": true,
+    "single_value_title": "Total Clicks",
+    "type": "single_value"
+  }}
+
+  饼图 -
+  {{
+    "defaults_version": 1,
+    "label_density": 25,
+    "label_type": "labPer",
+    "legend_position": "center",
+    "limit_displayed_rows": false,
+    "ordering": "none",
+    "plot_size_by_field": false,
+    "point_style": "none",
+    "series_types": {},
+    "show_null_labels": false,
+    "show_silhouette": false,
+    "show_totals_labels": false,
+    "show_value_labels": false,
+    "show_view_names": false,
+    "show_x_axis_label": true,
+    "show_x_axis_ticks": true,
+    "show_y_axis_labels": true,
+    "show_y_axis_ticks": true,
+    "stacking": "",
+    "totals_color": "#808080",
+    "trellis": "",
+    "type": "looker_pie",
+    "value_labels": "legend",
+    "x_axis_gridlines": false,
+    "x_axis_reversed": false,
+    "x_axis_scale": "auto",
+    "y_axis_combined": true,
+    "y_axis_gridlines": true,
+    "y_axis_reversed": false,
+    "y_axis_scale_mode": "linear",
+    "y_axis_tick_density": "default",
+    "y_axis_tick_density_custom": 5
+  }}
+
+  结果是包含 id、slug、url 和 long_url 的 JSON 对象。
+---
+kind: tool
+name: get_looks
+type: looker-get-looks
+source: looker-source
+description: |
+  此工具在 Looker 实例中搜索已保存的 Look（预定义查询和可视化）。
+  它返回 JSON 对象列表，每个对象代表一个 Look。
+
+  搜索参数：
+  - title（可选）：按 Look 标题过滤（支持通配符）。
+  - folder_id（可选）：按保存 Look 的文件夹 ID 过滤。
+  - user_id（可选）：按创建 Look 的用户 ID 过滤。
+  - description（可选）：按描述内容过滤（支持通配符）。
+  - id（可选）：按特定 Look ID 过滤。
+  - limit（可选）：返回结果的最大数量。默认为系统限制。
+  - offset（可选）：分页的起始点。
+
+  字符串搜索行为：
+  - 不区分大小写匹配。
+  - 支持 SQL LIKE 模式匹配通配符：
+    - `%`：匹配零个或多个字符的任意序列。（例如，`"dan%"` 匹配 "danger"、"Danzig"）
+    - `_`：匹配任意单个字符。（例如，`"D_m%"` 匹配 "Damage"、"dump"）
+  - 用于空值检查的特殊表达式：
+    - `"IS NULL"`：匹配字段为空的 Look。
+    - `"NOT NULL"`：排除字段为空的 Look。
+---
+kind: tool
+name: run_look
+type: looker-run-look
+source: looker-source
+description: |
+  此工具执行与已保存 Look 关联的查询，并以 JSON 结构返回结果数据。
+
+  参数：
+  - look_id（必填）：要运行的 Look 的唯一标识符，
+    通常从 `get_looks` 工具获取。
+
+  输出：
+  查询结果以 JSON 对象形式返回。
+---
+kind: tool
+name: make_look
+type: looker-make-look
+source: looker-source
+description: |
+  此工具在 Looker 中创建新的 Look（带可视化的已保存查询）。
+  Look 将保存在用户的个人文件夹中，其名称必须唯一。
+
+  必填参数：
+  - title：新 Look 的唯一标题。
+  - description：Look 用途的简要描述。
+  - model_name：LookML 模型的名称（来自 `get_models`）。
+  - explore_name：探索的名称（来自 `get_explores`）。
+  - fields：要包含在查询中的字段名列表（维度、度量、过滤器或参数）。
+
+  可选参数：
+  - pivots、filters、sorts、limit、query_timezone：这些参数与
+    `query` 工具中描述的参数相同。
+  - vis_config：定义 Look 可视化设置的 JSON 对象。
+    结构和选项与 `query_url` 工具的 `vis_config` 相同。
+
+  输出：
+  包含指向新创建 Look 的链接（`url`）及其 `id` 和 `slug` 的 JSON 对象。
+---
+kind: tool
+name: get_dashboards
+type: looker-get-dashboards
+source: looker-source
+description: |
+  此工具在 Looker 实例中搜索已保存的仪表板。它返回 JSON 对象列表，每个对象代表一个仪表板。
+
+  搜索参数：
+  - title（可选）：按仪表板标题过滤（支持通配符）。
+  - folder_id（可选）：按保存仪表板的文件夹 ID 过滤。
+  - user_id（可选）：按创建仪表板的用户 ID 过滤。
+  - description（可选）：按描述内容过滤（支持通配符）。
+  - id（可选）：按特定仪表板 ID 过滤。
+  - limit（可选）：返回结果的最大数量。默认为系统限制。
+  - offset（可选）：分页的起始点。
+
+  字符串搜索行为：
+  - 不区分大小写匹配。
+  - 支持 SQL LIKE 模式匹配通配符：
+    - `%`：匹配零个或多个字符的任意序列。（例如，`"finan%"` 匹配 "financial"、"finance"）
+    - `_`：匹配任意单个字符。（例如，`"s_les"` 匹配 "sales"）
+  - 用于空值检查的特殊表达式：
+    - `"IS NULL"`：匹配字段为空的仪表板。
+    - `"NOT NULL"`：排除字段为空的仪表板。
+---
+kind: tool
+name: run_dashboard
+type: looker-run-dashboard
+source: looker-source
+description: |
+  此工具执行指定仪表板中每个磁贴关联的查询，
+  并以 JSON 结构返回聚合数据。
+
+  参数：
+  - dashboard_id（必填）：要运行的仪表板的唯一标识符，
+    通常从 `get_dashboards` 工具获取。
+
+  输出：
+  所有仪表板磁贴的数据以 JSON 对象形式返回。
+---
+kind: tool
+name: make_dashboard
+type: looker-make-dashboard
+source: looker-source
+description: |
+  此工具在 Looker 中创建新的空仪表板。仪表板存储在用户的个人文件夹中，
+  仪表板名称必须唯一。创建后，使用 `add_dashboard_filter` 添加过滤器，
+  使用 `add_dashboard_element` 添加内容磁贴。
+
+  必填参数：
+  - title（必填）：新仪表板的唯一标题。
+  - description（必填）：仪表板用途的简要描述。
+
+  输出：
+  包含指向新创建仪表板的链接（`url`）及其唯一 `id` 的 JSON 对象。
+  此 `dashboard_id` 对于后续调用 `add_dashboard_filter` 和
+  `add_dashboard_element` 至关重要。
+---
+kind: tool
+name: add_dashboard_element
+type: looker-add-dashboard-element
+source: looker-source
+description: |
+  此工具在现有 Looker 仪表板中创建新的磁贴（元素）。
+  对于给定的 `dashboard_id`，磁贴按调用此工具的顺序添加。
+
+  关键操作顺序：
+  1. 使用 `make_dashboard` 创建仪表板。
+  2. 使用 `add_dashboard_filter` 添加任何仪表板级过滤器。
+  3. 然后，使用此工具添加元素（磁贴）。
+
+  必填参数：
+  - dashboard_id：目标仪表板的 ID，从 `make_dashboard` 获取。
+  - model_name、explore_name、fields：这些查询参数继承自
+    `query` 工具，用于定义磁贴的数据。
+
+  可选参数：
+  - title：仪表板磁贴的可选标题。
+  - pivots、filters、sorts、limit、query_timezone：这些查询参数
+    继承自 `query` 工具，可用于自定义磁贴的查询。
+  - vis_config：定义此磁贴可视化设置的 JSON 对象。
+    结构和选项与 `query_url` 工具的 `vis_config` 相同。
+
+  连接到仪表板过滤器：
+  仪表板元素可以连接到一个或多个仪表板过滤器（使用
+  `add_dashboard_filter` 创建）。为此，请指定仪表板过滤器的 `name`
+  以及过滤器应应用到的元素查询中的 `field`。
+  指定字段的格式为 `view_name.field_name`。
+---
+kind: tool
+name: add_dashboard_filter
+type: looker-add-dashboard-filter
+source: looker-source
+description: |
+  此工具向 Looker 仪表板添加过滤器。
+
+  关键操作顺序：
+  1. 使用 `make_dashboard` 创建仪表板。
+  2. 使用此工具（`add_dashboard_filter`）添加所有所需的过滤器。
+  3. 最后，使用 `add_dashboard_element` 添加仪表板元素（磁贴）。
+
+  参数：
+  - dashboard_id（必填）：来自 `make_dashboard` 的 ID。
+  - name（必填）：过滤器的唯一内部标识符。稍后将在 `add_dashboard_element` 中使用此 `name` 将磁贴绑定到此过滤器。
+  - title（必填）：在 UI 中向用户显示的标签。
+  - filter_type（必填）：`date_filter`、`number_filter`、`string_filter` 或 `field_filter` 之一。
+  - default_value（可选）：过滤器的初始值。
+
+  字段过滤器（`filter_type: field_filter`）：
+  如果创建字段过滤器，还必须提供：
+  - model
+  - explore
+  - dimension
+  过滤器将从此 LookML 字段继承建议和类型信息。
+---
+kind: tool
+name: generate_embed_url
+type: looker-generate-embed-url
+source: looker-source
+description: |
+  此工具为特定 Looker 内容生成签名的私有嵌入 URL，
+  允许用户直接访问。
+
+  参数：
+  - type（必填）：要嵌入的内容类型。常见值包括：
+    - `dashboards`
+    - `looks`
+    - `explore`
+  - id（必填）：内容的唯一标识符。
+    - 对于仪表板和 Look，使用数字 ID（例如 "123"）。
+    - 对于探索，使用格式 "model_name/explore_name"。
+---
+kind: toolset
+name: looker_tools
+tools:
+- get_models
+- get_explores
+- get_dimensions
+- get_measures
+- get_filters
+- get_parameters
+- query
+- query_sql
+- query_url
+- get_looks
+- run_look
+- make_look
+- get_dashboards
+- run_dashboard
+- make_dashboard
+- add_dashboard_element
+- add_dashboard_filter
+- generate_embed_url

@@ -1,0 +1,126 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: cloud-storage-source
+type: cloud-storage
+project: ${CLOUD_STORAGE_PROJECT}
+---
+kind: tool
+name: list_buckets
+type: cloud-storage-list-buckets
+source: cloud-storage-source
+description: 列出已配置项目中的 Cloud Storage 存储桶。
+---
+kind: tool
+name: list_objects
+type: cloud-storage-list-objects
+source: cloud-storage-source
+description: 列出 Cloud Storage 存储桶中的对象，支持可选的前缀和分隔符过滤。
+---
+kind: tool
+name: get_bucket_metadata
+type: cloud-storage-get-bucket-metadata
+source: cloud-storage-source
+description: 返回 Cloud Storage 存储桶的元数据。
+---
+kind: tool
+name: get_bucket_iam_policy
+type: cloud-storage-get-bucket-iam-policy
+source: cloud-storage-source
+description: 返回 Cloud Storage 存储桶的 IAM 政策绑定。
+---
+kind: tool
+name: get_object_metadata
+type: cloud-storage-get-object-metadata
+source: cloud-storage-source
+description: 返回 Cloud Storage 对象的元数据。
+---
+kind: tool
+name: read_object
+type: cloud-storage-read-object
+source: cloud-storage-source
+description: 从 Cloud Storage 存储桶读取 UTF-8 文本对象（或字节范围）。上限为 8 MiB；二进制对象会被拒绝——请使用 download_object 处理二进制对象。
+---
+kind: tool
+name: download_object
+type: cloud-storage-download-object
+source: cloud-storage-source
+description: 将 Cloud Storage 对象下载到本地文件路径。
+---
+kind: tool
+name: create_bucket
+type: cloud-storage-create-bucket
+source: cloud-storage-source
+description: 在已配置项目中创建 Cloud Storage 存储桶。
+---
+kind: tool
+name: delete_bucket
+type: cloud-storage-delete-bucket
+source: cloud-storage-source
+description: 删除空的 Cloud Storage 存储桶。
+---
+kind: tool
+name: upload_object
+type: cloud-storage-upload-object
+source: cloud-storage-source
+description: 将本地文件上传为 Cloud Storage 对象。
+---
+kind: tool
+name: write_object
+type: cloud-storage-write-object
+source: cloud-storage-source
+description: 将文本内容直接写入 Cloud Storage 对象。
+---
+kind: tool
+name: copy_object
+type: cloud-storage-copy-object
+source: cloud-storage-source
+description: 将 Cloud Storage 对象复制到目标对象（相同或不同的存储桶）。
+---
+kind: tool
+name: move_object
+type: cloud-storage-move-object
+source: cloud-storage-source
+description: 在同一存储桶内原子性地重命名 Cloud Storage 对象。
+---
+kind: tool
+name: delete_object
+type: cloud-storage-delete-object
+source: cloud-storage-source
+description: 删除 Cloud Storage 对象。
+---
+kind: toolset
+name: cloud-storage-buckets
+description: 当需要管理 Cloud Storage 存储桶时使用这些工具，包括列出和创建存储桶、检查存储桶元数据和访问控制策略以及删除存储桶。
+tools:
+  - list_buckets
+  - create_bucket
+  - get_bucket_metadata
+  - get_bucket_iam_policy
+  - delete_bucket
+---
+kind: toolset
+name: cloud-storage-objects
+description: 当需要管理 Cloud Storage 中的文件和对象时使用这些工具——列出、读取、写入、复制、移动或删除对象以及检索其元数据。
+tools:
+  - list_objects
+  - get_object_metadata
+  - read_object
+  - download_object
+  - write_object
+  - upload_object
+  - copy_object
+  - move_object
+  - delete_object

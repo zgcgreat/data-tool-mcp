@@ -1,0 +1,273 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: dataplex-source
+type: dataplex
+project: ${DATAPLEX_PROJECT}
+---
+kind: tool
+name: search_entries
+type: dataplex-search-entries
+source: dataplex-source
+description: 根据提供的搜索查询在 Catalog 中搜索数据资产（例如 table/dataset/view）。
+---
+kind: tool
+name: lookup_entry
+type: dataplex-lookup-entry
+source: dataplex-source
+description: 从 Catalog 中检索有关数据资产（例如 table/dataset/view）的特定元数据
+---
+kind: tool
+name: search_aspect_types
+type: dataplex-search-aspect-types
+source: dataplex-source
+description: 搜索与查询相关的 aspect 类型。
+---
+kind: tool
+name: lookup_context
+type: dataplex-lookup-context
+source: dataplex-source
+description: 检索有关一个或多个数据资产及其关系的丰富元数据。
+---
+kind: tool
+name: search_dq_scans
+type: dataplex-search-dq-scans
+source: dataplex-source
+description: 使用此工具在 Dataplex 中搜索数据质量扫描。
+---
+kind: tool
+name: list_data_products
+type: dataplex-list-data-products
+source: dataplex-source
+description: 列出所有位置的数据产品。
+---
+kind: tool
+name: get_data_product
+type: dataplex-get-data-product
+source: dataplex-source
+description: 检索有关数据产品的特定元数据。
+---
+kind: tool
+name: list_data_assets
+type: dataplex-list-data-assets
+source: dataplex-source
+description: 列出某个数据产品下的数据资产。
+---
+kind: tool
+name: generate_data_insights
+type: dataplex-generate-data-insights
+source: dataplex-source
+description: >-
+  为指定的 BigQuery 资源创建新的 Dataplex Data Documentation 扫描模板，并触发初始的异步执行运行。由于扫描模板
+  创建是异步的，此工具返回一个长时间运行的操作（LRO）资源名称
+  （格式：projects/{project}/locations/{location}/operations/{operation_id}）。
+  一旦扫描模板创建 LRO 成功完成，后端会自动
+  启动一个后台执行作业（DataScanJob）来生成描述和示例查询。
+
+  为成功编排元数据增强工作流，代理必须遵循以下步骤：
+  1. 从此工具的响应中捕获 'operation_id'（即 'name' 字段）。
+  2. 使用此 'operation_id' 轮询 'get_operation' 工具，直到 'done' 为 true 且成功。
+  3. 从已完成操作的响应中，提取创建的 DataScan ID（'scanId'，例如 'nq-doc-1234'）。
+  4. 使用此 'scanId' 调用 'get_run_status' 工具以监控后台执行作业。轮询
+     直到返回的作业状态为 'SUCCEEDED'。
+  5. 作业成功后，使用 'scanId' 调用 'get_data_insights' 工具以获取
+     最终生成的 SQL 查询和描述。
+---
+kind: tool
+name: get_data_insights
+type: dataplex-get-data-insights
+source: dataplex-source
+description: >-
+  检索已完成扫描的最终生成的数据洞察（描述、架构关系、
+  示例 SQL 查询）。警告：在调用此工具之前，您必须验证执行
+  运行已成功（通过 get_run_status 工具），否则
+  洞察将为空。关键：仅通过嵌套的公共 GA
+  字段 'dataDocumentationResult.datasetResult'（用于数据集）或
+  'dataDocumentationResult.tableResult'（用于表）访问结果。顶层字段（如
+  'dataDocumentationResult.queries'）受限，将为空。
+---
+kind: tool
+name: get_operation
+type: dataplex-get-operation
+source: dataplex-source
+description: >-
+  检索 Dataplex 长时间运行操作（LRO）的状态，如扫描创建。
+  轮询此工具，直到工具响应中的 'done' 字段为 true。完成后，'response' 字段将
+  包含创建的 DataScan 资源，您可以从中提取 'scanId'
+  （'name' 字段的最后一部分，例如 'nq-doc-1234'）以传递给 get_run_status
+  和 get_data_insights。警告：这仅跟踪扫描的创建，而不跟踪
+  其执行。
+---
+kind: tool
+name: get_run_status
+type: dataplex-get-run-status
+source: dataplex-source
+description: >-
+  检索指定 Dataplex 扫描的最新后台作业运行（DataScanJob）的执行状态。
+  使用此工具轮询洞察生成的进度。
+  在调用 get_data_insights 之前，请等待工具响应中返回的 'state' 为 'SUCCEEDED'。
+  典型执行需要 2-5 分钟。如果状态
+  为 'FAILED'，请检查错误详情。
+---
+kind: tool
+name: generate_data_profile
+type: dataplex-generate-data-profile
+source: dataplex-source
+description: >-
+  为指定的 BigQuery 表创建新的 Dataplex Data Profile 扫描模板，并触发初始的异步执行运行。此扫描会自动分析
+  表的列以计算统计配置文件（最小值、最大值、平均值、标准差、
+  空值比率、不同值比率、分位数以及前 N 个最频繁值）。这些配置文件
+  可帮助用户和代理了解其数据的分布、形状和清洁度。
+
+  由于扫描模板创建是异步的，此工具返回一个长时间运行的操作（LRO）
+  资源名称（格式：projects/{project}/locations/{location}/operations/{operation_id}）。
+  一旦扫描模板创建 LRO 成功完成，后端会自动
+  启动一个后台执行作业（DataScanJob）以生成配置文件统计信息。
+
+  为成功编排数据剖析工作流，代理必须遵循以下步骤：
+  1. 从此工具的响应中捕获 'operation_id'（即 'name' 字段）。
+  2. 使用此 'operation_id' 轮询 'get_operation' 工具，直到工具响应中的 'done' 字段为 true。
+  3. 从已完成操作的响应中，提取创建的 DataScan ID（'scanId'，例如 'nq-prof-1234'）。
+  4. 使用此 'scanId' 调用 'get_run_status' 工具以监控后台执行作业。轮询
+     直到工具响应中返回的 'state' 为 'SUCCEEDED'。
+  5. 作业成功后，使用 'scanId' 调用 'get_data_profile' 工具以获取
+     最终生成的配置文件结果。
+---
+kind: tool
+name: get_data_profile
+type: dataplex-get-data-profile
+source: dataplex-source
+description: >-
+  检索已完成剖析扫描的最终生成的数据配置文件结果（总行数、列级统计、
+  空值比率、不同值比率、基数、四分位数以及前 N 个最频繁值）。这些数据
+  使代理和开发者能够执行数据质量审计、检测异常
+  并了解架构分布。
+
+  警告：在调用此工具之前，您必须验证执行运行已成功（通过 get_run_status），
+  否则结果将为空。
+  关键：通过返回的 DataScan 内的嵌套公共字段 'dataProfileResult.profile.fields' 访问结果。
+---
+kind: tool
+name: discover_metadata
+type: dataplex-discover-metadata
+source: dataplex-source
+description: >-
+  为指定的 Cloud Storage 存储桶创建新的 Dataplex Data Discovery 扫描模板，并触发初始的异步执行运行。此扫描会自动爬取 GCS 中的文件，
+  推断其架构、格式（例如 CSV、JSON、Parquet）和分区，并自动将其注册
+  并发布为 BigQuery 中的结构化外部表（或 BigLake 表）以及
+  Dataplex Universal Catalog 中的元数据资产。这使得原始 GCS 文件可以立即通过标准 BigQuery SQL 进行查询。
+
+  由于扫描模板创建是异步的，此工具返回一个长时间运行的操作（LRO）
+  资源名称（格式：projects/{project}/locations/{location}/operations/{operation_id}）。
+  一旦扫描模板创建 LRO 成功完成，后端会自动
+  启动一个后台执行作业（DataScanJob）以发现并发布元数据。
+
+  为成功编排数据发现工作流，代理必须遵循以下步骤：
+  1. 从此工具的响应中捕获 'operation_id'（即 'name' 字段）。
+  2. 使用此 'operation_id' 轮询 'get_operation' 工具，直到工具响应中的 'done' 字段为 true。
+  3. 从已完成操作的响应中，提取创建的 DataScan ID（'scanId'，例如 'nq-disc-1234'）。
+  4. 使用此 'scanId' 调用 'get_run_status' 工具以监控后台执行作业。轮询
+     直到工具响应中返回的 'state' 为 'SUCCEEDED'。
+  5. 作业成功后，使用 'scanId' 调用 'get_discovery_results' 工具以获取
+     最终的发现结果和发布统计信息。
+---
+kind: tool
+name: get_discovery_results
+type: dataplex-get-discovery-results
+source: dataplex-source
+description: >-
+  检索已完成发现扫描的最终生成的数据发现结果（发布元数据显示发现的 GCS 表被注册到了哪个
+  BigQuery 数据集，以及审计统计信息，如
+  扫描的 GCS 文件数、处理的总字节数以及在 BigQuery 中创建、更新或删除的表数）。
+
+  警告：在调用此工具之前，您必须验证执行运行已成功（通过 get_run_status），
+  否则结果将为空。
+  关键：通过返回的 DataScan 内的嵌套公共字段 'dataDiscoveryResult.bigqueryPublishing'
+  和 'dataDiscoveryResult.scanStatistics' 访问结果。
+---
+kind: tool
+name: check_data_quality
+type: dataplex-check-data-quality
+source: dataplex-source
+description: >-
+  为指定的 BigQuery 表创建新的 Dataplex Data Quality 扫描模板，并触发初始的异步执行运行。此扫描会针对您的数据评估自定义定义的质量规则
+  （例如非空完整性检查、值范围限制、模式匹配或自定义 SQL 断言），
+  以验证其完整性和正确性。
+
+  由于扫描模板创建是异步的，此工具返回一个长时间运行的操作（LRO）
+  资源名称（格式：projects/{project}/locations/{location}/operations/{operation_id}）。
+  一旦扫描模板创建 LRO 成功完成，后端会自动
+  启动一个后台执行作业（DataScanJob）以运行质量规则。
+
+  为成功编排数据质量工作流，代理必须遵循以下步骤：
+  1. 从此工具的响应中捕获 'operation_id'（即 'name' 字段）。
+  2. 使用此 'operation_id' 轮询 'get_operation' 工具，直到工具响应中的 'done' 字段为 true。
+  3. 从已完成操作的响应中，提取创建的 DataScan ID（'scanId'，例如 'nq-dq-1234'）。
+  4. 使用此 'scanId' 调用 'get_run_status' 工具以监控后台执行作业。轮询
+     直到工具响应中返回的 'state' 为 'SUCCEEDED'。
+  5. 作业成功后，使用 'scanId' 调用 'get_data_quality_results' 工具以获取
+     最终的质量检查分数和结果。
+---
+kind: tool
+name: get_data_quality_results
+type: dataplex-get-data-quality-results
+source: dataplex-source
+description: >-
+  检索已完成数据质量扫描的最终生成的数据质量结果（总体规则通过状态、总体分数、
+  维度级分数如 COMPLETENESS、列级分数以及规则评估详情）。
+  它还返回可以执行的确切 SQL 查询，以
+  检索未通过任何质量检查的特定行，从而实现即时调试。
+
+  警告：在调用此工具之前，您必须验证执行运行已成功（通过 get_run_status），
+  否则结果将为空。
+  关键：通过返回的 DataScan 内的嵌套公共字段 'dataQualityResult' 访问结果。
+  注意，规则结果中的 'failingRowsQuery' 字段对于检索失败行非常有用。
+---
+kind: toolset
+name: discovery
+tools:
+- search_entries
+- lookup_entry
+- search_aspect_types
+- lookup_context
+- search_dq_scans
+---
+kind: toolset
+name: data-products
+tools:
+- search_entries
+- lookup_entry
+- search_aspect_types
+- lookup_context
+- list_data_products
+- get_data_product
+- list_data_assets
+---
+kind: toolset
+name: enrich
+tools:
+- search_entries
+- lookup_entry
+- lookup_context
+- generate_data_insights
+- get_data_insights
+- generate_data_profile
+- get_data_profile
+- discover_metadata
+- get_discovery_results
+- check_data_quality
+- get_data_quality_results
+- get_operation
+- get_run_status

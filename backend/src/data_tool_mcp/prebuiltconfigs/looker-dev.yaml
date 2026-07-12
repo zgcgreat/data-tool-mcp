@@ -1,0 +1,496 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: looker-source
+type: looker
+base_url: ${LOOKER_BASE_URL}
+client_id: ${LOOKER_CLIENT_ID:}
+client_secret: ${LOOKER_CLIENT_SECRET:}
+verify_ssl: ${LOOKER_VERIFY_SSL:true}
+timeout: 600s
+use_client_oauth: ${LOOKER_USE_CLIENT_OAUTH:false}
+show_hidden_models: ${LOOKER_SHOW_HIDDEN_MODELS:true}
+show_hidden_explores: ${LOOKER_SHOW_HIDDEN_EXPLORES:true}
+show_hidden_fields: ${LOOKER_SHOW_HIDDEN_FIELDS:true}
+---
+kind: tool
+name: health_pulse
+type: looker-health-pulse
+source: looker-source
+description: |
+  此工具对 Looker 实例执行各种健康检查。
+
+  参数：
+  - action（必填）：指定要执行的健康检查类型。
+    选择以下之一：
+    - `check_db_connections`：验证数据库连接。
+    - `check_dashboard_performance`：评估仪表板加载性能。
+    - `check_dashboard_errors`：识别仪表板中的错误。
+    - `check_explore_performance`：评估探索查询性能。
+    - `check_schedule_failures`：报告失败的定时交付。
+    - `check_legacy_features`：检查旧功能的使用情况。
+
+  关于 `check_legacy_features` 的说明：
+  此操作仅在 Looker Core 实例中可用。如果在非 Looker Core 实例上调用，
+  它将返回通知而非错误。
+  此通知应视为正常行为，不表示存在问题。
+---
+kind: tool
+name: health_analyze
+type: looker-health-analyze
+source: looker-source
+description: |
+  此工具计算 Looker 项目、模型和探索的使用统计信息。
+
+  参数：
+  - action（必填）：要分析的资源类型。可以是 `"projects"`、`"models"` 或 `"explores"`。
+  - project（可选）：要分析的特定项目 ID。
+  - model（可选）：要分析的特定模型名称。如果在不使用 `explore` 的情况下使用，则需要 `project`。
+  - explore（可选）：要分析的特定探索名称。使用时需要 `model`。
+  - timeframe（可选）：使用数据的回溯期（天数）。默认为 `90` 天。
+  - min_queries（可选）：资源被视为活跃的最小查询次数。默认为 `1`。
+
+  输出：
+  结果是包含指定资源使用指标的 JSON 对象。
+---
+kind: tool
+name: health_vacuum
+type: looker-health-vacuum
+source: looker-source
+description: |
+  此工具识别并建议由于不活跃或低使用率而可以安全移除的
+  LookML 模型或探索。
+
+  参数：
+  - action（必填）：要分析移除候选者的资源类型。可以是 `"models"` 或 `"explores"`。
+  - project（可选）：要考虑的特定项目 ID。
+  - model（可选）：要考虑的特定模型名称。如果在不使用 `explore` 的情况下使用，则需要 `project`。
+  - explore（可选）：要考虑的特定探索名称。使用时需要 `model`。
+  - timeframe（可选）：评估使用情况的回溯期（天数）。默认为 `90` 天。
+  - min_queries（可选）：资源被视为活跃的最小查询次数。默认为 `1`。
+
+  输出：
+  JSON 对象数组，每个对象代表一个由于低使用率而成为删除候选的模型或探索。
+---
+kind: tool
+name: dev_mode
+type: looker-dev-mode
+source: looker-source
+description: |
+  此工具允许在开发模式和生产模式之间切换 Looker IDE 会话。
+  开发模式支持对 LookML 项目进行更改和测试。
+
+  参数：
+  - enable（必填）：布尔值。
+    - `true`：将当前会话切换到开发模式。
+    - `false`：将当前会话切换到生产模式。
+---
+kind: tool
+name: get_projects
+type: looker-get-projects
+source: looker-source
+description: |
+  此工具检索 Looker 实例上可用的所有 LookML 项目列表。
+  它对于在执行检索项目文件或进行修改等操作之前识别项目
+  非常有用。
+
+  参数：
+  此工具不接受任何参数。
+
+  输出：
+  JSON 对象数组，每个对象包含 LookML 项目的
+  `project_id` 和 `project_name`。
+---
+kind: tool
+name: get_project_files
+type: looker-get-project-files
+source: looker-source
+description: |
+  此工具检索指定项目内所有 LookML 文件的列表，
+  提供每个文件的详细信息。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID，从 `get_projects` 获取。
+
+  输出：
+  JSON 对象数组，每个对象代表一个 LookML 文件，包含
+  `path`、`id`、`type` 和 `git_status` 等详细信息。
+---
+kind: tool
+name: get_project_file
+type: looker-get-project-file
+source: looker-source
+description: |
+  此工具从项目中检索特定 LookML 文件的原始内容。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID，从 `get_projects` 获取。
+  - file_path（必填）：项目中 LookML 文件的路径，
+    通常从 `get_project_files` 获取。
+
+  输出：
+  指定 LookML 文件的原始文本内容。
+---
+kind: tool
+name: create_project_file
+type: looker-create-project-file
+source: looker-source
+description: |
+  此工具在指定项目内创建新的 LookML 文件，
+  并使用提供的内容填充。
+
+  前提条件：Looker 会话必须处于开发模式。请先使用 `dev_mode: true`。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - file_path（必填）：项目中新文件的所需路径和文件名。
+  - content（必填）：要写入新文件的完整 LookML 内容。
+
+  输出：
+  文件创建成功后的确认消息。
+---
+kind: tool
+name: update_project_file
+type: looker-update-project-file
+source: looker-source
+description: |
+  此工具修改指定项目内现有 LookML 文件的内容。
+
+  前提条件：Looker 会话必须处于开发模式。请先使用 `dev_mode: true`。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - file_path（必填）：项目中要修改的 LookML 文件的确切路径。
+  - content（必填）：用于覆盖现有文件的新的完整 LookML 内容。
+
+  输出：
+  文件修改成功后的确认消息。
+---
+kind: tool
+name: delete_project_file
+type: looker-delete-project-file
+source: looker-source
+description: |
+  此工具从项目中永久删除指定的 LookML 文件。
+  请谨慎使用，因为此操作无法通过 API 撤销。
+
+  前提条件：Looker 会话必须处于开发模式。请先使用 `dev_mode: true`。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - file_path（必填）：项目中要删除的 LookML 文件的确切路径。
+
+  输出：
+  文件删除成功后的确认消息。
+---
+kind: tool
+name: get_project_directories
+type: looker-get-project-directories
+source: looker-source
+description: |
+  此工具检索指定 LookML 项目内的目录列表。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+
+  输出：
+  字符串 JSON 数组，其中每个字符串是项目内目录的名称。
+---
+kind: tool
+name: create_project_directory
+type: looker-create-project-directory
+source: looker-source
+description: |
+  此工具在指定 LookML 项目内创建新目录。
+
+  前提条件：Looker 会话必须处于开发模式。请先使用 `dev_mode: true`。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - directory_path（必填）：项目中新目录的路径。
+
+  输出：
+  目录创建成功后的确认消息。
+---
+kind: tool
+name: delete_project_directory
+type: looker-delete-project-directory
+source: looker-source
+description: |
+  此工具永久删除 LookML 项目内的指定目录。
+
+  前提条件：Looker 会话必须处于开发模式。请先使用 `dev_mode: true`。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - directory_path（必填）：项目中目录的路径。
+
+  输出：
+  目录删除成功后的确认消息。
+---
+kind: tool
+name: validate_project
+type: looker-validate-project
+source: looker-source
+description: |
+  此工具检查 LookML 项目中的语法错误。
+
+  前提条件：Looker 会话必须处于开发模式。请先使用 `dev_mode: true`。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+
+  输出：
+  包含文件路径和行号的错误详情列表，以及由于 LookML 错误
+  而当前无效的模型列表。
+---
+kind: tool
+name: get_connections
+type: looker-get-connections
+source: looker-source
+description: |
+  此工具检索 Looker 系统中配置的所有数据库连接列表。
+
+  参数：
+  此工具不接受任何参数。
+
+  输出：
+  JSON 对象数组，每个对象代表一个数据库连接，包含以下详细信息：
+  - `name`：连接的唯一标识符。
+  - `dialect`：数据库方言（例如 "mysql"、"postgresql"、"bigquery"）。
+  - `default_schema`：连接的默认模式。
+  - `database`：关联的数据库名称（如适用）。
+  - `supports_multiple_databases`：指示连接是否可以访问多个数据库的布尔值。
+---
+kind: tool
+name: get_connection_schemas
+type: looker-get-connection-schemas
+source: looker-source
+description: |
+  此工具检索通过指定 Looker 连接可用的
+  数据库模式列表。
+
+  参数：
+  - connection_name（必填）：数据库连接的名称，从 `get_connections` 获取。
+  - database（可选）：用于过滤模式的可选数据库名称。
+    仅适用于支持多个数据库的连接。
+
+  输出：
+  字符串 JSON 数组，其中每个字符串是可用模式的名称。
+---
+kind: tool
+name: get_connection_databases
+type: looker-get-connection-databases
+source: looker-source
+description: |
+  此工具检索通过指定 Looker 连接可用的数据库列表。
+  这仅适用于支持多个数据库的连接。
+  使用 `get_connections` 检查连接是否支持多个数据库。
+
+  参数：
+  - connection_name（必填）：数据库连接的名称，从 `get_connections` 获取。
+
+  输出：
+  字符串 JSON 数组，其中每个字符串是可用数据库的名称。
+  如果连接不支持多个数据库，将返回空列表或错误。
+---
+kind: tool
+name: get_connection_tables
+type: looker-get-connection-tables
+source: looker-source
+description: |
+  此工具检索通过 Looker 连接在指定数据库模式内
+  可用的表列表。
+
+  参数：
+  - connection_name（必填）：数据库连接的名称，从 `get_connections` 获取。
+  - schema（必填）：要列出表的模式名称，从 `get_connection_schemas` 获取。
+  - database（可选）：要过滤的数据库名称。仅适用于支持多个数据库的连接
+    （通过 `get_connections` 检查）。
+
+  输出：
+  字符串 JSON 数组，其中每个字符串是可用表的名称。
+---
+kind: tool
+name: get_connection_table_columns
+type: looker-get-connection-table-columns
+source: looker-source
+description: |
+  此工具检索给定数据库模式和连接内一个或多个
+  指定表的列列表。
+
+  参数：
+  - connection_name（必填）：数据库连接的名称，从 `get_connections` 获取。
+  - schema（必填）：表所在模式的名称，从 `get_connection_schemas` 获取。
+  - tables（必填）：要检索列的表名的逗号分隔字符串
+    （例如 "users,orders,products"），从 `get_connection_tables` 获取。
+  - database（可选）：要过滤的数据库名称。仅适用于支持多个数据库的连接
+    （通过 `get_connections` 检查）。
+
+  输出：
+  JSON 对象数组，其中每个对象代表一列，包含
+  `table_name`、`column_name`、`data_type` 和 `is_nullable` 等详细信息。
+---
+kind: tool
+name: get_lookml_tests
+type: looker-get-lookml-tests
+source: looker-source
+description: |
+  返回可用于验证项目 LookML 代码和/或底层数据的测试列表，可按文件 ID 过滤。
+
+  前提条件：Looker 会话必须处于开发模式。请先使用 `dev_mode: true`。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - file_id（可选）：用于过滤测试的文件 ID。这必须是项目根目录的完整文件路径（例如 `models/my_model.model.lkml` 或 `views/my_view.view.lkml`）。
+
+  输出：
+  LookML 测试对象的 JSON 数组，每个对象包含：
+  - model_name：模型名称。
+  - name：测试名称。
+  - explore_name：被测试探索的名称。
+  - query_url_params：测试使用的查询参数。
+  - file：定义测试的文件路径。
+  - line：定义测试的行号。
+---
+kind: tool
+name: run_lookml_tests
+type: looker-run-lookml-tests
+source: looker-source
+description: |
+  此工具在项目中运行 LookML 测试，按文件、测试和/或模型过滤。这些过滤器协同工作（逻辑 AND）。
+
+  前提条件：Looker 会话必须处于开发模式。请先使用 `dev_mode: true`。
+
+  参数：
+  - project_id（必填）：要运行 LookML 测试的项目的唯一 ID。
+  - file_id（可选）：要运行测试的文件 ID。这必须是项目根目录的完整文件路径（例如 `models/my_model.model.lkml` 或 `views/my_view.view.lkml`）。
+  - test（可选）：要运行的测试名称。
+  - model（可选）：要运行测试的模型名称。
+
+  输出：
+  包含已执行测试结果的 JSON 数组，其中每个对象包括：
+  - model_name：测试的模型名称。
+  - test_name：测试名称。
+  - assertions_count：测试中的断言总数。
+  - assertions_failed：失败的断言数量。
+  - success：指示测试是否通过的布尔值。
+  - errors：错误对象数组（如有），包含 `message`、`file_path`、`line_number` 和 `severity` 等详细信息。
+  - warnings：警告消息数组（如有）。
+---
+kind: tool
+name: create_view_from_table
+type: looker-create-view-from-table
+source: looker-source
+description: |
+  此工具直接从数据库模式生成样板 LookML 视图。
+  它不创建模型或探索文件，仅在指定文件夹中创建视图文件。
+
+  前提条件：Looker 会话必须处于开发模式。请先使用 `dev_mode: true`。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - connection（必填）：数据库连接名称。
+  - tables（必填）：要为其生成视图的对象列表。每个对象必须包含 `schema` 和 `table_name`（注意：表名区分大小写）。可选字段包括 `primary_key`、`base_view` 和 `columns`（包含 `column_name` 的对象数组）。
+  - folder_name（可选）：放置视图文件的文件夹（默认为 'views/'）。
+
+  输出：
+  视图生成成功后的确认消息，或操作失败时的错误消息。
+---
+kind: tool
+name: list_git_branches
+type: looker-list-git-branches
+source: looker-source
+description: |
+  此工具用于检索 LookML 项目的可用 git 分支列表。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+---
+kind: tool
+name: get_git_branch
+type: looker-get-git-branch
+source: looker-source
+description: |
+  此工具用于检索 LookML 项目的当前 git 分支。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+---
+kind: tool
+name: create_git_branch
+type: looker-create-git-branch
+source: looker-source
+description: |
+  此工具用于创建 LookML 项目的新 git 分支。此操作仅在开发模式下有效。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - branch（必填）：要创建的分支。
+  - ref（可选）：启动新创建分支的引用。
+---
+kind: tool
+name: switch_git_branch
+type: looker-switch-git-branch
+source: looker-source
+description: |
+  此工具用于切换 LookML 项目的 git 分支。此操作仅在开发模式下有效。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - branch（必填）：要切换到的分支。
+  - ref（可选）：在切换操作时使用 `reset --hard` 更改分支的引用。
+---
+kind: tool
+name: delete_git_branch
+type: looker-delete-git-branch
+source: looker-source
+description: |
+  此工具用于删除 LookML 项目的 git 分支。此操作仅在开发模式下有效。
+
+  参数：
+  - project_id（必填）：LookML 项目的唯一 ID。
+  - branch（必填）：要删除的分支。
+---
+kind: toolset
+name: looker_dev_tools
+tools:
+- health_pulse
+- health_analyze
+- health_vacuum
+- dev_mode
+- get_projects
+- get_project_files
+- get_project_file
+- create_project_file
+- update_project_file
+- delete_project_file
+- get_project_directories
+- create_project_directory
+- delete_project_directory
+- validate_project
+- get_connections
+- get_connection_schemas
+- get_connection_databases
+- get_connection_tables
+- get_connection_table_columns
+- get_lookml_tests
+- run_lookml_tests
+- create_view_from_table
+- list_git_branches
+- get_git_branch
+- create_git_branch
+- switch_git_branch
+- delete_git_branch

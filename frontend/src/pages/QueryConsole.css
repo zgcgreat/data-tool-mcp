@@ -1,0 +1,587 @@
+/* ==========================================================================
+   Query Console · Enterprise SQL IDE
+   Refined Graphite · DBeaver / DataGrip inspired
+   ========================================================================== */
+
+.query-console {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.query-console .page-header {
+  margin-bottom: 0;
+}
+
+/* ==========================================================================
+   Layout: sidebar + main
+   ========================================================================== */
+
+.qc-layout {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.qc-layout--full {
+  grid-template-columns: 1fr;
+}
+
+.qc-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* ==========================================================================
+   Sidebar · Table browser
+   ========================================================================== */
+
+.qc-sidebar {
+  position: sticky;
+  top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - var(--space-8));
+  overflow: hidden;
+}
+
+.qc-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.qc-sidebar-label {
+  margin-bottom: 0;
+}
+
+.qc-table-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* --- Search box --- */
+
+.qc-search {
+  position: relative;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.qc-search-icon {
+  position: absolute;
+  left: calc(var(--space-3) + 2px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.qc-search-input {
+  width: 100%;
+  padding: 5px 8px 5px 26px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.qc-search-input:hover {
+  border-color: #b1bac4;
+}
+
+.qc-search-input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-focus);
+}
+
+.qc-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* --- Table list --- */
+
+.qc-table-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.qc-table-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.qc-table-item:hover {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.qc-table-item-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.qc-table-item:hover .qc-table-item-icon {
+  color: var(--accent);
+}
+
+.qc-table-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Sidebar states --- */
+
+.qc-sidebar-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-3);
+  text-align: center;
+}
+
+.qc-sidebar-spinner {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+
+.qc-sidebar-state-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.qc-sidebar-state-text--muted {
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Workspace: control bar + editor (single merged card)
+   ========================================================================== */
+
+.qc-workspace {
+  overflow: hidden;
+}
+
+.qc-control-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border-muted);
+  background: var(--bg-elevated);
+}
+
+.qc-control-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.qc-field {
+  margin-bottom: 0;
+  gap: 3px;
+}
+
+.qc-field .form-label {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.qc-field .form-select {
+  padding: 5px 28px 5px 10px;
+  font-size: 12px;
+}
+
+.qc-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.qc-history-label {
+  gap: 4px;
+}
+
+.qc-history-label svg {
+  width: 11px;
+  height: 11px;
+  color: var(--text-muted);
+}
+
+.qc-clear-btn {
+  padding: 1px 7px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.qc-clear-btn:hover {
+  background: var(--danger-muted);
+  color: var(--danger-fg);
+}
+
+/* ==========================================================================
+   Run button (inline in control bar)
+   ========================================================================== */
+
+.qc-run-btn {
+  padding: 7px 14px;
+  font-size: 12px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.qc-run-spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: var(--accent-contrast);
+}
+
+/* ==========================================================================
+   SQL Editor (inside workspace)
+   ========================================================================== */
+
+.qc-editor-body {
+  position: relative;
+}
+
+.qc-sql-input {
+  display: block;
+  width: 100%;
+  min-height: 110px;
+  padding: var(--space-3);
+  border: none;
+  border-radius: 0;
+  background: var(--bg-input);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+  resize: vertical;
+  tab-size: 2;
+}
+
+.qc-sql-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.qc-sql-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.qc-shortcut-hint {
+  position: absolute;
+  bottom: 8px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-muted);
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.qc-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.qc-kbd-plus {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+/* ==========================================================================
+   Results
+   ========================================================================== */
+
+.qc-results {
+  overflow: hidden;
+}
+
+.qc-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-muted);
+  background: var(--bg-elevated);
+}
+
+.qc-result-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.qc-meta-count {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.qc-meta-time {
+  color: var(--success-fg);
+}
+
+.qc-meta-cols {
+  color: var(--text-muted);
+}
+
+.qc-meta-sep {
+  width: 1px;
+  height: 12px;
+  background: var(--border-default);
+}
+
+.qc-result-header .icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Result table --- */
+
+.qc-table-wrapper {
+  overflow: auto;
+  max-height: 440px;
+}
+
+.qc-result-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.qc-result-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.qc-result-table th {
+  padding: 6px 10px;
+  text-align: left;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  border-right: 1px solid var(--border-muted);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.qc-result-table th:last-child {
+  border-right: none;
+}
+
+.qc-result-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.qc-result-table td:last-child {
+  border-right: none;
+}
+
+.qc-result-table tbody tr {
+  transition: background var(--transition-fast);
+}
+
+.qc-result-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.qc-result-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* --- Row number column --- */
+
+.qc-row-num-col {
+  width: 1%;
+  min-width: 44px;
+  text-align: right;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.qc-result-table .qc-row-num-col {
+  background: var(--bg-elevated);
+}
+
+.qc-result-table tbody tr:hover .qc-row-num-col {
+  background: var(--bg-hover);
+}
+
+/* --- NULL cells & empty rows --- */
+
+.qc-null {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.qc-empty-row {
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: var(--space-6) var(--space-4);
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Results empty state
+   ========================================================================== */
+
+.qc-results-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-6) var(--space-4);
+  gap: var(--space-2);
+}
+
+.qc-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  margin-bottom: 0;
+}
+
+.qc-empty-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.qc-empty-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.qc-empty-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  .qc-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .qc-sidebar {
+    position: static;
+    max-height: 280px;
+  }
+}
+
+@media (max-width: 640px) {
+  .qc-control-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .qc-control-group {
+    grid-template-columns: 1fr;
+  }
+
+  .qc-run-btn {
+    justify-content: center;
+  }
+
+  .qc-shortcut-hint {
+    display: none;
+  }
+}

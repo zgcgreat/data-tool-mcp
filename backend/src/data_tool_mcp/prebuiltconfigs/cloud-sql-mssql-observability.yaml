@@ -1,0 +1,78 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+kind: source
+name: cloud-monitoring-source
+type: cloud-monitoring
+---
+kind: tool
+name: get_system_metrics
+type: cloud-monitoring-query-prometheus
+source: cloud-monitoring-source
+description: |
+  使用 PromQL 查询获取 SqlServer 实例的系统级 cloudmonitoring 数据（时间序列指标）。从用户处获取需要获取指标时间序列数据的 projectId 和 instanceId。
+  使用此工具时，必须提供 Google Cloud `projectId` 和 PromQL `query`。
+
+  为 SqlServer 系统指标生成 PromQL `query`。使用提供的指标和规则构建查询，从用户意图中获取 `instance_id` 等标签。
+
+  默认值：
+  1. 时间间隔：除非用户指定了不同的窗口，否则 `_over_time` 聚合函数使用默认间隔 `5m`。
+
+  PromQL 查询示例：
+  1. 基本时间序列：`avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m])`
+  2. 前 K 个：`topk(30, avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  3. 平均值：`avg(avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  4. 最小值：`min(min_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  5. 最大值：`max(max_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  6. 总和：`sum(avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  7. 计数流：`count(avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+  8. 按 database_id 分组的百分位数：`quantile by ("database_id")(0.99,avg_over_time({"__name__"="cloudsql.googleapis.com/database/cpu/utilization","monitored_resource"="cloudsql_database","project_id"="my-projectId","database_id"="my-projectId:my-instanceId"}[5m]))`
+
+  可用指标列表：指标名称。描述。受监控资源。标签。database_id 实际上是实例 ID，格式为 `project_id:instance_id`。
+  1. `cloudsql.googleapis.com/database/cpu/utilization`：当前 CPU 利用率占预留 CPU 的百分比。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  2. `cloudsql.googleapis.com/database/memory/usage`：RAM 使用量（字节），不包括缓冲区/缓存。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  3. `cloudsql.googleapis.com/database/memory/total_usage`：总 RAM 使用量（字节），包括缓冲区/缓存。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  4. `cloudsql.googleapis.com/database/disk/bytes_used`：数据使用量（字节）。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  5. `cloudsql.googleapis.com/database/disk/quota`：最大数据磁盘大小（字节）。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  6. `cloudsql.googleapis.com/database/disk/read_ops_count`：数据磁盘读取 IO 操作的增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  7. `cloudsql.googleapis.com/database/disk/write_ops_count`：数据磁盘写入 IO 操作的增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  8. `cloudsql.googleapis.com/database/network/received_bytes_count`：通过网络接收的字节数增量计数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  9. `cloudsql.googleapis.com/database/network/sent_bytes_count`：通过网络发送的字节数增量计数。`cloudsql_database`。`destination`, `database`, `project_id`, `database_id`。
+  10. `cloudsql.googleapis.com/database/sqlserver/memory/buffer_cache_hit_ratio`：在缓冲区缓存中找到而无需从磁盘读取的页面当前百分比。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  11. `cloudsql.googleapis.com/database/sqlserver/memory/memory_grants_pending`：当前等待工作区内存授予的进程数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  12. `cloudsql.googleapis.com/database/sqlserver/memory/free_list_stall_count`：等待空闲页面的请求总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  13. `cloudsql.googleapis.com/database/swap/pages_swapped_in_count`：自系统启动以来从磁盘换入的页面总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  14. `cloudsql.googleapis.com/database/swap/pages_swapped_out_count`：自系统启动以来换出到磁盘的页面总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  15. `cloudsql.googleapis.com/database/sqlserver/memory/checkpoint_page_count`：通过检查点刷新到磁盘的页面总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  16. `cloudsql.googleapis.com/database/sqlserver/memory/lazy_write_count`：缓冲区管理器的惰性写入器写入的缓冲区总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  17. `cloudsql.googleapis.com/database/sqlserver/memory/page_life_expectancy`：页面在缓冲池中停留的当前秒数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  18. `cloudsql.googleapis.com/database/sqlserver/memory/page_operation_count`：物理数据库页面读取或写入的总数。`cloudsql_database`。`operation`, `database`, `project_id`, `database_id`。
+  19. `cloudsql.googleapis.com/database/sqlserver/transactions/page_split_count`：因索引页面溢出导致的页面拆分总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  20. `cloudsql.googleapis.com/database/sqlserver/transactions/deadlock_count`：导致死锁的锁定请求总数。`cloudsql_database`。`locked_resource`, `database`, `project_id`, `database_id`。
+  21. `cloudsql.googleapis.com/database/sqlserver/transactions/transaction_count`：已启动的事务总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  22. `cloudsql.googleapis.com/database/sqlserver/transactions/batch_request_count`：接收的 Transact-SQL 命令批处理总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  23. `cloudsql.googleapis.com/database/sqlserver/transactions/sql_compilation_count`：SQL 编译总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  24. `cloudsql.googleapis.com/database/sqlserver/transactions/sql_recompilation_count`：SQL 重新编译总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  25. `cloudsql.googleapis.com/database/sqlserver/connections/processes_blocked`：当前被阻塞的进程数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  26. `cloudsql.googleapis.com/database/sqlserver/transactions/lock_wait_time`：锁定请求等待锁的总时间。`cloudsql_database`。`locked_resource`, `database`, `project_id`, `database_id`。
+  27. `cloudsql.googleapis.com/database/sqlserver/transactions/lock_wait_count`：需要调用方等待的锁定请求总数。`cloudsql_database`。`locked_resource`, `database`, `project_id`, `database_id`。
+  28. `cloudsql.googleapis.com/database/network/connections`：实例上数据库的连接数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  29. `cloudsql.googleapis.com/database/sqlserver/connections/login_attempt_count`：自上次服务器重启以来的登录尝试总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  30. `cloudsql.googleapis.com/database/sqlserver/connections/logout_count`：自上次服务器重启以来的注销操作总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  31. `cloudsql.googleapis.com/database/sqlserver/connections/connection_reset_count`：自上次服务器重启以来从连接池启动的登录总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+  32. `cloudsql.googleapis.com/database/sqlserver/transactions/full_scan_count`：无限制全扫描（基表或全索引）的总数。`cloudsql_database`。`database`, `project_id`, `database_id`。
+---
+kind: toolset
+name: cloud_sql_mssql_cloud_monitoring_tools
+tools:
+- get_system_metrics
