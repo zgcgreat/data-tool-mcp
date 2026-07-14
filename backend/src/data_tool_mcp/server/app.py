@@ -17,7 +17,6 @@ from data_tool_mcp.server.routes import mcp_routes
 from data_tool_mcp.server.routes import api_routes
 from data_tool_mcp.admin.router import router as admin_router
 from data_tool_mcp.server.middleware import (
-    APIKeyAuthMiddleware,
     HostCheckMiddleware,
     MaxBodySizeMiddleware,
 )
@@ -43,6 +42,14 @@ def create_app(config: ServerConfig, resource_manager: ResourceManager) -> FastA
         yield
         await sse_manager.stop()
         logger.info("SSEManager cleanup routine stopped")
+        # Close all data sources' connections BEFORE closing the config store.
+        # 必须在事件循环关闭前关闭 aiomysql 等驱动的底层连接,
+        # 否则 GC 触发的 __del__ 会在事件循环已关闭时报 RuntimeError。
+        try:
+            await resource_manager.close()
+            logger.info("ResourceManager sources closed")
+        except Exception as exc:
+            logger.warning("error closing resource manager sources: %s", exc)
         # Close the config store if present
         from data_tool_mcp.config.store import get_store
         store = get_store()
@@ -66,9 +73,6 @@ def create_app(config: ServerConfig, resource_manager: ResourceManager) -> FastA
     # Applied before CORS so that invalid hosts are rejected early
     app.add_middleware(HostCheckMiddleware, allowed_hosts=config.allowed_hosts or None)
     app.add_middleware(MaxBodySizeMiddleware, max_size=config.max_body_size)
-    # API key authentication — when api_key is configured, all requests
-    # must carry the key (X-API-Key or Authorization: Bearer).
-    app.add_middleware(APIKeyAuthMiddleware, api_key=config.api_key)
 
     # CORS middleware — maps to Go: server.go cors.Handler
     # When allow_origins=["*"], set allow_credentials=False to avoid the

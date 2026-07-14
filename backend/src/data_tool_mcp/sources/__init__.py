@@ -39,6 +39,8 @@ from data_tool_mcp.sources import clickhouse as _clickhouse  # noqa: F401
 from data_tool_mcp.sources import snowflake as _snowflake  # noqa: F401
 from data_tool_mcp.sources import oracle as _oracle  # noqa: F401
 from data_tool_mcp.sources import oceanbase as _oceanbase  # noqa: F401
+from data_tool_mcp.sources import tdsql as _tdsql  # noqa: F401
+from data_tool_mcp.sources import gaussdb as _gaussdb  # noqa: F401
 from data_tool_mcp.sources import trino as _trino  # noqa: F401
 from data_tool_mcp.sources import cockroachdb as _cockroachdb  # noqa: F401
 from data_tool_mcp.sources import tidb as _tidb  # noqa: F401
@@ -55,6 +57,7 @@ from data_tool_mcp.sources import couchbase as _couchbase  # noqa: F401
 from data_tool_mcp.sources import valkey as _valkey  # noqa: F401
 from data_tool_mcp.sources import scylladb as _scylladb  # noqa: F401
 from data_tool_mcp.sources import dgraph as _dgraph  # noqa: F401
+from data_tool_mcp.sources import hbase as _hbase  # noqa: F401
 
 # Cloud API sources
 from data_tool_mcp.sources import bigquery as _bigquery  # noqa: F401

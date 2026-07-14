@@ -79,6 +79,20 @@ class ResourceManager:
     def get_sources_map(self) -> dict[str, Source]:
         return dict(self._sources)
 
+    async def close(self) -> None:
+        """Close all sources' underlying connections (engines/clients).
+
+        必须在事件循环关闭前调用,否则底层驱动(如 aiomysql)的连接对象
+        在 GC 时会尝试调用 close(),此时事件循环已关闭导致 RuntimeError。
+        """
+        with self._lock:
+            sources = dict(self._sources)
+        for name, source in sources.items():
+            try:
+                await source.close()
+            except Exception:
+                pass
+
     def add_source(self, name: str, source: Source, config: dict[str, Any] | None = None) -> None:
         """Add (or replace) a source at runtime. Thread-safe."""
         with self._lock:
@@ -97,6 +111,11 @@ class ResourceManager:
         cfg = self._source_configs.get(source_name)
         return dict(cfg) if cfg is not None else None
 
+    def get_all_source_configs(self) -> dict[str, dict[str, Any]]:
+        """Return all source configs (name → config dict)."""
+        with self._lock:
+            return {name: dict(cfg) for name, cfg in self._source_configs.items()}
+
     # -- Tools --
 
     def get_tool(self, tool_name: str) -> Tool | None:
@@ -108,8 +127,9 @@ class ResourceManager:
     def add_tool(self, name: str, tool: Tool, tool_type: str = "") -> None:
         """Register a tool at runtime. Thread-safe.
 
-        新工具自动添加到默认 toolset（空名）和对应数据源的同名 toolset 中，
-        确保 MCP 客户端通过 /sse 或 /{source}/sse 都能列出工具。
+        新工具自动添加到默认 toolset（空名）、对应数据源的同名 toolset、
+        以及对应 system_id 的 toolset 中,确保 MCP 客户端通过
+        /sse、/{source}/sse、/{systemId}/sse 都能列出工具。
         """
         with self._lock:
             self._tools[name] = tool
@@ -127,6 +147,15 @@ class ResourceManager:
                     self._toolsets[src] = Toolset(name=src, tools=[])
                 if name not in self._toolsets[src].tool_names:
                     self._toolsets[src].tool_names.append(name)
+                # 自动添加到 system_id toolset
+                src_cfg = self._source_configs.get(src)
+                if src_cfg:
+                    sid = str(src_cfg.get("systemId", "") or "").strip()
+                    if sid:
+                        if sid not in self._toolsets:
+                            self._toolsets[sid] = Toolset(name=sid, tools=[])
+                        if name not in self._toolsets[sid].tool_names:
+                            self._toolsets[sid].tool_names.append(name)
 
     def ensure_default_toolset(self) -> None:
         """确保默认 toolset（空名）存在，包含当前所有工具。
@@ -134,6 +163,9 @@ class ResourceManager:
         同时为每个数据源创建同名 toolset，使 MCP 客户端可以通过
         /{source-name}/sse 路由只访问该数据源的工具。
         从持久化存储加载工具后调用。
+
+        此外,按 system_id(系统编号)创建 toolset,使 MCP 客户端可以通过
+        /{systemId}/sse 路由访问该系统下所有数据源的工具。
         """
         with self._lock:
             # 默认 toolset（空名）：包含所有工具
@@ -146,10 +178,18 @@ class ResourceManager:
 
             # 为每个数据源创建同名 toolset（按工具的 source_name 分组）
             source_tool_map: dict[str, list[str]] = {}
+            # 同时按 system_id 分组工具
+            system_tool_map: dict[str, list[str]] = {}
             for tool_name, tool in self._tools.items():
                 src = getattr(tool, "source_name", None) or getattr(tool, "_source_name", None)
                 if src:
                     source_tool_map.setdefault(src, []).append(tool_name)
+                    # 查找该数据源的 system_id
+                    src_cfg = self._source_configs.get(src)
+                    if src_cfg:
+                        sid = str(src_cfg.get("systemId", "") or "").strip()
+                        if sid:
+                            system_tool_map.setdefault(sid, []).append(tool_name)
             for src_name, tool_names in source_tool_map.items():
                 if src_name in self._toolsets:
                     # 已存在，补全缺失的工具
@@ -158,6 +198,16 @@ class ResourceManager:
                             self._toolsets[src_name].tool_names.append(tn)
                 else:
                     self._toolsets[src_name] = Toolset(name=src_name, tools=list(tool_names))
+
+            # 按 system_id 创建/更新 toolset
+            for sid, tool_names in system_tool_map.items():
+                if sid in self._toolsets:
+                    # 已存在，补全缺失的工具
+                    for tn in tool_names:
+                        if tn not in self._toolsets[sid].tool_names:
+                            self._toolsets[sid].tool_names.append(tn)
+                else:
+                    self._toolsets[sid] = Toolset(name=sid, tools=list(tool_names))
 
     def remove_tool(self, name: str) -> None:
         """Remove a tool at runtime. Thread-safe."""

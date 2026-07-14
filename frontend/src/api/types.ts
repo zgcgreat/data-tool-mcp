@@ -60,6 +60,8 @@ export interface DashboardStats {
   todayRequests: number;
   sourceHealth: SourceHealth[];
   recentErrors: ErrorEntry[];
+  // MCP 服务实际监听端口 — 用于构造 MCP 端点 URL
+  mcpPort?: number;
 }
 
 interface SourceHealth {

@@ -1,0 +1,95 @@
+# TDSQL prebuilt config — 腾讯云分布式数据库 (MySQL 兼容协议)
+
+kind: source
+name: tdsql-source
+type: tdsql
+host: ${TDSQL_HOST:localhost}
+port: ${TDSQL_PORT:3306}
+database: ${TDSQL_DATABASE}
+user: ${TDSQL_USER}
+password: ${TDSQL_PASSWORD}
+---
+kind: tool
+name: execute_sql
+type: tdsql-execute-sql
+source: tdsql-source
+description: 使用此工具在 TDSQL 上执行 SQL 语句（可能修改数据）。
+---
+kind: tool
+name: list_tables
+type: tdsql-sql
+source: tdsql-source
+description: 以 JSON 格式列出 TDSQL 数据库中用户创建的表的详细 Schema 信息。
+statement: |
+  SELECT
+      T.TABLE_SCHEMA AS schema_name,
+      T.TABLE_NAME AS object_name,
+      CONVERT( JSON_OBJECT(
+          'schema_name', T.TABLE_SCHEMA,
+          'object_name', T.TABLE_NAME,
+          'object_type', 'TABLE',
+          'comment', IFNULL(T.TABLE_COMMENT, ''),
+          'columns', (
+              SELECT
+                  IFNULL(
+                      JSON_ARRAYAGG(
+                          JSON_OBJECT(
+                              'column_name', C.COLUMN_NAME,
+                              'data_type', C.COLUMN_TYPE,
+                              'ordinal_position', C.ORDINAL_POSITION,
+                              'is_not_nullable', IF(C.IS_NULLABLE = 'NO', TRUE, FALSE),
+                              'column_default', C.COLUMN_DEFAULT,
+                              'column_comment', IFNULL(C.COLUMN_COMMENT, '')
+                          )
+                      ),
+                      JSON_ARRAY()
+                  )
+              FROM
+                  INFORMATION_SCHEMA.COLUMNS C
+              WHERE
+                  C.TABLE_SCHEMA = T.TABLE_SCHEMA AND C.TABLE_NAME = T.TABLE_NAME
+              ORDER BY C.ORDINAL_POSITION
+          ),
+          'indexes', (
+              SELECT
+                  IFNULL(
+                      JSON_ARRAYAGG(
+                          JSON_OBJECT(
+                              'index_name', IndexData.INDEX_NAME,
+                              'is_unique', IF(IndexData.NON_UNIQUE = 0, TRUE, FALSE),
+                              'is_primary', IF(IndexData.INDEX_NAME = 'PRIMARY', TRUE, FALSE),
+                              'index_columns', IFNULL(IndexData.INDEX_COLUMNS_ARRAY, JSON_ARRAY())
+                          )
+                      ),
+                      JSON_ARRAY()
+                  )
+              FROM (
+                  SELECT
+                      S.TABLE_SCHEMA,
+                      S.TABLE_NAME,
+                      S.INDEX_NAME,
+                      MIN(S.NON_UNIQUE) AS NON_UNIQUE,
+                      JSON_ARRAYAGG(S.COLUMN_NAME) AS INDEX_COLUMNS_ARRAY
+                  FROM
+                      INFORMATION_SCHEMA.STATISTICS S
+                  WHERE
+                      S.TABLE_SCHEMA = T.TABLE_SCHEMA AND S.TABLE_NAME = T.TABLE_NAME
+                  GROUP BY
+                      S.TABLE_SCHEMA, S.TABLE_NAME, S.INDEX_NAME
+              ) AS IndexData
+              ORDER BY IndexData.INDEX_NAME
+          )
+      ) USING utf8mb4) AS object_details
+  FROM
+      INFORMATION_SCHEMA.TABLES T
+  WHERE
+      T.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+      AND T.TABLE_TYPE = 'BASE TABLE'
+  ORDER BY
+      T.TABLE_SCHEMA, T.TABLE_NAME;
+---
+kind: toolset
+name: tdsql_database_tools
+tools:
+- execute_sql
+- list_tables

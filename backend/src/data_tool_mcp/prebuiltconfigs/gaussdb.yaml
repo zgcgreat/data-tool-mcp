@@ -1,0 +1,145 @@
+# GaussDB prebuilt config — 华为云分布式数据库 (PostgreSQL 兼容协议)
+
+kind: source
+name: gaussdb-source
+type: gaussdb
+host: ${GAUSSDB_HOST:localhost}
+port: ${GAUSSDB_PORT:5432}
+database: ${GAUSSDB_DATABASE}
+user: ${GAUSSDB_USER}
+password: ${GAUSSDB_PASSWORD}
+---
+kind: tool
+name: execute_sql
+type: gaussdb-execute-sql
+source: gaussdb-source
+description: 使用此工具在 GaussDB 上执行 SQL 语句（可能修改数据）。
+---
+kind: tool
+name: list_tables
+type: gaussdb-sql
+source: gaussdb-source
+description: 以 JSON 格式列出 GaussDB 数据库中用户创建的表的详细 Schema 信息（对象类型、列、约束、索引、所有者、注释）。支持按表名列表过滤，省略则列出所有用户 Schema 中的表。
+statement: |
+  SELECT
+      n.nspname AS schema_name,
+      c.relname AS object_name,
+      CASE c.relkind
+          WHEN 'r' THEN 'TABLE'
+          WHEN 'p' THEN 'PARTITIONED TABLE'
+          WHEN 'v' THEN 'VIEW'
+          WHEN 'm' THEN 'MATERIALIZED VIEW'
+          WHEN 'i' THEN 'INDEX'
+          WHEN 'S' THEN 'SEQUENCE'
+          ELSE c.relkind::text
+      END AS object_type,
+      pg_get_userbyid(c.relowner) AS owner,
+      obj_description(c.oid, 'pg_class') AS comment,
+      (
+          SELECT json_agg(
+              json_build_object(
+                  'column_name', a.attname,
+                  'data_type', pg_catalog.format_type(a.atttypid, a.atttypmod),
+                  'ordinal_position', a.attnum,
+                  'is_not_nullable', NOT a.attnotnull,
+                  'column_default', pg_get_expr(d.adbin, d.adrelid),
+                  'column_comment', col_description(a.attrelid, a.attnum)
+              )
+          )
+          FROM pg_attribute a
+          LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+          WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+      ) AS columns,
+      (
+          SELECT json_agg(
+              json_build_object(
+                  'index_name', ic.relname,
+                  'is_unique', NOT ix.indisunique,
+                  'is_primary', ix.indisprimary,
+                  'index_columns', (
+                      SELECT array_agg(pg_get_indexdef(ix.indexrelid, k + 1, true))
+                      FROM generate_subscripts(ix.indkey, 1) AS k
+                  )
+              )
+          )
+          FROM pg_index ix
+          JOIN pg_class ic ON ic.oid = ix.indexrelid
+          WHERE ix.indrelid = c.oid
+      ) AS indexes
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('r', 'p', 'v', 'm')
+      AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+      AND n.nspname NOT LIKE 'pg_temp_%'
+      AND n.nspname NOT LIKE 'pg_toast_temp_%'
+  ORDER BY n.nspname, c.relname;
+---
+kind: tool
+name: list_active_queries
+type: gaussdb-sql
+source: gaussdb-source
+description: 列出 pg_stat_activity 中当前正在运行的查询（state='active'），按运行时间从长到短排序。返回 pid、用户、数据库、应用名、客户端地址、状态、查询开始时间、查询持续时间以及 SQL 文本。
+statement: |
+  SELECT
+      pid,
+      usename AS user_name,
+      datname AS database_name,
+      application_name,
+      client_addr,
+      state,
+      query_start,
+      NOW() - query_start AS query_duration,
+      query
+  FROM pg_stat_activity
+  WHERE state = 'active'
+  ORDER BY query_start ASC
+  LIMIT 50;
+---
+kind: tool
+name: list_locks
+type: gaussdb-sql
+source: gaussdb-source
+description: 列出 GaussDB 中活跃进程持有的锁信息，包括进程 ID、用户、查询文本以及锁的类型和授予状态。
+statement: |
+  SELECT
+      a.pid,
+      a.usename AS user_name,
+      a.query,
+      l.locktype,
+      l.relation::regclass AS relation,
+      l.mode,
+      l.granted
+  FROM pg_locks l
+  JOIN pg_stat_activity a ON a.pid = l.pid
+  ORDER BY a.pid;
+---
+kind: tool
+name: long_running_transactions
+type: gaussdb-sql
+source: gaussdb-source
+description: 识别并列出超过指定时间限制（默认 60 秒）的数据库事务。对于每个长时间运行的事务，输出包含进程 ID、数据库名、用户名、状态、事务时长、查询时长以及查询字符串。
+statement: |
+  SELECT
+      pid,
+      datname AS database_name,
+      usename AS user_name,
+      application_name,
+      state,
+      xact_start,
+      NOW() - xact_start AS transaction_duration,
+      query_start,
+      NOW() - query_start AS query_duration,
+      query
+  FROM pg_stat_activity
+  WHERE xact_start IS NOT NULL
+      AND NOW() - xact_start > INTERVAL '60 seconds'
+  ORDER BY xact_start ASC;
+---
+kind: toolset
+name: gaussdb_database_tools
+tools:
+- execute_sql
+- list_tables
+- list_active_queries
+- list_locks
+- long_running_transactions

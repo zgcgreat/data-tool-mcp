@@ -153,6 +153,20 @@ SOURCE_TYPE_SCHEMAS: dict[str, list[dict[str, Any]]] = {
         {"name": "user", "label": "用户名", "type": "text", "required": True},
         {"name": "password", "label": "密码", "type": "password"},
     ],
+    "tdsql": [
+        {"name": "host", "label": "主机", "type": "text", "default": "localhost"},
+        {"name": "port", "label": "端口", "type": "number", "default": 3306},
+        {"name": "database", "label": "数据库名", "type": "text", "required": True},
+        {"name": "user", "label": "用户名", "type": "text", "required": True},
+        {"name": "password", "label": "密码", "type": "password"},
+    ],
+    "gaussdb": [
+        {"name": "host", "label": "主机", "type": "text", "default": "localhost"},
+        {"name": "port", "label": "端口", "type": "number", "default": 5432},
+        {"name": "database", "label": "数据库名", "type": "text", "required": True},
+        {"name": "user", "label": "用户名", "type": "text", "required": True},
+        {"name": "password", "label": "密码", "type": "password"},
+    ],
     "trino": [
         {"name": "host", "label": "主机", "type": "text", "default": "localhost"},
         {"name": "port", "label": "端口", "type": "number", "default": 8080},
@@ -253,6 +267,14 @@ SOURCE_TYPE_SCHEMAS: dict[str, list[dict[str, Any]]] = {
     "dgraph": [
         {"name": "address", "label": "地址", "type": "text", "default": "localhost:9080"},
     ],
+    "hbase": [
+        {"name": "host", "label": "主机", "type": "text", "default": "localhost"},
+        {"name": "port", "label": "端口", "type": "number", "default": 9090},
+        {"name": "tablePrefix", "label": "表名前缀", "type": "text",
+         "placeholder": "可选,用于多租户隔离"},
+        {"name": "protocol", "label": "协议", "type": "text", "default": "binary"},
+        {"name": "transport", "label": "传输方式", "type": "text", "default": "buffered"},
+    ],
     "http": [
         {"name": "url", "label": "URL", "type": "text", "required": True,
          "placeholder": "https://api.example.com"},
@@ -338,6 +360,10 @@ async def _auto_create_tools(rm, src_type: str, name: str) -> list[str]:
     """
     created: list[str] = []
 
+    # 从数据源配置中提取 systemId,注入到 tool_data 中便于持久化
+    src_cfg = rm.get_source_config(name) or {}
+    tool_system_id = str(src_cfg.get("systemId", "") or "").strip()
+
     prebuilt = _load_prebuilt_tools(src_type)
     if prebuilt is not None:
         for doc in prebuilt:
@@ -356,6 +382,8 @@ async def _auto_create_tools(rm, src_type: str, name: str) -> list[str]:
             }
             tool_data["name"] = tool_name
             tool_data["source"] = name
+            if tool_system_id:
+                tool_data["systemId"] = tool_system_id
             tool_data.setdefault(
                 "description",
                 f"Auto-generated {tool_type} tool for source '{name}'.",
@@ -383,6 +411,8 @@ async def _auto_create_tools(rm, src_type: str, name: str) -> list[str]:
             "source": name,
             "description": f"Auto-generated {tool_type} tool for source '{name}'.",
         }
+        if tool_system_id:
+            tool_data["systemId"] = tool_system_id
         try:
             tool_config = decode_tool_config(tool_type, tool_name, tool_data)
             tool = await tool_config.initialize()
@@ -413,6 +443,9 @@ async def dashboard(request: Request) -> dict[str, Any]:
         "todayRequests": today_requests,
         "sourceHealth": [],
         "recentErrors": [],
+        # MCP 服务实际监听端口 — 前端据此构造 MCP 端点 URL,
+        # 避免误用前端/nginx 端口（如 5173/8080）。
+        "mcpPort": config.port,
     }
 
 
@@ -434,6 +467,38 @@ async def health(request: Request) -> dict[str, Any]:
 @router.get("/source-types")
 async def source_types() -> dict[str, Any]:
     return {k: {"fields": v} for k, v in SOURCE_TYPE_SCHEMAS.items()}
+
+
+@router.get("/systems")
+async def list_systems(request: Request) -> list[dict[str, Any]]:
+    """列出所有系统编号及其数据源数量,供 MCP 配置按系统筛选使用。"""
+    rm = _get_rm(request)
+    configs = rm.get_all_source_configs()
+    systems: dict[str, dict[str, Any]] = {}
+    for name, cfg in configs.items():
+        sid = str(cfg.get("systemId", "") or "").strip()
+        if not sid:
+            continue
+        if sid not in systems:
+            systems[sid] = {"systemId": sid, "sourceCount": 0, "sources": []}
+        systems[sid]["sourceCount"] += 1
+        systems[sid]["sources"].append(name)
+    # 按系统编号排序返回
+    return sorted(systems.values(), key=lambda x: x["systemId"])
+
+
+@router.get("/systems/{system_id}/sources")
+async def list_sources_by_system(request: Request, system_id: str) -> list[dict[str, Any]]:
+    """按系统编号列出该系统下所有数据源。"""
+    rm = _get_rm(request)
+    configs = rm.get_all_source_configs()
+    result: list[dict[str, Any]] = []
+    sources = rm.get_sources_map()
+    for name, cfg in configs.items():
+        sid = str(cfg.get("systemId", "") or "").strip()
+        if sid == system_id and name in sources:
+            result.append(_source_to_dict(name, sources[name], rm))
+    return result
 
 
 def _source_to_dict(name: str, source: Any, rm=None) -> dict[str, Any]:
@@ -475,11 +540,22 @@ async def create_source(request: Request) -> dict[str, Any]:
     body = await request.json()
     name = body.get("name", "")
     src_type = body.get("type", "")
+    system_id = str(body.get("systemId", "") or "").strip()
     if not name or not src_type:
         raise HTTPException(status_code=400, detail="name and type are required")
+    if not system_id:
+        raise HTTPException(status_code=400, detail="systemId is required")
+    if len(system_id) > 10:
+        raise HTTPException(status_code=400, detail="systemId 长度不能超过 10 位")
     rm = _get_rm(request)
-    if name in rm.get_sources_map():
-        raise HTTPException(status_code=409, detail=f"source {name!r} already exists")
+    # 数据源主键包含系统编号: 同一系统下数据源名不可重复,不同系统可同名
+    existing_sources = rm.get_sources_map()
+    for existing_name, existing_config in rm.get_all_source_configs().items():
+        if existing_name == name and existing_config.get("systemId") == system_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"系统 {system_id} 下数据源 {name!r} 已存在",
+            )
     # Normalize field names: frontend sends "database" for sqlite, backend expects "path"
     config_data = {k: v for k, v in body.items() if k not in ("name", "type")}
     if src_type == "sqlite" and "database" in config_data and "path" not in config_data:
@@ -800,19 +876,30 @@ async def mcp_test(request: Request) -> dict[str, Any]:
 
     内部构造 MCPProtocol 并调用 handle_tools_list，与真实 MCP 客户端
     调用 /sse 或 / 端点的 tools/list 方法走完全相同的代码路径。
+
+    过滤逻辑与 MCP 路由一致：
+      - 选了数据源(toolset) → 按数据源 toolset 过滤
+      - 仅选系统编号(systemId) → 按系统编号 toolset 过滤
+      - 都未选 → 返回全部工具
     """
     body = await request.json()
     toolset_name = body.get("toolset", "") or ""
+    system_id = str(body.get("systemId", "") or "").strip()
     rm = _get_rm(request)
 
+    # 确定最终用于过滤的 toolset 名称:
+    #   选了数据源 → 用数据源名(数据源本身就是一个 toolset)
+    #   仅选系统编号 → 用系统编号(系统编号本身也是一个 toolset)
+    effective_toolset = toolset_name or system_id
+
     # 如果指定了 toolset，先校验其是否存在
-    if toolset_name:
-        toolset = rm.get_toolset(toolset_name)
+    if effective_toolset:
+        toolset = rm.get_toolset(effective_toolset)
         if toolset is None:
-            raise HTTPException(status_code=404, detail=f"toolset {toolset_name!r} not found")
+            raise HTTPException(status_code=404, detail=f"toolset {effective_toolset!r} not found")
 
     from data_tool_mcp.server.mcp.protocol import MCPProtocol
-    protocol = MCPProtocol(rm, toolset_name=toolset_name)
+    protocol = MCPProtocol(rm, toolset_name=effective_toolset)
     result = await protocol.handle_tools_list({})
     tools = result.get("tools", [])
     return {
@@ -827,17 +914,135 @@ async def list_toolsets(request: Request) -> list[dict[str, Any]]:
     """列出所有 toolset（工具集），供 MCP 配置的 toolset 选择下拉框使用。
 
     返回每个 toolset 的名称和工具数量。空名 toolset（默认包含所有工具）
-    显示为 "全部工具"。
+    显示为 "全部工具"。标注 toolset 类型(source/system/custom)以便前端分组。
     """
     rm = _get_rm(request)
     toolsets = rm.get_toolsets_map()
+    source_names = set(rm.get_sources_map().keys())
+    configs = rm.get_all_source_configs()
+    system_ids = {
+        str(cfg.get("systemId", "") or "").strip()
+        for cfg in configs.values()
+        if str(cfg.get("systemId", "") or "").strip()
+    }
     result: list[dict[str, Any]] = []
     for name, toolset in toolsets.items():
+        # 判断 toolset 类型
+        if not name:
+            ts_type = "all"
+        elif name in system_ids:
+            ts_type = "system"
+        elif name in source_names:
+            ts_type = "source"
+        else:
+            ts_type = "custom"
         result.append({
             "name": name,
             "displayName": "全部工具" if not name else name,
             "toolCount": len(toolset.tool_names),
+            "type": ts_type,
         })
+    # 排序: 全部 → system → source → custom, 每组内按名称排序
+    type_order = {"all": 0, "system": 1, "source": 2, "custom": 3}
+    result.sort(key=lambda x: (type_order.get(x["type"], 9), x["name"]))
+    return result
+
+
+@router.get("/mcp-stats")
+async def mcp_stats(
+    request: Request,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    system_id: str = "",
+    source_name: str = "",
+) -> dict[str, Any]:
+    """MCP 请求统计接口 — 支持按系统、数据源、日期范围聚合查询。
+
+    参数:
+        start_date: YYYY-MM-DD（含），默认今天往前 30 天
+        end_date:   YYYY-MM-DD（含），默认今天
+        system_id:  筛选系统编号，空串表示不限
+        source_name: 筛选数据源名称，空串表示不限
+
+    返回:
+        summary / by_system / by_source / by_tool / timeline
+    """
+    from datetime import date, timedelta
+
+    store = get_store()
+    if store is None or not store.is_persistent:
+        return {
+            "summary": {"total": 0, "success": 0, "fail": 0, "avg_latency_ms": 0},
+            "by_system": [],
+            "by_source": [],
+            "by_tool": [],
+            "timeline": [],
+            "note": "未启用持久化存储，无法统计 MCP 请求",
+        }
+
+    today = date.today()
+    if not end_date:
+        end_date = today.strftime("%Y-%m-%d")
+    if not start_date:
+        start_date = (today - timedelta(days=29)).strftime("%Y-%m-%d")
+
+    result = await store.query_mcp_stats(
+        start_date=start_date,
+        end_date=end_date,
+        system_id=system_id.strip(),
+        source_name=source_name.strip(),
+    )
+    result["start_date"] = start_date
+    result["end_date"] = end_date
+    return result
+
+
+@router.get("/mcp-logs")
+async def mcp_logs(
+    request: Request,
+    page: int = 1,
+    page_size: int = 20,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    system_id: str = "",
+    source_name: str = "",
+) -> dict[str, Any]:
+    """MCP 请求记录分页查询 — 最新记录排在最前面。
+
+    参数:
+        page: 页码（从 1 开始）
+        page_size: 每页条数（最大 100）
+        start_date / end_date / system_id / source_name: 筛选条件（与 mcp-stats 共享）
+    """
+    from datetime import date, timedelta
+
+    store = get_store()
+    if store is None or not store.is_persistent:
+        return {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": 1,
+            "note": "未启用持久化存储，无法查询 MCP 请求记录",
+        }
+
+    today = date.today()
+    if not end_date:
+        end_date = today.strftime("%Y-%m-%d")
+    if not start_date:
+        start_date = (today - timedelta(days=29)).strftime("%Y-%m-%d")
+
+    result = await store.query_mcp_logs(
+        page=page,
+        page_size=page_size,
+        start_date=start_date,
+        end_date=end_date,
+        system_id=system_id.strip(),
+        source_name=source_name.strip(),
+    )
+    result["start_date"] = start_date
+    result["end_date"] = end_date
     return result
 
 

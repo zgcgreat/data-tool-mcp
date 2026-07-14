@@ -5,8 +5,6 @@ Maps to Go: internal/server/server.go middleware functions.
 
 from __future__ import annotations
 
-import hmac
-
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -114,55 +112,3 @@ class _BodyTooLargeError(Exception):
         self.received = received
         self.limit = limit
         super().__init__(f"body size {received} exceeds limit {limit}")
-
-
-class APIKeyAuthMiddleware(BaseHTTPMiddleware):
-    """Global API key authentication middleware.
-
-    When ``api_key`` is configured, all requests (except health checks and
-    OPTIONS preflight) must include a valid API key in one of:
-      - ``X-API-Key`` header
-      - ``Authorization: Bearer <key>`` header
-
-    When ``api_key`` is empty (default), authentication is disabled — this
-    matches the "enterprise intranet" trust model, but should be combined
-    with network isolation / reverse proxy in production.
-
-    Maps to Go: API key validation in server.go request handlers.
-    """
-
-    # Paths that are always accessible without auth (health checks)
-    _PUBLIC_PATHS = frozenset({"/admin/health"})
-
-    def __init__(self, app, api_key: str = ""):
-        super().__init__(app)
-        self.api_key = api_key
-
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # No API key configured → auth disabled (intranet trust model)
-        if not self.api_key:
-            return await call_next(request)
-
-        # OPTIONS preflight always passes
-        if request.method == "OPTIONS":
-            return await call_next(request)
-
-        # Health check endpoints are always public
-        if request.url.path in self._PUBLIC_PATHS:
-            return await call_next(request)
-
-        # Extract the provided key from X-API-Key or Authorization: Bearer
-        provided = request.headers.get("x-api-key", "")
-        if not provided:
-            auth = request.headers.get("authorization", "")
-            if auth.startswith("Bearer "):
-                provided = auth[7:]
-
-        # Constant-time comparison to prevent timing attacks
-        if not provided or not hmac.compare_digest(provided, self.api_key):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid or missing API key. Provide it via 'X-API-Key' header or 'Authorization: Bearer <key>'."},
-            )
-
-        return await call_next(request)

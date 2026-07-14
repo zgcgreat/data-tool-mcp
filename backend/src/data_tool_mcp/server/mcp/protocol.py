@@ -151,11 +151,15 @@ class MCPProtocol:
     """
 
     def __init__(self, resource_manager: Any, version: str = DEFAULT_MCP_VERSION,
-                 toolset_name: str = "", access_token: str = ""):
+                 toolset_name: str = "", access_token: str = "",
+                 system_id: str = "", client_addr: str = ""):
         from data_tool_mcp.resources import ResourceManager
         self.rm: ResourceManager = resource_manager
         self.toolset_name = toolset_name
         self.access_token = access_token
+        # 请求上下文（用于统计日志埋点）
+        self.system_id = system_id
+        self.client_addr = client_addr
         self.version_config = MCP_VERSIONS.get(version)
         if not self.version_config:
             # Graceful degradation: fall back to latest stable version
@@ -317,36 +321,49 @@ class MCPProtocol:
         If toolset_name is set, only return tools in that toolset.
         Maps to Go: handleToolsList (filters by toolset).
         """
-        if self.toolset_name:
-            tools = {
-                t.name: t for t in self.rm.get_toolset_tools(self.toolset_name)
-            }
-        else:
-            tools = self.rm.get_tools_map()
+        import time
+        t0 = time.monotonic()
+        success = True
+        try:
+            if self.toolset_name:
+                tools = {
+                    t.name: t for t in self.rm.get_toolset_tools(self.toolset_name)
+                }
+            else:
+                tools = self.rm.get_tools_map()
 
-        tool_list = []
-        for tool_name, tool in tools.items():
-            manifest = tool.manifest()
-            tool_entry: dict[str, Any] = {
-                "name": tool.name,
-                "description": manifest.description,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        p.name: {"type": p.type, "description": p.description}
-                        for p in manifest.parameters
+            tool_list = []
+            for tool_name, tool in tools.items():
+                manifest = tool.manifest()
+                tool_entry: dict[str, Any] = {
+                    "name": tool.name,
+                    "description": manifest.description,
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            p.name: {"type": p.type, "description": p.description}
+                            for p in manifest.parameters
+                        },
+                        "required": [p.name for p in manifest.parameters if p.required],
                     },
-                    "required": [p.name for p in manifest.parameters if p.required],
-                },
-            }
-            # Include annotations if available (MCP 2025-06-18+)
-            annotations = tool.get_annotations()
-            if annotations:
-                annot_dict = annotations.to_dict()
-                if annot_dict:
-                    tool_entry["annotations"] = annot_dict
-            tool_list.append(tool_entry)
-        return {"tools": tool_list}
+                }
+                # Include annotations if available (MCP 2025-06-18+)
+                annotations = tool.get_annotations()
+                if annotations:
+                    annot_dict = annotations.to_dict()
+                    if annot_dict:
+                        tool_entry["annotations"] = annot_dict
+                tool_list.append(tool_entry)
+            return {"tools": tool_list}
+        except Exception:
+            success = False
+            raise
+        finally:
+            await self._log_request(
+                method="tools/list",
+                success=success,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+            )
 
     async def handle_tools_call(self, params: dict[str, Any]) -> dict[str, Any]:
         """Handle MCP tools/call — execute a tool.
@@ -355,20 +372,56 @@ class MCPProtocol:
         Extracts access_token from the Authorization header (set by
         mcp_routes) and passes it to tool.invoke(), matching Go's
         AccessToken extraction and RequiresClientAuthorization check.
+
+        安全校验: 当连接绑定了 toolset(系统编号或数据源)时,
+        必须确认请求调用的工具属于该 toolset,防止跨系统/跨数据源调用。
+        未找到时统一返回 "tool not found",避免泄露工具存在性信息。
         """
+        import time
         tool_name = params.get("name", "")
         arguments = params.get("arguments", {})
+        t0 = time.monotonic()
+        success = True
+        error_msg = ""
+
+        # 安全校验: toolset 隔离 — 只允许调用当前 toolset 内的工具
+        if self.toolset_name:
+            toolset_tools = self.rm.get_toolset_tools(self.toolset_name)
+            allowed_names = {t.name for t in toolset_tools}
+            if tool_name not in allowed_names:
+                await self._log_request(
+                    method="tools/call", tool_name=tool_name, success=False,
+                    latency_ms=int((time.monotonic() - t0) * 1000),
+                    error_msg=f"tool not found: {tool_name}",
+                )
+                return {
+                    "isError": True,
+                    "content": [{"type": "text", "text": f"tool not found: {tool_name}"}],
+                }
 
         tool = self.rm.get_tool(tool_name)
         if not tool:
+            await self._log_request(
+                method="tools/call", tool_name=tool_name, success=False,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                error_msg=f"tool not found: {tool_name}",
+            )
             return {
                 "isError": True,
                 "content": [{"type": "text", "text": f"tool not found: {tool_name}"}],
             }
 
+        # 反查数据源名称（用于统计维度）
+        source_name = getattr(tool, "source_name", "") or ""
+
         # Check if this tool requires client-provided authorization
         # Maps to Go: tool.RequiresClientAuthorization(resourceMgr)
         if tool.requires_client_authorization(source_provider=self.rm) and not self.access_token:
+            await self._log_request(
+                method="tools/call", tool_name=tool_name, source_name=source_name,
+                success=False, latency_ms=int((time.monotonic() - t0) * 1000),
+                error_msg="missing access token",
+            )
             raise ClientServerError(
                 "missing access token in the 'Authorization' header",
                 http_status=401,
@@ -386,15 +439,83 @@ class MCPProtocol:
                 "content": [{"type": "text", "text": str(result)}],
             }
         except ToolboxError as exc:
+            success = False
+            error_msg = exc.message
             return {
                 "isError": True,
                 "content": [{"type": "text", "text": f"tool error: {exc.message}"}],
             }
         except Exception as exc:
+            success = False
+            error_msg = str(exc)
             return {
                 "isError": True,
                 "content": [{"type": "text", "text": f"tool error: {exc}"}],
             }
+        finally:
+            await self._log_request(
+                method="tools/call",
+                tool_name=tool_name,
+                source_name=source_name,
+                success=success,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                error_msg=error_msg,
+            )
+
+    async def _log_request(
+        self,
+        *,
+        method: str,
+        tool_name: str = "",
+        source_name: str = "",
+        success: bool = True,
+        latency_ms: int = 0,
+        error_msg: str = "",
+    ) -> None:
+        """异步写入 MCP 请求日志（失败静默，不影响主流程）。
+
+        当 system_id 为空时（客户端连 /{sourceName}/sse 而非 /{systemId}/{sourceName}/sse），
+        从 source_name 或 toolset_name 反查 system_id，确保统计维度完整。
+        """
+        try:
+            from data_tool_mcp.config.store import get_store
+            store = get_store()
+            if store is None or not store.is_persistent:
+                return
+
+            resolved_system = self.system_id
+            resolved_source = source_name
+
+            # system_id 为空时尝试反查
+            if not resolved_system:
+                if resolved_source:
+                    # 从 source_name 反查 system_id
+                    config = self.rm.get_source_config(resolved_source)
+                    if config:
+                        resolved_system = str(config.get("systemId", ""))
+                elif self.toolset_name:
+                    # tools/list 没有 source_name: 尝试把 toolset_name 当 sourceName 查
+                    config = self.rm.get_source_config(self.toolset_name)
+                    if config:
+                        resolved_source = self.toolset_name
+                        resolved_system = str(config.get("systemId", ""))
+                    else:
+                        # toolset_name 不是 sourceName,可能是 systemId
+                        resolved_system = self.toolset_name
+
+            await store.log_mcp_request(
+                system_id=resolved_system,
+                source_name=resolved_source,
+                tool_name=tool_name,
+                method=method,
+                success=success,
+                latency_ms=latency_ms,
+                client_addr=self.client_addr,
+                error_msg=error_msg,
+            )
+        except Exception:
+            # 日志写入失败不影响主流程
+            pass
 
     async def handle_completion(self, params: dict[str, Any]) -> dict[str, Any]:
         """Handle MCP completion/complete."""

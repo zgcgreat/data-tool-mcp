@@ -50,6 +50,7 @@ from data_tool_mcp.tools import cloudgda_tools as _cloudgda_tools  # noqa: F401
 from data_tool_mcp.tools import dataform_tools as _dataform_tools  # noqa: F401
 from data_tool_mcp.tools import alloydb_ainl_tools as _alloydb_ainl_tools  # noqa: F401
 from data_tool_mcp.tools import wait_tools as _wait_tools  # noqa: F401
+from data_tool_mcp.tools import hbase_tools as _hbase_tools  # noqa: F401
 
 __all__ = [
     "BaseTool",

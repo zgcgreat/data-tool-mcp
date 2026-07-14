@@ -144,6 +144,12 @@ _TOOL_DEFS: list[tuple[str, str, str, dict[str, Any]]] = [
     # OceanBase (2)
     ("oceanbase-sql", "Run a read-only SQL query on OceanBase", "sql", {}),
     ("oceanbase-execute-sql", "Execute a SQL statement on OceanBase", "exec", {}),
+    # TDSQL (2) — 腾讯云分布式数据库,兼容 MySQL 协议
+    ("tdsql-sql", "Run a read-only SQL query on TDSQL", "sql", {}),
+    ("tdsql-execute-sql", "Execute a SQL statement on TDSQL", "exec", {}),
+    # GaussDB (2) — 华为云分布式数据库,兼容 PostgreSQL 协议
+    ("gaussdb-sql", "Run a read-only SQL query on GaussDB", "sql", {}),
+    ("gaussdb-execute-sql", "Execute a SQL statement on GaussDB", "exec", {}),
     # Trino (2)
     ("trino-sql", "Run a read-only SQL query on Trino", "sql", {}),
     ("trino-execute-sql", "Execute a SQL statement on Trino", "exec", {}),

@@ -12,6 +12,12 @@
   font-size: 12px;
 }
 
+.tools-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 /* --- Layout: 320px list + 1fr detail --- */
 
 .tools-layout {

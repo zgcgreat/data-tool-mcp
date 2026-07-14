@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { fetchSources, executeQuery, fetchSourceTables } from '../api/client';
+import { fetchSources, executeQuery, fetchSourceTables, fetchSystems } from '../api/client';
+import type { SystemInfo } from '../api/client';
 import { toast } from '../components/Toast';
 import type { SourceInfo, QueryResult } from '../api/types';
 import './QueryConsole.css';
@@ -69,6 +70,8 @@ function SearchIcon() {
 export default function QueryConsole() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [selectedSource, setSelectedSource] = useState<string>('');
+  const [selectedSystemId, setSelectedSystemId] = useState('');
+  const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [sql, setSql] = useState('');
   const [result, setResult] = useState<QueryResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -84,6 +87,9 @@ export default function QueryConsole() {
     fetchSources()
       .then(setSources)
       .catch(() => toast.error('加载数据源失败'));
+    fetchSystems()
+      .then(setSystems)
+      .catch(() => { /* 静默失败 */ });
   }, []);
 
   useEffect(() => {
@@ -132,6 +138,11 @@ export default function QueryConsole() {
     }
   };
 
+  const handleSystemChange = (sid: string) => {
+    setSelectedSystemId(sid);
+    setSelectedSource('');
+  };
+
   const handleClearHistory = () => {
     setHistory([]);
     localStorage.removeItem('query_history');
@@ -172,7 +183,11 @@ export default function QueryConsole() {
     });
   };
 
-  const sqlSources = sources.filter((s) => SQL_SOURCE_TYPES.includes(s.type));
+  const sqlSources = sources.filter((s) => {
+    if (!SQL_SOURCE_TYPES.includes(s.type)) return false;
+    if (selectedSystemId && String(s.systemId || '') !== selectedSystemId) return false;
+    return true;
+  });
   const filteredTables = tableFilter.trim()
     ? tables.filter((t) => t.toLowerCase().includes(tableFilter.trim().toLowerCase()))
     : tables;
@@ -255,6 +270,23 @@ export default function QueryConsole() {
           <div className="qc-workspace card">
             <div className="qc-control-bar">
               <div className="qc-control-group">
+                {systems.length > 0 && (
+                  <div className="form-group qc-field">
+                    <label className="form-label">系统编号</label>
+                    <select
+                      className="form-select"
+                      value={selectedSystemId}
+                      onChange={(e) => handleSystemChange(e.target.value)}
+                    >
+                      <option value="">全部</option>
+                      {systems.map((sys) => (
+                        <option key={sys.systemId} value={sys.systemId}>
+                          {sys.systemId}（{sys.sourceCount} 个数据源）
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="form-group qc-field">
                   <label className="form-label">数据源</label>
                   <select

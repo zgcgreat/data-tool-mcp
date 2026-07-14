@@ -341,6 +341,19 @@ ul, ol { list-style: none; }
 .form-input::placeholder,
 .form-textarea::placeholder { color: var(--text-muted); }
 
+/* 禁用/只读字段灰显 */
+.form-input.input-disabled,
+.form-select.input-disabled {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  border-color: var(--border-subtle);
+}
+
+.form-input.input-disabled:hover {
+  border-color: var(--border-subtle);
+}
+
 .form-select {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ba6b3' d='M6 8L2 4h8z'/%3E%3C/svg%3E");

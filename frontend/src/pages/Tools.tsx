@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { fetchTools, getTool, invokeTool, deleteTool } from '../api/client';
+import { fetchTools, getTool, invokeTool, deleteTool, fetchSystems } from '../api/client';
+import type { SystemInfo } from '../api/client';
 import { toast } from '../components/Toast';
 import type { ToolInfo, ToolParam } from '../api/types';
 import './Tools.css';
@@ -62,10 +63,22 @@ export default function Tools() {
   const [invokeResult, setInvokeResult] = useState<string>('');
   const [invoking, setInvoking] = useState(false);
   const [filterSource, setFilterSource] = useState<string>('');
+  const [selectedSystemId, setSelectedSystemId] = useState('');
+  const [systems, setSystems] = useState<SystemInfo[]>([]);
 
   useEffect(() => {
     loadTools();
+    loadSystems();
   }, []);
+
+  const loadSystems = async () => {
+    try {
+      const data = await fetchSystems();
+      setSystems(data);
+    } catch {
+      // 静默失败
+    }
+  };
 
   const loadTools = async () => {
     try {
@@ -127,8 +140,37 @@ export default function Tools() {
     }
   };
 
-  const sourceNames = Array.from(new Set(tools.map(t => t.source).filter(Boolean))) as string[];
-  const filteredTools = filterSource ? tools.filter(t => t.source === filterSource) : tools;
+  // 构建数据源名 → 系统编号 的映射
+  const sourceToSystem = new Map<string, string>();
+  systems.forEach(sys => {
+    sys.sources.forEach(srcName => sourceToSystem.set(srcName, sys.systemId));
+  });
+
+  // 数据源下拉框跟随系统编号联动：选了系统编号时只显示该系统下的数据源
+  const sourceNames = Array.from(new Set(
+    tools
+      .map(t => t.source)
+      .filter((s): s is string => Boolean(s))
+      .filter(s => !selectedSystemId || sourceToSystem.get(s) === selectedSystemId)
+  ));
+
+  // 切换系统编号时清空已选数据源（避免不一致）
+  // 注意：需要在事件处理中清空，不能在这里直接 setFilterSource
+
+  // 工具筛选：先按系统编号，再按数据源
+  const filteredTools = tools.filter(t => {
+    if (selectedSystemId) {
+      const sysId = t.source ? sourceToSystem.get(t.source) : undefined;
+      if (sysId !== selectedSystemId) return false;
+    }
+    if (filterSource && t.source !== filterSource) return false;
+    return true;
+  });
+
+  const handleSystemChange = (sid: string) => {
+    setSelectedSystemId(sid);
+    setFilterSource('');
+  };
 
   const grouped: Record<ToolCategory, ToolInfo[]> = { oneclick: [], parameterized: [], sql: [] };
   filteredTools.forEach(t => {
@@ -155,20 +197,37 @@ export default function Tools() {
             工具
           </h1>
         </div>
-        {sourceNames.length > 0 && (
-          <select
-            className="form-select tools-filter"
-            value={filterSource}
-            onChange={e => setFilterSource(e.target.value)}
-            style={{ width: 'auto', minWidth: '200px' }}
-          >
-            <option value="">全部数据源 ({tools.length})</option>
-            {sourceNames.map(src => {
-              const count = tools.filter(t => t.source === src).length;
-              return <option key={src} value={src}>{src} ({count})</option>;
-            })}
-          </select>
-        )}
+        <div className="tools-filters">
+          {systems.length > 0 && (
+            <select
+              className="form-select tools-filter"
+              value={selectedSystemId}
+              onChange={e => handleSystemChange(e.target.value)}
+              style={{ width: 'auto', minWidth: '160px' }}
+            >
+              <option value="">全部系统</option>
+              {systems.map(sys => (
+                <option key={sys.systemId} value={sys.systemId}>
+                  {sys.systemId}（{sys.sourceCount} 个数据源）
+                </option>
+              ))}
+            </select>
+          )}
+          {sourceNames.length > 0 && (
+            <select
+              className="form-select tools-filter"
+              value={filterSource}
+              onChange={e => setFilterSource(e.target.value)}
+              style={{ width: 'auto', minWidth: '200px' }}
+            >
+              <option value="">全部数据源 ({filteredTools.length})</option>
+              {sourceNames.map(src => {
+                const count = filteredTools.filter(t => t.source === src).length;
+                return <option key={src} value={src}>{src} ({count})</option>;
+              })}
+            </select>
+          )}
+        </div>
       </div>
 
       <div className="tools-layout">

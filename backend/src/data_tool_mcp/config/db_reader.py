@@ -3,11 +3,9 @@
 Aligns with Go: internal/dbconfigreader/reader.go
 Expected table schema: see docker/init-mysql.sql
 
-  departments (id, name, display_name, created_at, updated_at)
-  sources     (id, dept_id, name, type, host, port, database, username, password, params TEXT)
-  tools       (id, dept_id, name, type, source_name, description, params TEXT)
-  toolsets    (id, dept_id, name, tool_names TEXT, created_at, updated_at)
-  api_keys    (id, dept_id, key_hash, description, ...)
+  sources     (id, system_id, name, type, host, port, database, username, password, params TEXT)
+  tools       (id, system_id, name, type, source_name, description, params TEXT)
+  toolsets    (id, system_id, name, tool_names TEXT, created_at, updated_at)
 
 Usage:
   1. Set TOOLBOX_CONFIG_DB_URL=mysql://user:pass@host:3306/configdb
@@ -18,7 +16,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import os
@@ -49,14 +46,13 @@ def _resolve_password(raw: str, env_passwords: dict[str, str]) -> str:
     return raw
 
 
-def _normalize_dept_name(name: str) -> str:
-    """Normalize a filePath-style name to department name.
+def _normalize_system_id(name: str) -> str:
+    """Normalize a filePath-style name to system_id.
 
-    Maps to Go: dbconfigreader.normalizeDeptName()
-    - "dept-orders.yaml" → "dept-orders"
-    - "configs/dept-orders.yml" → "dept-orders"
-    - "dept-orders" → "dept-orders"
-    - "all" or "" → "" (means load all departments)
+    - "system-001.yaml" → "system-001"
+    - "configs/system-001.yml" → "system-001"
+    - "system-001" → "system-001"
+    - "all" or "" → "" (means load all systems)
     """
     # Strip directory
     if "/" in name:
@@ -89,7 +85,7 @@ def _to_async_url(db_url: str) -> str:
 async def load_config_from_db(
     db_url: str | None = None,
     env_passwords_json: str | None = None,
-    dept_name: str | None = None,
+    system_id: str | None = None,
 ) -> dict[str, Any]:
     """Load configuration from MySQL database.
 
@@ -114,8 +110,8 @@ async def load_config_from_db(
         except json.JSONDecodeError as exc:
             raise ValueError(f"ENV_PASSWORDS is not valid JSON: {exc}") from exc
 
-    # Normalize dept_name
-    search_dept = _normalize_dept_name(dept_name or "")
+    # Normalize system_id
+    search_system = _normalize_system_id(system_id or "")
 
     # Convert to async URL
     async_url = _to_async_url(db_url)
@@ -135,54 +131,46 @@ async def load_config_from_db(
 
     try:
         async with session_factory() as session:
-            if search_dept:
-                # Load a single department
-                await _load_dept(session, search_dept, sources, tools, toolsets, env_passwords)
+            if search_system:
+                # Load a single system
+                await _load_system(session, search_system, sources, tools, toolsets, env_passwords)
             else:
-                # Load ALL departments
-                rows = await session.execute(text("SELECT name FROM departments ORDER BY name"))
+                # Load ALL systems — 查询 distinct system_id
+                rows = await session.execute(
+                    text("SELECT DISTINCT system_id FROM sources WHERE system_id != '' ORDER BY system_id")
+                )
                 for row in rows.fetchall():
                     try:
-                        await _load_dept(session, row[0], sources, tools, toolsets, env_passwords)
+                        await _load_system(session, row[0], sources, tools, toolsets, env_passwords)
                     except Exception as exc:
-                        logger.warning("skipping department %r: %s", row[0], exc)
+                        logger.warning("skipping system %r: %s", row[0], exc)
     finally:
         await engine.dispose()
 
     return {"sources": sources, "tools": tools, "toolsets": toolsets}
 
 
-async def _load_dept(
+async def _load_system(
     session: AsyncSession,
-    dept_name: str,
+    system_id: str,
     sources: dict[str, Any],
     tools: dict[str, Any],
     toolsets: dict[str, Any],
     env_passwords: dict[str, str],
 ) -> None:
-    """Load sources, tools, and toolset for a single department.
+    """Load sources, tools, and toolset for a single system_id.
 
     Maps to Go: dbconfigreader.readDept()
     """
-    # Look up department
-    row = await session.execute(
-        text("SELECT id FROM departments WHERE name = :name"),
-        {"name": dept_name},
-    )
-    dept_row = row.fetchone()
-    if dept_row is None:
-        raise ValueError(f"department {dept_name!r} not found")
-    dept_id = dept_row[0]
-
     # -- Sources --
     src_rows = await session.execute(
         text("""
             SELECT name, type, host, port, database, username, password, params
             FROM sources
-            WHERE dept_id = :dept_id
+            WHERE system_id = :system_id
             ORDER BY name
         """),
-        {"dept_id": dept_id},
+        {"system_id": system_id},
     )
     for src_row in src_rows.fetchall():
         name, src_type, host, port, database, username, password, params_json = src_row
@@ -191,6 +179,7 @@ async def _load_dept(
             "name": name,
             "type": src_type,
             "host": host,
+            "systemId": system_id,
         }
         if port and port > 0:
             src_config["port"] = port
@@ -220,10 +209,10 @@ async def _load_dept(
         text("""
             SELECT name, type, source_name, description, params
             FROM tools
-            WHERE dept_id = :dept_id
+            WHERE system_id = :system_id
             ORDER BY name
         """),
-        {"dept_id": dept_id},
+        {"system_id": system_id},
     )
     for tool_row in tool_rows.fetchall():
         name, tool_type, source_name, description, params_json = tool_row
@@ -249,9 +238,9 @@ async def _load_dept(
         text("""
             SELECT name, tool_names
             FROM toolsets
-            WHERE dept_id = :dept_id
+            WHERE system_id = :system_id
         """),
-        {"dept_id": dept_id},
+        {"system_id": system_id},
     )
     ts_row_data = ts_row.fetchone()
     if ts_row_data:
@@ -269,46 +258,6 @@ async def _load_dept(
         }
 
 
-async def resolve_dept_by_api_key(db_url: str, api_key: str) -> str | None:
-    """Resolve a department name from an api_key.
-
-    Looks up ``api_keys.key_hash = SHA256(api_key)`` — the exact same hashing
-    the Admin API uses when storing keys — joins to ``departments``, and returns
-    the department name. Expired keys (``expires_at < NOW()``) are rejected.
-    Returns ``None`` if the key is unknown or expired.
-
-    This is the consumer side of the ``api_keys`` table: pass an api_key at
-    Toolbox startup (``--api-key`` / ``TOOLBOX_API_KEY``) to bind the instance
-    to a single department, enforcing department-level isolation. The Admin API
-    issues these keys; the Toolbox never sees the plaintext again.
-
-    Args:
-        db_url: MySQL URL (env ``TOOLBOX_CONFIG_DB_URL``).
-        api_key: the raw api_key string (e.g. from ``X-API-Key`` or env).
-    """
-    key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
-    async_url = _to_async_url(db_url)
-
-    engine = create_async_engine(async_url, pool_recycle=3600, pool_pre_ping=True)
-    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    try:
-        async with session_factory() as session:
-            row = await session.execute(
-                text("""
-                    SELECT d.name
-                    FROM api_keys k
-                    JOIN departments d ON d.id = k.dept_id
-                    WHERE k.key_hash = :key_hash
-                      AND (k.expires_at IS NULL OR k.expires_at > NOW())
-                """),
-                {"key_hash": key_hash},
-            )
-            result = row.fetchone()
-            return result[0] if result else None
-    finally:
-        await engine.dispose()
-
-
 async def watch_config_changes(
     db_url: str,
     on_change: Callable[[], Awaitable[None]],
@@ -321,13 +270,6 @@ async def watch_config_changes(
     定期查询各表的 MAX(updated_at)，与上次记录的值比较，检测到变更则触发 on_change。
 
     Runs forever until the surrounding task is cancelled.
-
-    Args:
-        db_url: MySQL URL (env ``TOOLBOX_CONFIG_DB_URL``).
-        on_change: coroutine to invoke (debounced) when a change is detected.
-        env_passwords_json: JSON mapping for ``${VAR}`` resolution (unused here,
-            kept for signature parity with ``load_config_from_db``).
-        poll_interval: 轮询间隔（秒），默认 5 秒。
     """
     async_url = _to_async_url(db_url)
     engine = create_async_engine(
@@ -348,7 +290,7 @@ async def watch_config_changes(
             try:
                 async with session_factory() as session:
                     # 查询各表的 MAX(updated_at) 作为变更指纹
-                    tables = ["departments", "sources", "tools", "toolsets", "api_keys"]
+                    tables = ["sources", "tools", "toolsets"]
                     current_signature: dict[str, str] = {}
                     for table_name in tables:
                         row = await session.execute(

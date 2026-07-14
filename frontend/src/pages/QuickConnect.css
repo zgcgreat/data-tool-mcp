@@ -99,6 +99,25 @@
 
 /* --- DB type grid --- */
 
+.db-type-group {
+  margin-bottom: var(--space-6);
+}
+
+.db-type-group:last-child {
+  margin-bottom: 0;
+}
+
+.db-type-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .db-type-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -187,15 +206,32 @@
 /* --- Config form --- */
 
 .config-form {
-  padding: var(--space-6);
+  padding: var(--space-5) var(--space-6);
+}
+
+/* 两栏布局: 标识字段(左) + 连接字段(右),减少纵向高度避免滚动 */
+.config-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 var(--space-5);
+  align-items: start;
+}
+
+.config-form-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-form-col > .form-group:last-child {
+  margin-bottom: 0;
 }
 
 .config-form .form-group {
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .config-form .form-group:last-of-type {
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-4);
 }
 
 .form-actions {
@@ -419,6 +455,38 @@
   margin-left: var(--space-1);
 }
 
+/* 密码输入框 + 小眼睛切换 */
+.input-with-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-toggle .form-input {
+  width: 100%;
+  padding-right: 40px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.password-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
 /* URL 输入行 */
 .url-row {
   display: flex;
@@ -458,6 +526,7 @@
   .steps-indicator { flex-wrap: wrap; gap: var(--space-2); }
   .step-line { display: none; }
   .db-type-grid { grid-template-columns: 1fr; }
+  .config-form-grid { grid-template-columns: 1fr; gap: 0; }
   .form-actions { flex-direction: column; align-items: stretch; }
   .form-actions-right { justify-content: flex-end; }
   .finish-actions { flex-direction: column; }

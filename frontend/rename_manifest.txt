@@ -1,0 +1,13 @@
+./src/App.md|./src/App.tsx
+./src/api/client.txt|./src/api/client.ts
+./src/api/types.txt|./src/api/types.ts
+./src/components/Layout.md|./src/components/Layout.tsx
+./src/components/Toast.md|./src/components/Toast.tsx
+./src/main.md|./src/main.tsx
+./src/pages/Dashboard.md|./src/pages/Dashboard.tsx
+./src/pages/QueryConsole.md|./src/pages/QueryConsole.tsx
+./src/pages/QuickConnect.md|./src/pages/QuickConnect.tsx
+./src/pages/Sources.md|./src/pages/Sources.tsx
+./src/pages/Tools.md|./src/pages/Tools.tsx
+./src/vite-env.d.txt|./src/vite-env.d.ts
+./vite.config.txt|./vite.config.ts

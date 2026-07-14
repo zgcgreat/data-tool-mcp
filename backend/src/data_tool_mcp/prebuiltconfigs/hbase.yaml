@@ -1,0 +1,55 @@
+# HBase prebuilt config — Apache Hadoop 数据库 (通过 Thrift 接口访问)
+
+kind: source
+name: hbase-source
+type: hbase
+host: ${HBASE_HOST:localhost}
+port: ${HBASE_PORT:9090}
+protocol: ${HBASE_PROTOCOL:binary}
+transport: ${HBASE_TRANSPORT:buffered}
+---
+kind: tool
+name: list_tables
+type: hbase-list-tables
+source: hbase-source
+description: 列出 HBase 中所有用户表。
+---
+kind: tool
+name: describe_table
+type: hbase-describe-table
+source: hbase-source
+description: 描述 HBase 表的列族结构,包括每个列族的配置选项(如 max_versions)。
+---
+kind: tool
+name: scan
+type: hbase-scan
+source: hbase-source
+description: 扫描 HBase 表数据,支持行键前缀过滤、返回行数限制和指定列。以 JSON 格式返回行数据。
+---
+kind: tool
+name: get_row
+type: hbase-get-row
+source: hbase-source
+description: 获取 HBase 表中指定行键(Row Key)的数据,以 JSON 格式返回该行的所有列。
+---
+kind: tool
+name: put_row
+type: hbase-put-row
+source: hbase-source
+description: 向 HBase 表写入一行数据,需提供行键和列数据映射(格式: {"cf:qualifier": "value"})。
+---
+kind: tool
+name: delete_row
+type: hbase-delete-row
+source: hbase-source
+description: 删除 HBase 表中的整行或指定列。省略 columns 参数则删除整行,指定 columns 则仅删除对应列。
+---
+kind: toolset
+name: hbase_database_tools
+tools:
+- list_tables
+- describe_table
+- scan
+- get_row
+- put_row
+- delete_row

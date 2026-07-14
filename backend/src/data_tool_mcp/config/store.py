@@ -1,11 +1,12 @@
-"""配置持久化存储层 — 与 MCP 协议表（Config DB）统一的 Schema。
+"""配置持久化存储层 — 以 system_id（系统编号）为业务隔离维度。
 
 表结构与 docker/init-mysql.sql 完全对齐：
-  - departments  (id, name, display_name, created_at, updated_at)
-  - sources      (id, dept_id, name, type, host, port, database, username, password, params, ...)
-  - tools        (id, dept_id, name, type, source_name, description, params, ...)
-  - toolsets     (id, dept_id, name, tool_names, ...)
-  - api_keys     (id, dept_id, key_hash, description, created_at, expires_at)
+  - sources      (id, system_id, name, type, host, port, database, username, password, params, ...)
+  - tools        (id, system_id, name, type, source_name, description, params, ...)
+  - toolsets     (id, system_id, name, tool_names, ...)
+
+system_id 为 VARCHAR(10) 字符串，由用户在创建数据源时指定，
+替代了原 Go 版本中基于 departments 表的多租户隔离设计。
 
 通过 store_url 的 URL scheme 自动选择后端：
   - 未配置（空字符串） → 默认在当前工作目录创建 SQLite 文件 toolbox_data.db（零配置）
@@ -108,27 +109,16 @@ class Base(DeclarativeBase):
     pass
 
 
-class DepartmentRecord(Base):
-    """部门表 — 多租户隔离的核心。"""
-    __tablename__ = "departments"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(64), unique=True, nullable=False, index=True)
-    display_name = Column(String(128), nullable=False)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-
 class SourceRecord(Base):
     """数据源表 — 用户添加的数据库连接配置。
 
-    与系统 A 的 sources 表完全对齐：
     结构化字段（host/port/database/username/password）+ params（JSON 扩展参数）。
+    system_id 为业务隔离维度（系统编号，10 位字符串）。
     """
     __tablename__ = "sources"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    dept_id = Column(Integer, nullable=True, index=True)  # NULL = 默认部门（单租户模式）
+    system_id = Column(String(10), nullable=False, default="", index=True)  # 系统编号
     name = Column(String(128), nullable=False, index=True)
     type = Column(String(64), nullable=False)
     host = Column(String(255), nullable=False, default="")
@@ -144,13 +134,13 @@ class SourceRecord(Base):
 class ToolRecord(Base):
     """工具表 — MCP 工具定义。
 
-    与系统 A 的 tools 表完全对齐：
     source_name 引用 sources.name，params 存额外工具参数。
+    system_id 冗余存储，便于按系统编号查询工具。
     """
     __tablename__ = "tools"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    dept_id = Column(Integer, nullable=True, index=True)  # NULL = 默认部门
+    system_id = Column(String(10), nullable=False, default="", index=True)  # 系统编号
     name = Column(String(128), nullable=False, index=True)
     type = Column(String(64), nullable=False)
     source_name = Column(String(128), nullable=False, default="")
@@ -163,38 +153,37 @@ class ToolRecord(Base):
 class ToolsetRecord(Base):
     """工具集表 — 将工具聚合为 toolset。
 
-    与系统 A 的 toolsets 表对齐：
     tool_names 用逗号分隔字符串存储。
+    system_id 为业务隔离维度。
     """
     __tablename__ = "toolsets"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    dept_id = Column(Integer, nullable=True, index=True)
+    system_id = Column(String(10), nullable=False, default="", index=True)
     name = Column(String(128), nullable=False)
     tool_names = Column(Text, default="")  # 逗号分隔
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
-class ApiKeyRecord(Base):
-    """API 密钥表 — 员工访问鉴权。
+class McpRequestLogRecord(Base):
+    """MCP 请求日志表 — 记录每次 MCP 协议调用，用于统计审计。
 
-    与系统 A 的 api_keys 表完全对齐：
-    key_hash = SHA256(原始密钥)。
+    每条记录对应一次 tools/list 或 tools/call 请求。
+    system_id / source_name / tool_name 为请求上下文维度。
     """
-    __tablename__ = "api_keys"
+    __tablename__ = "mcp_request_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    dept_id = Column(Integer, nullable=True, index=True)
-    key_hash = Column(String(128), unique=True, nullable=False)
-    description = Column(String(255), default="")
-    created_at = Column(DateTime, server_default=func.now())
-    expires_at = Column(DateTime, nullable=True)
-
-
-# --- 默认部门 ID（单租户模式下使用）---
-_DEFAULT_DEPT_NAME = "default"
-_default_dept_id_cache: int | None = None
+    system_id = Column(String(10), nullable=False, default="", index=True)
+    source_name = Column(String(128), nullable=False, default="", index=True)
+    tool_name = Column(String(128), nullable=False, default="")
+    method = Column(String(32), nullable=False)  # tools/list, tools/call 等
+    success = Column(Integer, nullable=False, default=1)  # 1 成功 0 失败
+    latency_ms = Column(Integer, nullable=False, default=0)
+    client_addr = Column(String(64), nullable=False, default="")
+    error_msg = Column(Text, default="")
+    created_at = Column(DateTime, server_default=func.now(), index=True)
 
 
 class ConfigStore:
@@ -268,8 +257,6 @@ class ConfigStore:
         )
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        # 确保默认部门存在（单租户模式）
-        await self._ensure_default_dept()
         logger.info("ConfigStore: 初始化完成，表已就绪")
 
     async def close(self) -> None:
@@ -283,45 +270,23 @@ class ConfigStore:
         """是否为持久化存储（文件/MySQL）。内存 SQLite 视为非持久化。"""
         return ":memory:" not in self._url
 
-    async def _ensure_default_dept(self) -> None:
-        """确保默认部门存在（单租户模式下 dept_id 使用此 ID）。"""
-        global _default_dept_id_cache
-        if _default_dept_id_cache is not None:
-            return
-        async with self._session_factory() as session:
-            record = await session.scalar(
-                select(DepartmentRecord).where(DepartmentRecord.name == _DEFAULT_DEPT_NAME)
-            )
-            if record is None:
-                record = DepartmentRecord(name=_DEFAULT_DEPT_NAME, display_name="默认部门")
-                session.add(record)
-                await session.commit()
-                await session.refresh(record)
-            _default_dept_id_cache = record.id
-
-    def _dept_id(self) -> int:
-        """获取默认部门 ID（单租户模式）。"""
-        if _default_dept_id_cache is None:
-            raise RuntimeError("ConfigStore 未初始化，请先调用 initialize()")
-        return _default_dept_id_cache
-
     # --- Source CRUD ---
 
     async def save_source(self, name: str, src_type: str, config_data: dict[str, Any]) -> None:
         """保存或更新数据源配置。
 
-        从 config_data 中提取结构化字段（host/port/database/username/password），
+        从 config_data 中提取结构化字段（system_id/host/port/database/username/password），
         剩余字段存入 params JSON。密码在落库前加密。
         """
-        dept_id = self._dept_id()
+        system_id = str(config_data.get("systemId", "") or "").strip()
         host = str(config_data.get("host", ""))
         port = int(config_data.get("port", 0) or 0)
         database = str(config_data.get("database", config_data.get("path", "")) or "")
         username = str(config_data.get("user", config_data.get("username", "")) or "")
         password = encrypt_password(str(config_data.get("password", "") or ""))
 
-        # params 存储非结构化字段
-        structured_keys = {"host", "port", "database", "path", "user", "username", "password", "name", "type"}
+        # params 存储非结构化字段（systemId 作为结构化字段提取到独立列）
+        structured_keys = {"systemId", "host", "port", "database", "path", "user", "username", "password", "name", "type"}
         params = {k: v for k, v in config_data.items() if k not in structured_keys}
         params_json = json.dumps(params, ensure_ascii=False, default=str)
 
@@ -329,7 +294,7 @@ class ConfigStore:
             existing = await session.scalar(
                 select(SourceRecord).where(
                     SourceRecord.name == name,
-                    SourceRecord.dept_id == dept_id,
+                    SourceRecord.system_id == system_id,
                 )
             )
             if existing:
@@ -342,7 +307,7 @@ class ConfigStore:
                 existing.params = params_json
             else:
                 session.add(SourceRecord(
-                    dept_id=dept_id,
+                    system_id=system_id,
                     name=name,
                     type=src_type,
                     host=host,
@@ -355,12 +320,10 @@ class ConfigStore:
             await session.commit()
 
     async def delete_source(self, name: str) -> None:
-        dept_id = self._dept_id()
         async with self._session_factory() as session:
             record = await session.scalar(
                 select(SourceRecord).where(
                     SourceRecord.name == name,
-                    SourceRecord.dept_id == dept_id,
                 )
             )
             if record:
@@ -369,10 +332,9 @@ class ConfigStore:
 
     async def load_sources(self) -> list[dict[str, Any]]:
         """加载所有数据源，合并结构化字段和 params。"""
-        dept_id = self._dept_id()
         async with self._session_factory() as session:
             result = await session.scalars(
-                select(SourceRecord).where(SourceRecord.dept_id == dept_id)
+                select(SourceRecord)
             )
             sources = []
             for r in result:
@@ -380,6 +342,8 @@ class ConfigStore:
                     "name": r.name,
                     "type": r.type,
                 }
+                if r.system_id:
+                    src["systemId"] = r.system_id
                 if r.host:
                     src["host"] = r.host
                 if r.port and r.port > 0:
@@ -418,14 +382,15 @@ class ConfigStore:
     ) -> None:
         """保存或更新工具配置。
 
-        从 config_data 中提取结构化字段，剩余存入 params JSON。
+        从 config_data 中提取结构化字段（含 systemId），剩余存入 params JSON。
+        systemId 冗余存储到 tools.system_id 列，便于按系统编号查询。
         """
-        dept_id = self._dept_id()
         source_name = source or ""
         desc = description or ""
+        system_id = str(config_data.get("systemId", "") or "").strip()
 
         # params 存储非结构化字段
-        structured_keys = {"name", "type", "source", "source_name", "description", "kind"}
+        structured_keys = {"systemId", "name", "type", "source", "source_name", "description", "kind"}
         params = {k: v for k, v in config_data.items() if k not in structured_keys}
         params_json = json.dumps(params, ensure_ascii=False, default=str)
 
@@ -433,7 +398,7 @@ class ConfigStore:
             existing = await session.scalar(
                 select(ToolRecord).where(
                     ToolRecord.name == name,
-                    ToolRecord.dept_id == dept_id,
+                    ToolRecord.system_id == system_id,
                 )
             )
             if existing:
@@ -441,9 +406,10 @@ class ConfigStore:
                 existing.source_name = source_name
                 existing.description = desc
                 existing.params = params_json
+                existing.system_id = system_id
             else:
                 session.add(ToolRecord(
-                    dept_id=dept_id,
+                    system_id=system_id,
                     name=name,
                     type=tool_type,
                     source_name=source_name,
@@ -453,12 +419,10 @@ class ConfigStore:
             await session.commit()
 
     async def delete_tool(self, name: str) -> None:
-        dept_id = self._dept_id()
         async with self._session_factory() as session:
             record = await session.scalar(
                 select(ToolRecord).where(
                     ToolRecord.name == name,
-                    ToolRecord.dept_id == dept_id,
                 )
             )
             if record:
@@ -466,12 +430,10 @@ class ConfigStore:
                 await session.commit()
 
     async def delete_tools_by_source(self, source_name: str) -> None:
-        dept_id = self._dept_id()
         async with self._session_factory() as session:
             result = await session.scalars(
                 select(ToolRecord).where(
                     ToolRecord.source_name == source_name,
-                    ToolRecord.dept_id == dept_id,
                 )
             )
             for record in result:
@@ -480,10 +442,9 @@ class ConfigStore:
 
     async def load_tools(self) -> list[dict[str, Any]]:
         """加载所有工具，合并结构化字段和 params。"""
-        dept_id = self._dept_id()
         async with self._session_factory() as session:
             result = await session.scalars(
-                select(ToolRecord).where(ToolRecord.dept_id == dept_id)
+                select(ToolRecord)
             )
             tools = []
             for r in result:
@@ -493,6 +454,8 @@ class ConfigStore:
                     "source": r.source_name or "",
                     "description": r.description or "",
                 }
+                if r.system_id:
+                    tool["systemId"] = r.system_id
                 # 合并 params JSON
                 if r.params:
                     try:
@@ -505,46 +468,279 @@ class ConfigStore:
                 tools.append(tool)
             return tools
 
-    # --- Department CRUD ---
+    # --- MCP 请求日志 ---
 
-    async def list_departments(self) -> list[dict[str, Any]]:
+    async def log_mcp_request(
+        self,
+        *,
+        system_id: str = "",
+        source_name: str = "",
+        tool_name: str = "",
+        method: str,
+        success: bool = True,
+        latency_ms: int = 0,
+        client_addr: str = "",
+        error_msg: str = "",
+    ) -> None:
+        """异步写入一条 MCP 请求日志（失败时静默，不影响主流程）。"""
+        try:
+            async with self._session_factory() as session:
+                session.add(McpRequestLogRecord(
+                    system_id=system_id[:10],
+                    source_name=source_name[:128],
+                    tool_name=tool_name[:128],
+                    method=method[:32],
+                    success=1 if success else 0,
+                    latency_ms=latency_ms,
+                    client_addr=client_addr[:64],
+                    error_msg=error_msg[:2000] if error_msg else "",
+                ))
+                await session.commit()
+        except Exception as exc:
+            logger.warning("写入 MCP 请求日志失败: %s", exc)
+
+    async def query_mcp_stats(
+        self,
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        system_id: str = "",
+        source_name: str = "",
+    ) -> dict[str, Any]:
+        """聚合查询 MCP 请求统计。
+
+        参数:
+            start_date: 起始日期 YYYY-MM-DD（含），None 表示不限
+            end_date:   截止日期 YYYY-MM-DD（含），None 表示不限
+            system_id:  筛选系统编号，空串表示不限
+            source_name: 筛选数据源名称，空串表示不限
+
+        返回:
+            {
+              "summary": {"total": N, "success": N, "fail": N, "avg_latency_ms": N},
+              "by_system": [{"system_id": "...", "total": N, "success": N, "fail": N}],
+              "by_source": [{"source_name": "...", "total": N, "success": N, "fail": N}],
+              "by_tool":   [{"tool_name": "...", "total": N, "success": N, "fail": N}],
+              "timeline":  [{"date": "YYYY-MM-DD", "total": N, "success": N, "fail": N}],
+            }
+        """
+        from sqlalchemy import text
+
+        # 构建 WHERE 条件（命名参数，防注入）
+        conditions: list[str] = []
+        params: dict[str, Any] = {}
+        if start_date:
+            conditions.append("created_at >= :start_date")
+            params["start_date"] = f"{start_date} 00:00:00"
+        if end_date:
+            conditions.append("created_at < :end_date_exclusive")
+            params["end_date_exclusive"] = f"{end_date} 23:59:59"
+            # 用 < 次日 00:00:00 更准确，但为兼容 SQLite/MySQL，这里用 <= 当天结束
+            conditions[-1] = "created_at <= :end_date_exclusive"
+        if system_id:
+            conditions.append("system_id = :system_id")
+            params["system_id"] = system_id
+        if source_name:
+            conditions.append("source_name = :source_name")
+            params["source_name"] = source_name
+
+        where_clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
         async with self._session_factory() as session:
-            result = await session.scalars(select(DepartmentRecord))
-            return [
-                {"id": r.id, "name": r.name, "display_name": r.display_name}
-                for r in result
+            # 1. summary
+            summary_row = (await session.execute(
+                text(f"""
+                    SELECT
+                        COUNT(*) AS total,
+                        COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                        COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail,
+                        COALESCE(ROUND(AVG(latency_ms), 0), 0) AS avg_latency_ms
+                    FROM mcp_request_logs{where_clause}
+                """),
+                params,
+            )).fetchone()
+            summary = {
+                "total": summary_row.total if summary_row else 0,
+                "success": summary_row.success if summary_row else 0,
+                "fail": summary_row.fail if summary_row else 0,
+                "avg_latency_ms": summary_row.avg_latency_ms if summary_row else 0,
+            }
+
+            # 2. by_system（不受 system_id 过滤影响时才有意义；若已筛选 system_id 则只返回该系统）
+            system_rows = (await session.execute(
+                text(f"""
+                    SELECT system_id,
+                           COUNT(*) AS total,
+                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
+                    FROM mcp_request_logs{where_clause}
+                    GROUP BY system_id
+                    ORDER BY total DESC
+                """),
+                params,
+            )).fetchall()
+            by_system = [
+                {"system_id": r.system_id or "(未指定)", "total": r.total, "success": r.success, "fail": r.fail}
+                for r in system_rows
             ]
 
-    # --- ApiKey CRUD ---
+            # 3. by_source
+            source_rows = (await session.execute(
+                text(f"""
+                    SELECT source_name,
+                           COUNT(*) AS total,
+                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
+                    FROM mcp_request_logs{where_clause}
+                    GROUP BY source_name
+                    ORDER BY total DESC
+                """),
+                params,
+            )).fetchall()
+            by_source = [
+                {"source_name": r.source_name or "(未指定)", "total": r.total, "success": r.success, "fail": r.fail}
+                for r in source_rows
+            ]
 
-    async def save_api_key(self, dept_id: int, key_hash: str, description: str = "") -> None:
-        async with self._session_factory() as session:
-            existing = await session.scalar(
-                select(ApiKeyRecord).where(ApiKeyRecord.key_hash == key_hash)
-            )
-            if existing:
-                existing.dept_id = dept_id
-                existing.description = description
-            else:
-                session.add(ApiKeyRecord(
-                    dept_id=dept_id, key_hash=key_hash, description=description
-                ))
-            await session.commit()
+            # 4. by_tool（只统计 tools/call，tools/list 不分工具）
+            tool_where = where_clause
+            tool_params = dict(params)
+            if "method" not in conditions:
+                tool_where = (where_clause + " AND " if where_clause else " WHERE ") + "method = 'tools/call'"
+            tool_rows = (await session.execute(
+                text(f"""
+                    SELECT tool_name,
+                           COUNT(*) AS total,
+                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
+                    FROM mcp_request_logs{tool_where}
+                    GROUP BY tool_name
+                    ORDER BY total DESC
+                    LIMIT 50
+                """),
+                tool_params,
+            )).fetchall()
+            by_tool = [
+                {"tool_name": r.tool_name or "(未知)", "total": r.total, "success": r.success, "fail": r.fail}
+                for r in tool_rows
+            ]
 
-    async def list_api_keys(self) -> list[dict[str, Any]]:
+            # 5. timeline（按天聚合）
+            # SQLite 用 DATE()，MySQL 用 DATE()，两者都支持
+            timeline_rows = (await session.execute(
+                text(f"""
+                    SELECT DATE(created_at) AS date,
+                           COUNT(*) AS total,
+                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
+                    FROM mcp_request_logs{where_clause}
+                    GROUP BY DATE(created_at)
+                    ORDER BY date ASC
+                """),
+                params,
+            )).fetchall()
+            timeline = [
+                {"date": str(r.date), "total": r.total, "success": r.success, "fail": r.fail}
+                for r in timeline_rows
+            ]
+
+            return {
+                "summary": summary,
+                "by_system": by_system,
+                "by_source": by_source,
+                "by_tool": by_tool,
+                "timeline": timeline,
+            }
+
+    async def query_mcp_logs(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        system_id: str = "",
+        source_name: str = "",
+    ) -> dict[str, Any]:
+        """分页查询 MCP 请求记录明细（最新记录排在最前面）。
+
+        返回:
+            {
+              "items": [{id, system_id, source_name, tool_name, method,
+                         success, latency_ms, client_addr, error_msg, created_at}],
+              "total": N,
+              "page": N,
+              "page_size": N,
+              "total_pages": N,
+            }
+        """
+        from sqlalchemy import text
+
+        conditions: list[str] = []
+        params: dict[str, Any] = {}
+        if start_date:
+            conditions.append("created_at >= :start_date")
+            params["start_date"] = f"{start_date} 00:00:00"
+        if end_date:
+            conditions.append("created_at <= :end_date_exclusive")
+            params["end_date_exclusive"] = f"{end_date} 23:59:59"
+        if system_id:
+            conditions.append("system_id = :system_id")
+            params["system_id"] = system_id
+        if source_name:
+            conditions.append("source_name = :source_name")
+            params["source_name"] = source_name
+
+        where_clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        page = max(1, page)
+        page_size = max(1, min(page_size, 100))
+        offset = (page - 1) * page_size
+
         async with self._session_factory() as session:
-            result = await session.scalars(select(ApiKeyRecord))
-            return [
+            # 总数
+            total_row = (await session.execute(
+                text(f"SELECT COUNT(*) AS cnt FROM mcp_request_logs{where_clause}"),
+                params,
+            )).fetchone()
+            total = total_row.cnt if total_row else 0
+            total_pages = max(1, (total + page_size - 1) // page_size)
+
+            # 分页明细（最新在前）
+            rows = (await session.execute(
+                text(f"""
+                    SELECT id, system_id, source_name, tool_name, method,
+                           success, latency_ms, client_addr, error_msg, created_at
+                    FROM mcp_request_logs{where_clause}
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT :limit OFFSET :offset
+                """),
+                {**params, "limit": page_size, "offset": offset},
+            )).fetchall()
+
+            items = [
                 {
                     "id": r.id,
-                    "dept_id": r.dept_id,
-                    "key_hash": r.key_hash,
-                    "description": r.description,
-                    "created_at": r.created_at,
-                    "expires_at": r.expires_at,
+                    "system_id": r.system_id or "",
+                    "source_name": r.source_name or "",
+                    "tool_name": r.tool_name or "",
+                    "method": r.method,
+                    "success": bool(r.success),
+                    "latency_ms": r.latency_ms,
+                    "client_addr": r.client_addr or "",
+                    "error_msg": r.error_msg or "",
+                    "created_at": str(r.created_at) if r.created_at else "",
                 }
-                for r in result
+                for r in rows
             ]
+
+            return {
+                "items": items,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+            }
 
 
 # 全局单例

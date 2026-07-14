@@ -44,7 +44,6 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--prebuilt", nargs="*", default=None, help="Prebuilt config name(s)")
     serve.add_argument("--config-db-url", default=os.environ.get("TOOLBOX_CONFIG_DB_URL"), help="MySQL URL for DB-backed config")
     serve.add_argument("--env-passwords", default=os.environ.get("ENV_PASSWORDS"), help="JSON mapping of ${VAR} placeholders")
-    serve.add_argument("--api-key", default=os.environ.get("TOOLBOX_API_KEY"), help="API Key binding this instance to a single department via the api_keys table")
 
     # 配置持久化存储
     serve.add_argument("--store-url", default=os.environ.get("TOOLBOX_STORE_URL"),
@@ -126,7 +125,6 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         prebuilt=",".join(args.prebuilt) if args.prebuilt else "",
         config_db_url=args.config_db_url or "",
         env_passwords=args.env_passwords or "",
-        api_key=args.api_key or "",
         telemetry_otlp=args.telemetry_otlp or "",
         telemetry_gcp=args.telemetry_gcp,
         telemetry_gcp_project=args.telemetry_gcp_project or "",

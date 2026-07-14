@@ -15,8 +15,13 @@ esac
 
 # 校验 BACKEND_URL：禁止包含可能注入 nginx 指令的危险字符
 # （分号、大括号、换行、反斜杠、$、反引号、引号、空白等）
+# 注意：不能用 [;...] 字符类——其中的 ; 在 POSIX case 模式中会被解析为命令分隔符，
+#       导致 busybox ash（Alpine 的 /bin/sh）报语法错误、容器启动即崩溃。
+#       改用若干独立的 glob 模式逐项匹配，规避该解析陷阱。
+TAB=$(printf '\t')
+BT='`'
 case "$BACKEND_URL" in
-    *[;\{\}\\\$\"\`\'\ \	]*)
+    *";"*|*"{"*|*"}"*|*"\\"*|*"$"*|*"\""*|*"$BT"*|*"'"*|*" "*|*"$TAB"*)
         echo "ERROR: BACKEND_URL contains forbidden characters that could inject nginx directives." >&2
         echo "       Forbidden: ; { } \\ \$ \" \` ' space tab" >&2
         echo "       Got: $BACKEND_URL" >&2

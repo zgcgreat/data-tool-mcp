@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchDashboard, fetchToolsets, mcpTest } from '../api/client';
-import type { McpTestTool, ToolsetInfo } from '../api/client';
+import { fetchDashboard, fetchToolsets, fetchSystems, mcpTest } from '../api/client';
+import type { McpTestTool, ToolsetInfo, SystemInfo } from '../api/client';
 import { toast } from '../components/Toast';
 import type { DashboardStats } from '../api/types';
 import './Dashboard.css';
@@ -95,6 +95,8 @@ export default function Dashboard() {
   // MCP 配置相关状态
   const [transport, setTransport] = useState<'sse' | 'streamable'>('sse');
   const [selectedToolset, setSelectedToolset] = useState('');
+  const [selectedSystemId, setSelectedSystemId] = useState('');
+  const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [headers, setHeaders] = useState<Array<{ key: string; value: string }>>([
     { key: 'X-Server-Name', value: 'data-tool-mcp' },
   ]);
@@ -109,6 +111,7 @@ export default function Dashboard() {
   useEffect(() => {
     loadDashboard();
     loadToolsets();
+    loadSystems();
   }, []);
 
   const loadDashboard = async () => {
@@ -137,12 +140,59 @@ export default function Dashboard() {
     }
   };
 
-  // --- MCP 配置生成 ---
+  const loadSystems = async () => {
+    try {
+      const data = await fetchSystems();
+      setSystems(data);
+    } catch {
+      // 静默失败
+    }
+  };
 
-  const serverOrigin = `${window.location.protocol}//${window.location.host}`;
-  const toolsetPrefix = selectedToolset ? `/${selectedToolset}` : '';
-  const endpointPath = `${toolsetPrefix}${transport === 'sse' ? '/sse' : '/'}`;
+  // --- MCP 配置生成 ---
+  // 使用后端实际监听端口构造 MCP 端点 URL,避免误用前端/nginx 端口。
+  // hostname 复用当前页面访问的主机名(兼容 localhost / 局域网 IP / 域名)。
+  const mcpPort = stats?.mcpPort ?? window.location.port;
+  const mcpHost = window.location.hostname;
+  const serverOrigin = `${window.location.protocol}//${mcpHost}:${mcpPort}`;
+
+  // 端点 URL 路径规则:
+  //   选了系统编号 + 数据源 → /{systemId}/{sourceName}/sse (该数据源工具)
+  //   仅选系统编号         → /{systemId}/sse (该系统全部工具)
+  //   仅选数据源           → /{sourceName}/sse (该数据源工具)
+  //   都未选               → /sse (全部工具)
+  let endpointPrefix: string;
+  if (selectedSystemId && selectedToolset) {
+    endpointPrefix = `/${selectedSystemId}/${selectedToolset}`;
+  } else if (selectedSystemId) {
+    endpointPrefix = `/${selectedSystemId}`;
+  } else if (selectedToolset) {
+    endpointPrefix = `/${selectedToolset}`;
+  } else {
+    endpointPrefix = '';
+  }
+  const endpointPath = `${endpointPrefix}${transport === 'sse' ? '/sse' : '/'}`;
   const endpointUrl = `${serverOrigin}${endpointPath}`;
+
+  // 数据源下拉框跟随系统编号联动:
+  //   未选系统编号 → 显示全部数据源
+  //   选了系统编号 → 只显示该系统下的数据源
+  const filteredSources = useMemo(() => {
+    const allSources = toolsets.filter(ts => ts.type === 'source');
+    if (!selectedSystemId) return allSources;
+    const sys = systems.find(s => s.systemId === selectedSystemId);
+    if (!sys) return [];
+    return allSources.filter(ts => sys.sources.includes(ts.name));
+  }, [toolsets, systems, selectedSystemId]);
+
+  // 切换系统编号时清空已选数据源,避免不一致
+  const handleSystemChange = (sid: string) => {
+    setSelectedSystemId(sid);
+    setSelectedToolset('');
+  };
+
+  // JSON 配置中的 server 名称
+  const serverName = selectedToolset || selectedSystemId || 'data-tool-mcp';
 
   const jsonConfig = useMemo(() => {
     const serverCfg: Record<string, unknown> = { url: endpointUrl };
@@ -154,8 +204,8 @@ export default function Dashboard() {
       });
       serverCfg.headers = headersObj;
     }
-    return JSON.stringify({ mcpServers: { 'data-tool-mcp': serverCfg } }, null, 2);
-  }, [endpointUrl, headers]);
+    return JSON.stringify({ mcpServers: { [serverName]: serverCfg } }, null, 2);
+  }, [endpointUrl, headers, serverName]);
 
   // JSON 行号拆分
   const jsonLines = useMemo(() => jsonConfig.split('\n'), [jsonConfig]);
@@ -199,7 +249,7 @@ export default function Dashboard() {
     setTestResult(null);
     setTestError(null);
     try {
-      const result = await mcpTest(selectedToolset);
+      const result = await mcpTest(selectedToolset, selectedSystemId);
       setTestResult(result.tools);
       toast.success(`测试成功，共 ${result.count} 个工具`);
     } catch (error) {
@@ -225,7 +275,7 @@ export default function Dashboard() {
     { kind: 'source' as const, label: '数据源', value: stats?.sourceCount ?? 0, onClick: () => navigate('/sources'), tone: 'blue' },
     { kind: 'online' as const, label: '在线', value: stats?.sourceOnline ?? 0, onClick: undefined, tone: 'green' },
     { kind: 'tool' as const, label: '工具', value: stats?.toolCount ?? 0, onClick: () => navigate('/tools'), tone: 'amber' },
-    { kind: 'request' as const, label: '今日MCP请求数', value: stats?.todayRequests ?? 0, onClick: () => navigate('/query'), tone: 'violet' },
+    { kind: 'request' as const, label: '今日MCP请求数', value: stats?.todayRequests ?? 0, onClick: () => navigate('/mcp-stats'), tone: 'violet' },
   ];
 
   return (
@@ -309,44 +359,60 @@ export default function Dashboard() {
           <div className="mcp-config-grid">
             {/* 左栏：配置控件 */}
             <div className="mcp-config-left">
-              {/* 第一行：传输模式 + 工具集（左右平齐） */}
+              {/* 第一行：系统编号 + 数据源（联动） */}
               <div className="mcp-config-row-pair">
-                {/* 传输模式 */}
+                {/* 系统编号筛选 */}
                 <div className="mcp-config-row">
-                  <label className="form-label">传输模式</label>
-                  <div className="segmented-control">
-                    <button
-                      className={`seg-btn ${transport === 'sse' ? 'active' : ''}`}
-                      onClick={() => setTransport('sse')}
-                    >
-                      SSE
-                    </button>
-                    <button
-                      className={`seg-btn ${transport === 'streamable' ? 'active' : ''}`}
-                      onClick={() => setTransport('streamable')}
-                    >
-                      HTTP
-                    </button>
-                  </div>
+                  <label className="form-label">系统编号</label>
+                  <select
+                    className="form-select"
+                    value={selectedSystemId}
+                    onChange={e => handleSystemChange(e.target.value)}
+                  >
+                    <option value="">全部</option>
+                    {systems.map(sys => (
+                      <option key={sys.systemId} value={sys.systemId}>
+                        {sys.systemId}（{sys.sourceCount} 个数据源）
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {/* 工具集（有工具集时显示，与传输模式平齐） */}
-                {toolsets.length > 0 && (
-                  <div className="mcp-config-row">
-                    <label className="form-label">工具集</label>
-                    <select
-                      className="form-select"
-                      value={selectedToolset}
-                      onChange={e => setSelectedToolset(e.target.value)}
-                    >
-                      {toolsets.map(ts => (
-                        <option key={ts.name} value={ts.name}>
-                          {ts.displayName}{ts.toolCount > 0 ? ` (${ts.toolCount})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                {/* 数据源筛选（跟随系统编号联动） */}
+                <div className="mcp-config-row">
+                  <label className="form-label">数据源</label>
+                  <select
+                    className="form-select"
+                    value={selectedToolset}
+                    onChange={e => setSelectedToolset(e.target.value)}
+                  >
+                    <option value="">全部</option>
+                    {filteredSources.map(ts => (
+                      <option key={ts.name} value={ts.name}>
+                        {ts.displayName}{ts.toolCount > 0 ? ` (${ts.toolCount})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 第二行：传输模式 */}
+              <div className="mcp-config-row">
+                <label className="form-label">传输模式</label>
+                <div className="segmented-control">
+                  <button
+                    className={`seg-btn ${transport === 'sse' ? 'active' : ''}`}
+                    onClick={() => setTransport('sse')}
+                  >
+                    SSE
+                  </button>
+                  <button
+                    className={`seg-btn ${transport === 'streamable' ? 'active' : ''}`}
+                    onClick={() => setTransport('streamable')}
+                  >
+                    HTTP
+                  </button>
+                </div>
               </div>
 
               {/* 端点 URL */}

@@ -297,21 +297,9 @@ async def load_config(server_config: ServerConfig) -> ServerConfig:
     if db_url:
         from data_tool_mcp.config.db_reader import load_config_from_db
 
-        dept_name = None
-        if server_config.api_key:
-            from data_tool_mcp.config.db_reader import resolve_dept_by_api_key
-
-            dept_name = await resolve_dept_by_api_key(db_url, server_config.api_key)
-            if dept_name is None:
-                raise ValueError(
-                    "无效的 API Key 或已过期：无法通过 api_keys 表解析到部门。"
-                    "请检查 TOOLBOX_API_KEY / --api-key 是否正确、是否在有效期内。"
-                )
-
         db_tf = await load_config_from_db(
             db_url=db_url,
             env_passwords_json=server_config.env_passwords,
-            dept_name=dept_name,
         )
         merged.sources.update(db_tf.get("sources", {}))
         merged.tools.update(db_tf.get("tools", {}))

@@ -38,6 +38,11 @@ const Icon = {
       <path d="M9.5 1.5L3 9h4l-1.5 5.5L12 7H8l1.5-5.5z" />
     </svg>
   ),
+  Chart: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" width="16" height="16" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 13.5h12M4 13.5V8M7 13.5V4M10 13.5V6.5M13 13.5V9.5" />
+    </svg>
+  ),
   Logo: () => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width="22" height="22" strokeLinejoin="round">
       <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" />
@@ -57,6 +62,7 @@ const navItems = [
   { path: '/sources', label: '数据源', icon: <Icon.Database /> },
   { path: '/tools', label: '工具', icon: <Icon.Tool /> },
   { path: '/query', label: '查询', icon: <Icon.Query /> },
+  { path: '/mcp-stats', label: '统计', icon: <Icon.Chart /> },
 ];
 
 const pageNames: Record<string, string> = {
@@ -65,6 +71,7 @@ const pageNames: Record<string, string> = {
   '/sources': '数据源',
   '/tools': '工具',
   '/query': '查询',
+  '/mcp-stats': '统计',
 };
 
 export default function AppLayout() {

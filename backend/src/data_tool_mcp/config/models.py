@@ -128,7 +128,6 @@ class ServerConfig(BaseModel):
     # DB ConfigReader
     config_db_url: str = ""  # TOOLBOX_CONFIG_DB_URL — e.g. mysql://user:pass@host:3306/configdb
     env_passwords: str = ""  # ENV_PASSWORDS — JSON mapping ${VAR} → real value
-    api_key: str = ""  # TOOLBOX_API_KEY — bind instance to a department via api_keys table
 
     # 配置持久化存储（Admin UI CRUD 持久化）
     # 不传 store_url = 默认当前目录 SQLite 文件 toolbox_data.db；sqlite:///path.db = 指定 SQLite 文件

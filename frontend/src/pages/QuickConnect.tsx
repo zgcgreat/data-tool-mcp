@@ -15,6 +15,24 @@ function CheckIcon() {
   );
 }
 
+function EyeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" />
+      <circle cx="8" cy="8" r="2" />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8c-.3.5-.7 1-1.1 1.4M5.5 5.5C6.3 5.2 7.1 5 8 5c4 0 6.5 3 6.5 3" />
+      <path d="M2 2l12 12" />
+    </svg>
+  );
+}
+
 function ArrowRight() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -43,15 +61,25 @@ function ToolIcon() {
 /* --- 常用数据库类型描述 --- */
 
 const DB_DESCRIPTIONS: Record<string, { label: string; desc: string; category: string }> = {
-  sqlite: { label: 'SQLite', desc: '轻量级本地文件数据库', category: 'SQL' },
+  // --- 关系型数据库 (SQL) ---
   postgres: { label: 'PostgreSQL', desc: '功能强大的开源关系数据库', category: 'SQL' },
   mysql: { label: 'MySQL', desc: '广泛使用的开源关系数据库', category: 'SQL' },
   mssql: { label: 'SQL Server', desc: '微软企业级关系数据库', category: 'SQL' },
-  clickhouse: { label: 'ClickHouse', desc: '高性能列式分析数据库', category: 'SQL' },
   oracle: { label: 'Oracle', desc: '企业级商业关系数据库', category: 'SQL' },
+  sqlite: { label: 'SQLite', desc: '轻量级本地文件数据库', category: 'SQL' },
+  clickhouse: { label: 'ClickHouse', desc: '高性能列式分析数据库', category: 'SQL' },
   snowflake: { label: 'Snowflake', desc: '云数据仓库平台', category: 'SQL' },
   tidb: { label: 'TiDB', desc: '兼容 MySQL 的分布式数据库', category: 'SQL' },
   oceanbase: { label: 'OceanBase', desc: '蚂蚁分布式关系数据库', category: 'SQL' },
+  tdsql: { label: 'TDSQL', desc: '腾讯云分布式数据库', category: 'SQL' },
+  gaussdb: { label: 'GaussDB', desc: '华为云分布式数据库', category: 'SQL' },
+  cockroachdb: { label: 'CockroachDB', desc: '兼容 PostgreSQL 的分布式数据库', category: 'SQL' },
+  yugabytedb: { label: 'YugabyteDB', desc: '分布式 SQL 数据库', category: 'SQL' },
+  trino: { label: 'Trino', desc: '分布式 SQL 查询引擎', category: 'SQL' },
+  firebird: { label: 'Firebird', desc: '开源关系数据库', category: 'SQL' },
+  singlestore: { label: 'SingleStore', desc: '实时分布式数据库', category: 'SQL' },
+  mindsdb: { label: 'MindsDB', desc: 'AI 驱动的数据平台', category: 'SQL' },
+  // --- NoSQL 数据库 ---
   mongodb: { label: 'MongoDB', desc: '文档型 NoSQL 数据库', category: 'NoSQL' },
   redis: { label: 'Redis', desc: '高性能键值内存数据库', category: 'NoSQL' },
   cassandra: { label: 'Cassandra', desc: '分布式宽列数据库', category: 'NoSQL' },
@@ -60,8 +88,18 @@ const DB_DESCRIPTIONS: Record<string, { label: string; desc: string; category: s
   valkey: { label: 'Valkey', desc: 'Redis 兼容的内存数据库', category: 'NoSQL' },
   scylladb: { label: 'ScyllaDB', desc: '高性能 NoSQL 数据库', category: 'NoSQL' },
   couchbase: { label: 'Couchbase', desc: 'NoSQL 文档数据库', category: 'NoSQL' },
+  hbase: { label: 'HBase', desc: 'Hadoop 列式 NoSQL 数据库', category: 'NoSQL' },
+  dgraph: { label: 'Dgraph', desc: '分布式图数据库', category: 'NoSQL' },
+  // --- 其他 ---
   http: { label: 'HTTP API', desc: '自定义 HTTP 接口', category: '其他' },
 };
+
+// category 分组展示顺序与标题
+const DB_CATEGORY_ORDER: { category: string; title: string }[] = [
+  { category: 'SQL', title: '关系型数据库' },
+  { category: 'NoSQL', title: 'NoSQL 数据库' },
+  { category: '其他', title: '其他' },
+];
 
 /* --- 组件 --- */
 
@@ -76,6 +114,7 @@ export default function QuickConnect() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [createdSource, setCreatedSource] = useState<SourceInfo | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     loadSourceTypes();
@@ -102,7 +141,8 @@ export default function QuickConnect() {
         if (f.default !== undefined) defaults[f.name] = f.default;
       });
     }
-    setFormData({ name: '', ...defaults });
+    setFormData({ systemId: '', name: '', ...defaults });
+    setShowPassword(false);
     setStep(2);
   };
 
@@ -112,14 +152,23 @@ export default function QuickConnect() {
 
   const handleCreate = async () => {
     const name = formData['name'] as string;
+    const systemId = (formData['systemId'] as string || '').trim();
+    if (!systemId) {
+      toast.warning('请输入系统编号');
+      return;
+    }
+    if (systemId.length > 10) {
+      toast.warning('系统编号长度不能超过 10 位');
+      return;
+    }
     if (!name) {
       toast.warning('请输入数据源名称');
       return;
     }
     setSubmitting(true);
     try {
-      const { name: _, ...rest } = formData;
-      const result = await createSource({ name, type: selectedType, ...rest });
+      const { name: _, systemId: __, ...rest } = formData;
+      const result = await createSource({ name, type: selectedType, systemId, ...rest });
       setCreatedSource(result);
       setStep(3);
       const toolCount = result.toolCount ?? 0;
@@ -138,6 +187,15 @@ export default function QuickConnect() {
 
   const handleTestAndCreate = async () => {
     const name = formData['name'] as string;
+    const systemId = (formData['systemId'] as string || '').trim();
+    if (!systemId) {
+      toast.warning('请输入系统编号');
+      return;
+    }
+    if (systemId.length > 10) {
+      toast.warning('系统编号长度不能超过 10 位');
+      return;
+    }
     if (!name) {
       toast.warning('请输入数据源名称');
       return;
@@ -145,8 +203,8 @@ export default function QuickConnect() {
     setSubmitting(true);
     try {
       // 先创建
-      const { name: _, ...rest } = formData;
-      const result = await createSource({ name, type: selectedType, ...rest });
+      const { name: _, systemId: __, ...rest } = formData;
+      const result = await createSource({ name, type: selectedType, systemId, ...rest });
       // 创建后测试连接
       try {
         const testResult = await testSourceConnection(name);
@@ -204,27 +262,40 @@ export default function QuickConnect() {
             <h2>选择数据库类型</h2>
             <p>选择要接入的数据库类型，系统将自动生成对应的工具</p>
           </div>
-          <div className="db-type-grid">
-            {Object.entries(sourceTypes).map(([type]) => {
-              const meta = DB_DESCRIPTIONS[type];
-              return (
-                <button
-                  key={type}
-                  className="db-type-card card card-hover"
-                  onClick={() => handleSelectType(type)}
-                >
-                  <div className="db-type-icon" data-category={meta?.category || 'SQL'}>
-                    {meta?.label?.charAt(0) || type.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="db-type-body">
-                    <div className="db-type-name">{meta?.label || type}</div>
-                    <div className="db-type-desc">{meta?.desc || type}</div>
-                  </div>
-                  <ArrowRight />
-                </button>
-              );
-            })}
-          </div>
+          {DB_CATEGORY_ORDER.map(({ category, title }) => {
+            // 按 category 分组: 保留 DB_DESCRIPTIONS 中定义的顺序,
+            // 仅筛选出属于当前 category 且后端实际支持的类型。
+            const typesInCategory = Object.keys(DB_DESCRIPTIONS).filter(
+              (type) => DB_DESCRIPTIONS[type].category === category && sourceTypes[type]
+            );
+            if (typesInCategory.length === 0) return null;
+            return (
+              <div key={category} className="db-type-group">
+                <div className="db-type-group-title">{title}</div>
+                <div className="db-type-grid">
+                  {typesInCategory.map((type) => {
+                    const meta = DB_DESCRIPTIONS[type];
+                    return (
+                      <button
+                        key={type}
+                        className="db-type-card card card-hover"
+                        onClick={() => handleSelectType(type)}
+                      >
+                        <div className="db-type-icon" data-category={meta.category}>
+                          {meta.label.charAt(0)}
+                        </div>
+                        <div className="db-type-body">
+                          <div className="db-type-name">{meta.label}</div>
+                          <div className="db-type-desc">{meta.desc}</div>
+                        </div>
+                        <ArrowRight />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -240,40 +311,106 @@ export default function QuickConnect() {
           </div>
 
           <div className="config-form card">
-            <div className="form-group">
-              <label className="form-label">
-                数据源名称
-                <span className="required-mark">*</span>
-              </label>
-              <input
-                className="form-input"
-                type="text"
-                value={(formData['name'] as string) || ''}
-                onChange={e => handleFieldChange('name', e.target.value)}
-                placeholder="例如：my_database"
-                autoFocus
-              />
-            </div>
+            {/* 两栏布局: 所有字段均分到两栏,避免左栏空白 */}
+            <div className="config-form-grid">
+              {(() => {
+                // 统一构建字段列表: 标识字段 + schema 连接字段
+                const schemaFields = sourceTypes[selectedType]?.fields || [];
+                type FieldDef = {
+                  key: string;
+                  label: string;
+                  required?: boolean;
+                  inputType: string;
+                  value: string;
+                  onChange: (v: string | number) => void;
+                  placeholder?: string;
+                  maxLength?: number;
+                  autoFocus?: boolean;
+                  isPassword?: boolean;
+                };
+                const allFields: FieldDef[] = [
+                  {
+                    key: 'systemId',
+                    label: '系统编号',
+                    required: true,
+                    inputType: 'text',
+                    value: (formData['systemId'] as string) || '',
+                    onChange: v => handleFieldChange('systemId', String(v).slice(0, 10)),
+                    placeholder: '例如：SYS001',
+                    maxLength: 10,
+                    autoFocus: true,
+                  },
+                  {
+                    key: 'name',
+                    label: '数据源名称',
+                    required: true,
+                    inputType: 'text',
+                    value: (formData['name'] as string) || '',
+                    onChange: v => handleFieldChange('name', v),
+                    placeholder: '例如：my_database',
+                  },
+                  ...schemaFields.map((f): FieldDef => ({
+                    key: f.name,
+                    label: f.label,
+                    required: f.required,
+                    inputType: f.type === 'number' ? 'number' : (f.type === 'password' ? 'password' : 'text'),
+                    value: formData[f.name] !== undefined ? String(formData[f.name]) : '',
+                    onChange: v => handleFieldChange(f.name, f.type === 'number' && v !== '' ? Number(v) : v),
+                    placeholder: f.placeholder || '',
+                    isPassword: f.type === 'password',
+                  })),
+                ];
+                // 按数量均分: 前一半左栏,后一半右栏
+                const mid = Math.ceil(allFields.length / 2);
+                const leftCol = allFields.slice(0, mid);
+                const rightCol = allFields.slice(mid);
 
-            {sourceTypes[selectedType]?.fields.map(field => (
-              <div key={field.name} className="form-group">
-                <label className="form-label">
-                  {field.label}
-                  {field.required && <span className="required-mark">*</span>}
-                </label>
-                <input
-                  className="form-input"
-                  type={field.type}
-                  value={formData[field.name] !== undefined ? String(formData[field.name]) : ''}
-                  onChange={e => {
-                    const val = field.type === 'number' && e.target.value !== '' ? Number(e.target.value) : e.target.value;
-                    handleFieldChange(field.name, val);
-                  }}
-                  placeholder={field.placeholder || ''}
-                  required={field.required}
-                />
-              </div>
-            ))}
+                const renderField = (field: FieldDef) => {
+                  const inputType = field.isPassword ? (showPassword ? 'text' : 'password') : field.inputType;
+                  return (
+                    <div key={field.key} className="form-group">
+                      <label className="form-label">
+                        {field.label}
+                        {field.required && <span className="required-mark">*</span>}
+                      </label>
+                      <div className="input-with-toggle">
+                        <input
+                          className="form-input"
+                          type={inputType}
+                          value={field.value}
+                          onChange={e => field.onChange(e.target.value)}
+                          placeholder={field.placeholder || ''}
+                          required={field.required}
+                          maxLength={field.maxLength}
+                          autoFocus={field.autoFocus}
+                        />
+                        {field.isPassword && (
+                          <button
+                            type="button"
+                            className="password-toggle"
+                            onClick={() => setShowPassword(prev => !prev)}
+                            title={showPassword ? '隐藏密码' : '显示密码'}
+                          >
+                            {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                };
+
+                return (
+                  <>
+                    <div className="config-form-col">
+                      {leftCol.map(renderField)}
+                    </div>
+                    <div className="config-form-col">
+                      {rightCol.map(renderField)}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
 
             <div className="form-actions">
               <button className="btn-secondary" onClick={() => setStep(1)}>

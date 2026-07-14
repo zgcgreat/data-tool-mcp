@@ -19,23 +19,11 @@ CREATE DATABASE IF NOT EXISTS data_tool_mcp CHARACTER SET utf8mb4 COLLATE utf8mb
 
 USE data_tool_mcp;
 
--- 部门表（多租户隔离的核心）
-CREATE TABLE IF NOT EXISTS departments (
-    id           INT          NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
-    name         VARCHAR(64)  NOT NULL COMMENT '部门唯一标识（英文短名，如 default），用于代码引用',
-    display_name VARCHAR(128) NOT NULL COMMENT '部门显示名称（中文可读）',
-    created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（行变更时自动维护）',
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_departments_name (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='部门表 — 多租户隔离的核心，所有数据源/工具/密钥按部门隔离';
-
 -- 数据源表（用户添加的数据库连接配置）
 CREATE TABLE IF NOT EXISTS sources (
     id          INT          NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
-    dept_id     INT          NULL     COMMENT '所属部门 ID；NULL = 默认部门（单租户模式）',
-    name        VARCHAR(128) NOT NULL COMMENT '数据源名称（部门内唯一）',
+    system_id   VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '系统编号（业务隔离维度，用户指定，最多 10 位）',
+    name        VARCHAR(128) NOT NULL COMMENT '数据源名称（同一系统编号下唯一）',
     type        VARCHAR(64)  NOT NULL COMMENT '数据源类型（mysql / postgres / sqlite / clickhouse 等）',
     host        VARCHAR(255) NOT NULL DEFAULT '' COMMENT '数据库主机地址',
     port        INT          NOT NULL DEFAULT 0  COMMENT '数据库端口',
@@ -46,17 +34,17 @@ CREATE TABLE IF NOT EXISTS sources (
     created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（行变更时自动维护）',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_dept_source (dept_id, name),
+    UNIQUE KEY uk_system_source (system_id, name),
     INDEX idx_sources_name (name),
-    INDEX idx_sources_dept (dept_id)
+    INDEX idx_sources_system (system_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='数据源表 — 用户添加的数据库连接配置，结构化字段（host/port/database/username/password）+ params（JSON）扩展';
 
 -- 工具表（MCP 工具定义）
 CREATE TABLE IF NOT EXISTS tools (
     id          INT          NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
-    dept_id     INT          NULL     COMMENT '所属部门 ID；NULL = 默认部门（单租户模式）',
-    name        VARCHAR(128) NOT NULL COMMENT '工具名称（部门内唯一）',
+    system_id   VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '系统编号（冗余存储，便于按系统编号查询工具）',
+    name        VARCHAR(128) NOT NULL COMMENT '工具名称（同一系统编号下唯一）',
     type        VARCHAR(64)  NOT NULL COMMENT '工具类型（mysql-execute-sql / postgres-execute-sql 等）',
     source_name VARCHAR(128) NOT NULL DEFAULT '' COMMENT '关联数据源名称（引用 sources.name）',
     description TEXT                 COMMENT '工具描述',
@@ -64,9 +52,9 @@ CREATE TABLE IF NOT EXISTS tools (
     created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（行变更时自动维护）',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_dept_tool (dept_id, name),
+    UNIQUE KEY uk_system_tool (system_id, name),
     INDEX idx_tools_name (name),
-    INDEX idx_tools_dept (dept_id),
+    INDEX idx_tools_system (system_id),
     INDEX idx_tools_source (source_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='工具表 — MCP 工具定义，source_name 引用 sources.name，params 存额外工具参数';
@@ -74,30 +62,31 @@ CREATE TABLE IF NOT EXISTS tools (
 -- 工具集表（将工具聚合为 toolset）
 CREATE TABLE IF NOT EXISTS toolsets (
     id          INT          NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
-    dept_id     INT          NULL     COMMENT '所属部门 ID；NULL = 默认部门（单租户模式）',
+    system_id   VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '系统编号（业务隔离维度）',
     name        VARCHAR(128) NOT NULL COMMENT '工具集名称',
     tool_names  TEXT                 COMMENT '工具名称列表（逗号分隔字符串，读取时解析为列表）',
     created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（行变更时自动维护）',
     PRIMARY KEY (id),
-    INDEX idx_toolsets_dept (dept_id)
+    INDEX idx_toolsets_system (system_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='工具集表 — 将多个工具聚合为一个 toolset 对外暴露，tool_names 用逗号分隔字符串存储';
 
--- API 密钥表（员工访问鉴权）
-CREATE TABLE IF NOT EXISTS api_keys (
-    id          INT          NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
-    dept_id     INT          NULL     COMMENT '所属部门 ID；NULL = 默认部门（单租户模式）',
-    key_hash    VARCHAR(128) NOT NULL COMMENT '密钥哈希值（SHA256(原始密钥)），唯一',
-    description VARCHAR(255) NOT NULL DEFAULT '' COMMENT '密钥用途描述',
-    created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    expires_at  TIMESTAMP    NULL     COMMENT '过期时间；NULL = 不过期',
+-- MCP 请求日志表 — 记录每次 tools/list 或 tools/call 调用，用于统计审计
+CREATE TABLE IF NOT EXISTS mcp_request_logs (
+    id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
+    system_id   VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '系统编号（请求上下文）',
+    source_name VARCHAR(128) NOT NULL DEFAULT '' COMMENT '数据源名称（工具所属数据源）',
+    tool_name   VARCHAR(128) NOT NULL DEFAULT '' COMMENT '工具名称（tools/call 才有值）',
+    method      VARCHAR(32)  NOT NULL COMMENT 'MCP 方法名（tools/list, tools/call 等）',
+    success     TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否成功（1成功 0失败）',
+    latency_ms  INT          NOT NULL DEFAULT 0 COMMENT '请求耗时毫秒',
+    client_addr VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '客户端 IP 地址',
+    error_msg   TEXT                  COMMENT '错误信息（失败时记录）',
+    created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '请求时间',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_api_keys_hash (key_hash),
-    INDEX idx_api_keys_dept (dept_id)
+    INDEX idx_logs_created (created_at),
+    INDEX idx_logs_system (system_id),
+    INDEX idx_logs_source (source_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='API 密钥表 — 员工访问鉴权，key_hash = SHA256(原始密钥)';
-
--- 默认部门（单租户模式）
-INSERT INTO departments (name, display_name) VALUES ('default', '默认部门')
-ON DUPLICATE KEY UPDATE display_name = display_name;
+  COMMENT='MCP 请求日志表 — 记录每次 MCP 协议调用，支持按系统/数据源/日期范围统计';

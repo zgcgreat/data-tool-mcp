@@ -8,6 +8,7 @@ const QuickConnect = lazy(() => import('./pages/QuickConnect'));
 const Sources = lazy(() => import('./pages/Sources'));
 const Tools = lazy(() => import('./pages/Tools'));
 const QueryConsole = lazy(() => import('./pages/QueryConsole'));
+const McpStats = lazy(() => import('./pages/McpStats'));
 
 function PageLoader() {
   return <div style={{ textAlign: 'center', padding: 80, color: '#888' }}>加载中...</div>;
@@ -22,6 +23,7 @@ function App() {
         <Route path="sources" element={<Suspense fallback={<PageLoader />}><Sources /></Suspense>} />
         <Route path="tools" element={<Suspense fallback={<PageLoader />}><Tools /></Suspense>} />
         <Route path="query" element={<Suspense fallback={<PageLoader />}><QueryConsole /></Suspense>} />
+        <Route path="mcp-stats" element={<Suspense fallback={<PageLoader />}><McpStats /></Suspense>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
