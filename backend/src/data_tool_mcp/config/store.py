@@ -105,6 +105,34 @@ def decrypt_password(ciphertext: str) -> str:
         return ciphertext
 
 
+def _is_encrypted(value: str) -> bool:
+    """判断字符串是否是有效的 Fernet 密文(能被当前密钥解密)。"""
+    if not value:
+        return False
+    f = _get_fernet()
+    if not f:
+        return False
+    try:
+        f.decrypt(value.encode("utf-8"))
+        return True
+    except Exception:
+        return False
+
+
+def _normalize_password_for_storage(raw: str) -> str:
+    """归一化待存储的密码值。
+
+    - 空字符串 → 空字符串(无密码)
+    - 已是有效密文(编辑未改动密码) → 原样保留, 不重复加密
+    - 其他(新明文密码) → encrypt_password 加密后返回
+    """
+    if not raw:
+        return ""
+    if _is_encrypted(raw):
+        return raw
+    return encrypt_password(raw)
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -277,13 +305,18 @@ class ConfigStore:
 
         从 config_data 中提取结构化字段（system_id/host/port/database/username/password），
         剩余字段存入 params JSON。密码在落库前加密。
+
+        幂等处理: 如果传入的 password 已经是有效密文(能被 decrypt_password 解密),
+        说明是编辑时未修改的原密文, 直接保留不重复加密; 否则视为新密码加密后落库。
         """
         system_id = str(config_data.get("systemId", "") or "").strip()
         host = str(config_data.get("host", ""))
         port = int(config_data.get("port", 0) or 0)
         database = str(config_data.get("database", config_data.get("path", "")) or "")
         username = str(config_data.get("user", config_data.get("username", "")) or "")
-        password = encrypt_password(str(config_data.get("password", "") or ""))
+        # 密码幂等处理: 已是密文则保留, 否则视为新明文密码加密
+        raw_password = str(config_data.get("password", "") or "")
+        password = _normalize_password_for_storage(raw_password)
 
         # params 存储非结构化字段（systemId 作为结构化字段提取到独立列）
         structured_keys = {"systemId", "host", "port", "database", "path", "user", "username", "password", "name", "type"}
@@ -318,6 +351,20 @@ class ConfigStore:
                     params=params_json,
                 ))
             await session.commit()
+
+    async def get_source_password(self, name: str) -> str:
+        """读取数据源在数据库中存储的密码密文。
+
+        用于编辑场景: _source_to_dict 返回密文给前端, 前端原样回传即可保持密码不变。
+        未启用持久化或记录不存在时返回空字符串。
+        """
+        if not self.is_persistent:
+            return ""
+        async with self._session_factory() as session:
+            record = await session.scalar(
+                select(SourceRecord).where(SourceRecord.name == name)
+            )
+            return record.password if record else ""
 
     async def delete_source(self, name: str) -> None:
         async with self._session_factory() as session:

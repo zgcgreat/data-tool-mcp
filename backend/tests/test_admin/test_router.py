@@ -19,6 +19,8 @@ def app():
     app.state.resource_manager = rm
     app.state.config = MagicMock()
     app.state.config.version = "0.1.0"
+    # 默认全部启用: enabled_source_types 为空列表
+    app.state.config.enabled_source_types = []
     app.include_router(router)
     return app
 
@@ -63,6 +65,34 @@ async def test_source_types(client):
     assert isinstance(data, dict)
     assert "postgres" in data
     assert "fields" in data["postgres"]
+
+
+@pytest.mark.asyncio
+async def test_source_types_with_whitelist(app, client):
+    """启用白名单后,/source-types 只返回白名单内的类型。"""
+    app.state.config.enabled_source_types = ["postgres", "mysql"]
+    resp = await client.get("/admin/source-types")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data.keys()) == {"postgres", "mysql"}
+
+
+@pytest.mark.asyncio
+async def test_create_source_blocked_by_whitelist(app, client):
+    """启用白名单后,创建被禁用类型的数据源应返回 403。"""
+    app.state.config.enabled_source_types = ["postgres"]
+    resp = await client.post("/admin/sources", json={
+        "name": "test-mysql",
+        "type": "mysql",
+        "systemId": "sys001",
+        "host": "localhost",
+        "port": 3306,
+        "database": "test",
+        "user": "root",
+        "password": "secret",
+    })
+    assert resp.status_code == 403
+    assert "未启用" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

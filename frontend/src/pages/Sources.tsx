@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { fetchSources, fetchSourceTypes, createSource, updateSource, deleteSource, testSourceConnection, fetchSystems } from '../api/client';
+import { useEffect, useRef, useState } from 'react';
+import { fetchSources, fetchSource, fetchSourceTypes, createSource, updateSource, deleteSource, testSourceConnection, fetchSystems } from '../api/client';
 import { toast } from '../components/Toast';
 import type { SystemInfo } from '../api/client';
 import type { SourceInfo, SourceTypeSchema } from '../api/types';
@@ -88,24 +88,6 @@ function CloseIcon() {
   );
 }
 
-function EyeIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" />
-      <circle cx="8" cy="8" r="2" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8c-.3.5-.7 1-1.1 1.4M5.5 5.5C6.3 5.2 7.1 5 8 5c4 0 6.5 3 6.5 3" />
-      <path d="M2 2l12 12" />
-    </svg>
-  );
-}
-
 export default function Sources() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [sourceTypes, setSourceTypes] = useState<Record<string, SourceTypeSchema>>({});
@@ -168,6 +150,17 @@ export default function Sources() {
       toast.error(errorMsg);
     } finally {
       setTesting(null);
+    }
+  };
+
+  // 点击编辑: 调用详情接口获取含密码密文/明文的完整配置, 而非直接用列表项(列表项密码是 ******** 占位)
+  const handleEditClick = async (name: string) => {
+    try {
+      const detail = await fetchSource(name);
+      setEditingSource(detail);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '加载数据源详情失败';
+      toast.error(msg);
     }
   };
 
@@ -367,7 +360,7 @@ export default function Sources() {
                             </button>
                             <button
                               className="icon-btn"
-                              onClick={() => setEditingSource(source)}
+                              onClick={() => handleEditClick(source.name)}
                               title="编辑"
                             >
                               <EditIcon />
@@ -438,6 +431,20 @@ export default function Sources() {
 // --- 配置字段元信息：哪些字段不展示在表单中 ---
 const HIDDEN_FIELDS = new Set(['name', 'type', 'status', 'latency', 'error', 'toolCount', 'createdTools', 'systemId']);
 
+// 密码部分脱敏: 前2位 + *** + 后2位
+// 用于编辑表单展示, 让用户知道密码已存在且大致内容, 但不暴露完整值
+// 保存时前端检测到 value 等于脱敏值, 则不提交该字段, 让后端保留原密码
+function maskPassword(value: string): string {
+  if (!value) return '';
+  const len = value.length;
+  if (len <= 4) return '****';
+  return `${value.slice(0, 2)}***${value.slice(-2)}`;
+}
+
+// 脱敏占位符前缀, 用于判断用户是否修改了密码
+// 密码字段在编辑模式下初始值为 maskPassword(原始密码), 用户修改后变为新明文
+// 提交时如果值仍是脱敏格式, 则不提交让后端保留原密码
+
 function SourceFormModal({
   mode,
   sourceTypes,
@@ -455,21 +462,35 @@ function SourceFormModal({
   const [type, setType] = useState(source?.type || Object.keys(sourceTypes)[0] || 'postgres');
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  // 保留原始密码(编辑模式下从后端获取的真实值), 用于:
+  // 1. 初始化时显示部分脱敏格式 maskPassword(原始值)
+  // 2. 提交时如果用户未修改密码, 不提交 password 字段让后端保留原密码
+  const originalPasswordRef = useRef<string>('');
+  // 标记密码字段是否被用户修改过(从脱敏值切换为新明文)
+  const [passwordModified, setPasswordModified] = useState(false);
 
   // 初始化表单数据
   useEffect(() => {
+    // 重置密码修改标记
+    setPasswordModified(false);
     if (isEdit && source) {
       // 编辑模式：从 source 对象提取配置字段
       const configFields: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(source)) {
         if (!HIDDEN_FIELDS.has(key)) {
-          configFields[key] = value;
+          if (key === 'password' && typeof value === 'string') {
+            // 保留原始密码用于提交判断, 表单显示部分脱敏格式
+            originalPasswordRef.current = value;
+            configFields[key] = maskPassword(value);
+          } else {
+            configFields[key] = value;
+          }
         }
       }
       setFormData({ systemId: (source.systemId as string) || '', name: source.name, ...configFields });
     } else {
-      // 创建模式：从 schema 读取默认值
+      // 创建模式: 不保留密码
+      originalPasswordRef.current = '';
       const schema = sourceTypes[type];
       if (!schema) return;
       const defaults: Record<string, unknown> = {};
@@ -478,7 +499,6 @@ function SourceFormModal({
       });
       setFormData(prev => ({ systemId: prev['systemId'] || '', name: prev['name'] || '', ...defaults }));
     }
-    setShowPassword(false);
   }, [isEdit, source, type, sourceTypes]);
 
   const currentSchema = sourceTypes[type];
@@ -502,11 +522,18 @@ function SourceFormModal({
     setSubmitting(true);
     try {
       const { name: _, systemId: __, ...rest } = formData;
-      // 密码脱敏占位符 "********" 不提交（让后端保留原密码）
       const payload: { name: string; type: string; systemId: string; [key: string]: unknown } = { name, type, systemId, ...rest };
-      for (const [key, value] of Object.entries(payload)) {
-        if (value === '********') {
-          delete payload[key];
+      // 密码字段处理:
+      // - 编辑模式下用户未改密码(passwordModified=false): 从 payload 删除, 让后端保留原密码
+      // - 用户输入了新密码(passwordModified=true): 提交新值, 后端加密后覆盖
+      // - 列表项残留的 "********" 占位: 也删除(向后兼容)
+      if (isEdit && !passwordModified) {
+        delete payload['password'];
+      } else {
+        for (const [key, value] of Object.entries(payload)) {
+          if (value === '********') {
+            delete payload[key];
+          }
         }
       }
       await onSubmit(payload);
@@ -518,6 +545,10 @@ function SourceFormModal({
   };
 
   const handleFieldChange = (fieldName: string, value: unknown) => {
+    // 密码字段被修改时标记, 后续提交时发送新值而非保留原密码
+    if (fieldName === 'password') {
+      setPasswordModified(true);
+    }
     setFormData(prev => ({ ...prev, [fieldName]: value }));
   };
 
@@ -525,14 +556,14 @@ function SourceFormModal({
   const fields = currentSchema?.fields || [];
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content source-modal-content" onClick={e => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal-content source-modal-content">
         <div className="modal-header">
           <div>
             <span className="modal-eyebrow">{isEdit ? '编辑现有' : '新建'}</span>
             <h2>{isEdit ? '编辑数据源' : '添加数据源'}</h2>
           </div>
-          <button className="icon-btn" onClick={onClose}><CloseIcon /></button>
+          <button className="icon-btn" onClick={onClose} aria-label="关闭"><CloseIcon /></button>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -596,36 +627,44 @@ function SourceFormModal({
                     </select>
                   ),
                 },
-                ...fields.map(f => ({
-                  key: f.name,
-                  label: f.label,
-                  required: f.required,
-                  node: (
-                    <div className="input-with-toggle">
-                      <input
-                        className="form-input"
-                        type={f.type === 'password' ? (showPassword ? 'text' : 'password') : f.type}
-                        value={formData[f.name] !== undefined ? String(formData[f.name]) : ''}
-                        onChange={e => {
-                          const val = f.type === 'number' && e.target.value !== '' ? Number(e.target.value) : e.target.value;
-                          handleFieldChange(f.name, val);
-                        }}
-                        placeholder={f.placeholder || ''}
-                        required={f.required}
-                      />
-                      {f.type === 'password' && (
-                        <button
-                          type="button"
-                          className="password-toggle"
-                          onClick={() => setShowPassword(prev => !prev)}
-                          title={showPassword ? '隐藏密码' : '显示密码'}
-                        >
-                          {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                        </button>
-                      )}
-                    </div>
-                  ),
-                })),
+                ...fields.map(f => {
+                  const isPassword = f.type === 'password';
+                  // 编辑模式下密码字段显示部分脱敏值(如 ro***ot), type=text 让脱敏值可见
+                  // 用户开始输入后(passwordModified=true)切换为 type=password 隐藏新值
+                  const showMasked = isPassword && isEdit && !passwordModified;
+                  return {
+                    key: f.name,
+                    label: f.label,
+                    required: f.required,
+                    node: (
+                      <>
+                        <input
+                          className="form-input"
+                          type={showMasked ? 'text' : (isPassword ? 'password' : f.type)}
+                          value={formData[f.name] !== undefined ? String(formData[f.name]) : ''}
+                          onChange={e => {
+                            const val = f.type === 'number' && e.target.value !== '' ? Number(e.target.value) : e.target.value;
+                            handleFieldChange(f.name, val);
+                          }}
+                          // 编辑模式下密码字段聚焦时清空脱敏值, 方便用户输入新密码
+                          onFocus={showMasked ? (e) => {
+                            // 自动选中全部, 用户可选择覆盖或保留
+                            e.target.select();
+                          } : undefined}
+                          placeholder={f.placeholder || (showMasked ? '修改密码请输入新值' : '')}
+                          required={f.required}
+                          // 密码字段自动完成关闭,避免浏览器填充干扰
+                          autoComplete={isPassword ? 'off' : undefined}
+                        />
+                        {showMasked && (
+                          <span className="form-hint password-hint">
+                            已存在密文, 不修改请保持原样
+                          </span>
+                        )}
+                      </>
+                    ),
+                  };
+                }),
               ];
               // 按数量均分: 前一半左栏,后一半右栏
               const mid = Math.ceil(allFields.length / 2);

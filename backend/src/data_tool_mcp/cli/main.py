@@ -69,6 +69,12 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--enable-draft-specs", action="store_true", help="Enable draft MCP protocol specs")
     serve.add_argument("--ignore-unknown-tools", action="store_true", help="Ignore unknown tool types")
 
+    # 数据源类型白名单:仅启用的类型会出现在 /admin/source-types 与创建数据源接口
+    # 格式: 逗号分隔,例如 postgres,mysql,redis。留空 = 全部启用
+    serve.add_argument("--enabled-source-types", default=os.environ.get("TOOLBOX_ENABLED_SOURCE_TYPES"),
+                       help="启用的数据源类型白名单(逗号分隔,留空=全部启用)。"
+                            "示例: postgres,mysql,redis。可设环境变量 TOOLBOX_ENABLED_SOURCE_TYPES")
+
     # TLS
     serve.add_argument("--tls-cert", default=None, help="TLS certificate file path")
     serve.add_argument("--tls-key", default=None, help="TLS private key file path")
@@ -140,6 +146,10 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         store_url=args.store_url or "",
         store_username=args.store_username or "",
         store_password=args.store_password or "",
+        # 数据源类型白名单: 逗号分隔字符串 → 去空白的列表
+        enabled_source_types=[
+            t.strip() for t in (args.enabled_source_types or "").split(",") if t.strip()
+        ],
     )
 
     if args.stdio:

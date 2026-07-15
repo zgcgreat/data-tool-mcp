@@ -465,7 +465,18 @@ async def health(request: Request) -> dict[str, Any]:
 
 
 @router.get("/source-types")
-async def source_types() -> dict[str, Any]:
+async def source_types(request: Request) -> dict[str, Any]:
+    """返回所有已注册的数据源类型及其字段 schema。
+
+    若 ServerConfig.enabled_source_types 非空,仅返回白名单内的类型;
+    空 = 全部启用(默认)。前端据此自动隐藏被禁用的类型。
+    """
+    config = _get_config(request)
+    # 严格判断 list 类型,避免 MagicMock 等非 list 对象误判为 truthy
+    enabled = getattr(config, "enabled_source_types", []) or []
+    if isinstance(enabled, list) and enabled:
+        enabled_set = set(enabled)
+        return {k: {"fields": v} for k, v in SOURCE_TYPE_SCHEMAS.items() if k in enabled_set}
     return {k: {"fields": v} for k, v in SOURCE_TYPE_SCHEMAS.items()}
 
 
@@ -501,7 +512,20 @@ async def list_sources_by_system(request: Request, system_id: str) -> list[dict[
     return result
 
 
-def _source_to_dict(name: str, source: Any, rm=None) -> dict[str, Any]:
+def _source_to_dict(
+    name: str,
+    source: Any,
+    rm=None,
+    *,
+    password_ciphertext: str = "",
+) -> dict[str, Any]:
+    """转换单个数据源为响应 dict。
+
+    Args:
+        password_ciphertext: 非空时直接作为 password 字段返回(供编辑场景使用,
+            前端原样回传即可保持密码不变); 空字符串时密码字段统一脱敏为
+            "********"(列表场景使用)。
+    """
     tool_count = 0
     if rm is not None:
         tool_count = sum(
@@ -516,13 +540,18 @@ def _source_to_dict(name: str, source: Any, rm=None) -> dict[str, Any]:
         "error": None,
         "toolCount": tool_count,
     }
-    # 附加配置字段（密码脱敏）
+    # 附加配置字段
     if rm is not None:
         config = rm.get_source_config(name)
         if config:
             for k, v in config.items():
                 if k == "password" and v:
-                    result[k] = "********"
+                    if password_ciphertext:
+                        # 编辑场景: 优先返回持久化存储中的密文, 前端原样回传即可保持密码不变
+                        result[k] = password_ciphertext
+                    else:
+                        # 列表场景: 统一脱敏为占位符
+                        result[k] = "********"
                 else:
                     result[k] = v
     return result
@@ -547,6 +576,14 @@ async def create_source(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="systemId is required")
     if len(system_id) > 10:
         raise HTTPException(status_code=400, detail="systemId 长度不能超过 10 位")
+    # 数据源类型白名单校验: 防止绕过 UI 直接调用 API 创建被禁用类型
+    config = _get_config(request)
+    enabled = getattr(config, "enabled_source_types", []) or []
+    if isinstance(enabled, list) and enabled and src_type not in enabled:
+        raise HTTPException(
+            status_code=403,
+            detail=f"数据源类型 {src_type!r} 未启用,请联系管理员调整 --enabled-source-types",
+        )
     rm = _get_rm(request)
     # 数据源主键包含系统编号: 同一系统下数据源名不可重复,不同系统可同名
     existing_sources = rm.get_sources_map()
@@ -587,7 +624,21 @@ async def get_source(request: Request, name: str) -> dict[str, Any]:
     if name not in sources:
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
     source = sources[name]
-    return _source_to_dict(name, source, rm)
+    # 编辑场景: 优先从持久化存储读取密文, 前端原样回传即可保持密码不变;
+    # 回退到 ResourceManager 内存配置中的明文密码(未启用持久化时),
+    # 前端原样回传时 _normalize_password_for_storage 会加密后落库。
+    password_ciphertext = ""
+    store = get_store()
+    if store is not None and store.is_persistent:
+        try:
+            password_ciphertext = await store.get_source_password(name)
+        except Exception as exc:
+            logger.warning("读取数据源 %r 密文失败: %s", name, exc)
+    if not password_ciphertext:
+        # 未启用持久化或读取失败: 回退到内存中的明文密码
+        cfg = rm.get_source_config(name) or {}
+        password_ciphertext = str(cfg.get("password", "") or "")
+    return _source_to_dict(name, source, rm, password_ciphertext=password_ciphertext)
 
 
 @router.put("/sources/{name}")

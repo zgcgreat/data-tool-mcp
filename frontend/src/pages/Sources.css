@@ -372,6 +372,15 @@
   background: var(--bg-elevated);
 }
 
+/* 密码字段部分脱敏提示(编辑模式) */
+.password-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 .type-chip-large {
   display: inline-flex;
   align-items: center;

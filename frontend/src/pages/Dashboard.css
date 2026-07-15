@@ -369,6 +369,35 @@
   color: var(--accent-contrast);
 }
 
+/* 推荐标识:仅 HTTP 默认选项显示 */
+.seg-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  background: var(--accent-contrast);
+  color: var(--accent);
+  vertical-align: middle;
+  line-height: 1.3;
+}
+
+.seg-btn.active .seg-badge {
+  /* 激活态:推荐标识反色,保持可读性 */
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* 传输模式说明文本 */
+.transport-hint {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 /* Header 列表 */
 .header-list {
   display: flex;

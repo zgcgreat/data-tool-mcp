@@ -32,6 +32,12 @@ export async function fetchSources(): Promise<SourceInfo[]> {
   return data;
 }
 
+// 获取单个数据源详情(含密码密文, 供编辑表单使用)
+export async function fetchSource(name: string): Promise<SourceInfo> {
+  const { data } = await api.get(`/sources/${encodeURIComponent(name)}`);
+  return data;
+}
+
 export async function createSource(payload: { name: string; type: string; [key: string]: unknown }): Promise<SourceInfo> {
   const { data } = await api.post('/sources', payload);
   return data;

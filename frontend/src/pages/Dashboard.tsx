@@ -93,7 +93,8 @@ export default function Dashboard() {
   const [toolsets, setToolsets] = useState<ToolsetInfo[]>([]);
 
   // MCP 配置相关状态
-  const [transport, setTransport] = useState<'sse' | 'streamable'>('sse');
+  // 默认使用 Streamable HTTP(无状态、天然支持多实例负载均衡),SSE 仅作为兼容选项
+  const [transport, setTransport] = useState<'streamable' | 'sse'>('streamable');
   const [selectedToolset, setSelectedToolset] = useState('');
   const [selectedSystemId, setSelectedSystemId] = useState('');
   const [systems, setSystems] = useState<SystemInfo[]>([]);
@@ -157,10 +158,11 @@ export default function Dashboard() {
   const serverOrigin = `${window.location.protocol}//${mcpHost}:${mcpPort}`;
 
   // 端点 URL 路径规则:
-  //   选了系统编号 + 数据源 → /{systemId}/{sourceName}/sse (该数据源工具)
-  //   仅选系统编号         → /{systemId}/sse (该系统全部工具)
-  //   仅选数据源           → /{sourceName}/sse (该数据源工具)
-  //   都未选               → /sse (全部工具)
+  //   选了系统编号 + 数据源 → /{systemId}/{sourceName}/{suffix} (该数据源工具)
+  //   仅选系统编号         → /{systemId}/{suffix} (该系统全部工具)
+  //   仅选数据源           → /{sourceName}/{suffix} (该数据源工具)
+  //   都未选               → /{suffix} (全部工具)
+  // 其中 suffix 在 SSE 模式下为 'sse',Streamable HTTP 模式下为空字符串(POST 到根路径)
   let endpointPrefix: string;
   if (selectedSystemId && selectedToolset) {
     endpointPrefix = `/${selectedSystemId}/${selectedToolset}`;
@@ -171,7 +173,9 @@ export default function Dashboard() {
   } else {
     endpointPrefix = '';
   }
-  const endpointPath = `${endpointPrefix}${transport === 'sse' ? '/sse' : '/'}`;
+  // Streamable HTTP 模式下路径以 / 结尾(POST /{prefix}/),SSE 模式下以 /sse 结尾
+  const endpointSuffix = transport === 'streamable' ? '/' : '/sse';
+  const endpointPath = `${endpointPrefix}${endpointSuffix}`;
   const endpointUrl = `${serverOrigin}${endpointPath}`;
 
   // 数据源下拉框跟随系统编号联动:
@@ -195,7 +199,16 @@ export default function Dashboard() {
   const serverName = selectedToolset || selectedSystemId || 'data-tool-mcp';
 
   const jsonConfig = useMemo(() => {
-    const serverCfg: Record<string, unknown> = { url: endpointUrl };
+    // MCP 客户端配置字段约定:
+    //   - type: 'http' (Streamable HTTP) 或 'sse' (Server-Sent Events)
+    //   - url: 端点 URL
+    //   - headers: 可选自定义请求头
+    // 通用 MCP 客户端(Claude Desktop / Cursor / Cline 等)按此格式识别传输模式,
+    // 避免客户端按默认猜测导致协议不匹配。
+    const serverCfg: Record<string, unknown> = {
+      type: transport === 'streamable' ? 'http' : 'sse',
+      url: endpointUrl,
+    };
     const validHeaders = headers.filter(h => h.key.trim());
     if (validHeaders.length > 0) {
       const headersObj: Record<string, string> = {};
@@ -205,7 +218,7 @@ export default function Dashboard() {
       serverCfg.headers = headersObj;
     }
     return JSON.stringify({ mcpServers: { [serverName]: serverCfg } }, null, 2);
-  }, [endpointUrl, headers, serverName]);
+  }, [transport, endpointUrl, headers, serverName]);
 
   // JSON 行号拆分
   const jsonLines = useMemo(() => jsonConfig.split('\n'), [jsonConfig]);
@@ -343,7 +356,7 @@ export default function Dashboard() {
           <div className="mcp-config-title-row">
             <div>
               <h3>MCP 客户端接入配置</h3>
-              <p>将配置添加到 Claude、Cursor、Codex 等 MCP 客户端即可使用已接入的工具</p>
+              <p>将配置添加到 Claude、Cursor、Codex 等 MCP 客户端即可使用已接入的工具。HTTP 模式无状态,天然支持多实例负载均衡部署</p>
             </div>
             <button
               className="btn-secondary btn-sm"
@@ -400,19 +413,25 @@ export default function Dashboard() {
               <div className="mcp-config-row">
                 <label className="form-label">传输模式</label>
                 <div className="segmented-control">
+                  {/* HTTP 推荐放第一位,默认选项,无状态、多实例友好 */}
+                  <button
+                    className={`seg-btn ${transport === 'streamable' ? 'active' : ''}`}
+                    onClick={() => setTransport('streamable')}
+                  >
+                    HTTP <span className="seg-badge">推荐</span>
+                  </button>
                   <button
                     className={`seg-btn ${transport === 'sse' ? 'active' : ''}`}
                     onClick={() => setTransport('sse')}
                   >
                     SSE
                   </button>
-                  <button
-                    className={`seg-btn ${transport === 'streamable' ? 'active' : ''}`}
-                    onClick={() => setTransport('streamable')}
-                  >
-                    HTTP
-                  </button>
                 </div>
+                <span className="form-hint transport-hint">
+                  {transport === 'streamable'
+                    ? 'Streamable HTTP,无状态,多实例可水平扩展'
+                    : 'SSE 长连接,需 Sticky Session 才能多实例部署'}
+                </span>
               </div>
 
               {/* 端点 URL */}

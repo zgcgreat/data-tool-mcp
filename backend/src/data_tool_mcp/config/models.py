@@ -177,3 +177,8 @@ class ServerConfig(BaseModel):
 
     # Ignore unknown tools flag
     ignore_unknown_tools: bool = False
+
+    # 启用的数据源类型白名单(空 = 全部启用;非空 = 仅列出的类型可用)
+    # 通过 --enabled-source-types 参数或 TOOLBOX_ENABLED_SOURCE_TYPES 环境变量设置
+    # 影响: /admin/source-types 接口仅返回白名单内类型,创建数据源时拒绝被禁用类型
+    enabled_source_types: list[str] = Field(default_factory=list)
