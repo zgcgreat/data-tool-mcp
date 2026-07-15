@@ -55,7 +55,12 @@ class CloudLoggingAdminSource(Source):
         loop = asyncio.get_event_loop()
 
         def _run() -> list[dict[str, Any]]:
-            from google.cloud import monitoring_v3
+            try:
+                from google.cloud import monitoring_v3
+            except ImportError as e:
+                raise ImportError(
+                    "google-cloud-monitoring is required: pip install google-cloud-monitoring"
+                ) from e
             client = monitoring_v3.GroupServiceClient(project=self._project_id)
             return [{"name": g.display_name, "id": g.name} for g in client.list_groups()]
 

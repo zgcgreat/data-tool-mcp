@@ -69,7 +69,7 @@ class ElasticsearchSourceConfig(SourceConfig):
         try:
             from elasticsearch import AsyncElasticsearch
         except ImportError as e:
-            raise ImportError("elasticsearch[async] is required: pip install elasticsearch[async]") from e
+            raise ImportError("elasticsearch is required: pip install elasticsearch") from e
 
         kwargs: dict[str, Any] = {"verify_certs": self.verify_certs}
         if self.cloud_id:

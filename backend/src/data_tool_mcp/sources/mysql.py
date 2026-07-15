@@ -1,4 +1,4 @@
-"""MySQL source — pymysql + SQLAlchemy async.
+"""MySQL source — aiomysql + SQLAlchemy async.
 
 Maps to Go: internal/sources/mysql/
 """

@@ -1,4 +1,4 @@
-"""Cloud SQL MSSQL source — Cloud SQL Connector + pyodbc.
+"""Cloud SQL MSSQL source — Cloud SQL Connector + aioodbc.
 
 Maps to Go: internal/sources/cloudsqlmssql/
 """
@@ -16,7 +16,7 @@ from data_tool_mcp.sources.base import Source, SourceConfig, register_source
 
 
 class CloudSQLMSSQLSource(Source):
-    """Cloud SQL MSSQL source using Cloud SQL Connector + pyodbc via SQLAlchemy."""
+    """Cloud SQL MSSQL source using Cloud SQL AsyncConnector + aioodbc via SQLAlchemy."""
 
     # SQL safety limits (mirrors SQLSource defaults)
     max_rows: int = 10000
@@ -86,14 +86,21 @@ class CloudSQLMSSQLSourceConfig(SourceConfig):
 
     async def initialize(self, tracer=None) -> CloudSQLMSSQLSource:
         try:
-            from google.cloud.sql.connector import Connector
+            from google.cloud.sql.connector import AsyncConnector
         except ImportError as e:
-            raise ImportError("cloud-sql-python-connector[pyodbc] is required") from e
+            raise ImportError("cloud-sql-python-connector[aioodbc] is required: pip install 'cloud-sql-python-connector[aioodbc]' aioodbc") from e
 
-        connector = Connector()
+        connector = AsyncConnector()
         instance_conn = f"{self.project_id}:{self.region}:{self.instance_id}"
-        url = f"mssql+pyodbc://{self.user}:{self.password}@{instance_conn}/{self.database}?driver=ODBC+Driver+17+for+SQL+Server"
-        engine = create_async_engine(url, creator=lambda: connector.connect(instance_conn, "pyodbc"))
+        url = f"mssql+aioodbc://{self.user}:{self.password}@{instance_conn}/{self.database}?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no"
+        engine = create_async_engine(
+            url,
+            async_creator=lambda: connector.connect(
+                instance_conn, "aioodbc",
+                user=self.user, password=self.password, db=self.database,
+                enable_iam_auth=self.iam_auth,
+            ),
+        )
         from sqlalchemy.ext.asyncio import async_sessionmaker
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         source = CloudSQLMSSQLSource(name=self._name, engine=engine, session_factory=session_factory)

@@ -15,7 +15,7 @@ dependencies = [
     # Config
     "pydantic>=2.10.0,<3.0.0",
     "pyyaml>=6.0,<7.0.0",
-    # Database — SQL (core)
+    # Database — SQL (core, SQLAlchemy async engine + SQLite driver)
     "sqlalchemy[asyncio]>=2.0.0,<3.0.0",
     "aiosqlite>=0.20.0,<1.0.0",
     # MySQL driver — Config DB 和持久化存储的核心依赖
@@ -25,14 +25,65 @@ dependencies = [
 
 [project.optional-dependencies]
 # --- Database drivers (install only what you need) ---
-postgres = ["asyncpg>=0.30.0,<1.0.0"]
-mysql = ["pymysql>=1.1.0,<2.0.0", "aiomysql>=0.2.0,<1.0.0", "cryptography>=41.0.0,<46.0.0"]
-mssql = ["aioodbc>=0.5.0,<1.0.0"]
-redis = ["redis[hiredis]>=5.0.0,<6.0.0"]
+# SQL drivers
+postgres   = ["asyncpg>=0.30.0,<1.0.0"]
+mysql      = ["aiomysql>=0.2.0,<1.0.0"]   # 已在 core, 保留 extras 以兼容旧调用
+mssql      = ["aioodbc>=0.5.0,<1.0.0"]
+oracle     = ["oracledb>=2.0.0,<3.0.0"]
+sqlite     = ["aiosqlite>=0.20.0,<1.0.0"]  # 已在 core, 保留 extras 以兼容旧调用
+clickhouse = ["clickhouse-connect>=0.7.0,<1.0.0"]
+snowflake  = ["snowflake-sqlalchemy>=1.5.0,<2.0.0"]
+trino      = ["trino>=0.329.0,<1.0.0"]
+firebird   = ["fdb>=2.0.0,<3.0.0"]
+
+# NoSQL drivers
+mongodb      = ["pymongo>=4.8.0,<5.0.0"]
+redis        = ["redis[hiredis]>=5.0.0,<6.0.0"]
+cassandra    = ["cassandra-driver>=3.29.0,<4.0.0"]  # cassandra + scylladb 共用
+neo4j        = ["neo4j>=5.20.0,<6.0.0"]
+elasticsearch = ["elasticsearch>=8.0.0,<9.0.0"]
+valkey       = ["valkey>=6.0.0,<7.0.0"]
+couchbase    = ["couchbase>=4.3.0,<5.0.0"]
+hbase        = ["happybase>=1.2.0,<2.0.0"]
+dgraph       = ["pydgraph>=21.3.0,<22.0.0"]
+
+# HTTP
 http = ["httpx>=0.28.0,<1.0.0"]
-mongodb = ["motor>=4.0.0,<5.0.0"]
+
+# GCP / Cloud sources
+gcp = [
+    "google-cloud-alloydb>=0.9.0,<1.0.0",
+    "google-cloud-alloydb-connector>=1.6.0,<2.0.0",
+    "google-cloud-bigquery>=3.20.0,<4.0.0",
+    "google-cloud-bigtable>=2.27.0,<3.0.0",
+    "google-cloud-storage>=2.18.0,<3.0.0",
+    "google-cloud-spanner>=3.45.0,<4.0.0",
+    "google-cloud-firestore>=2.16.0,<3.0.0",
+    "google-cloud-logging>=3.11.0,<4.0.0",
+    "google-cloud-monitoring>=2.20.0,<3.0.0",
+    "google-cloud-datalineage>=1.10.0,<2.0.0",
+    "google-cloud-dataplex>=2.0.0,<3.0.0",
+    "google-cloud-dataproc>=5.12.0,<6.0.0",
+    "cloud-sql-python-connector>=1.13.0,<2.0.0",
+    "google-api-python-client>=2.140.0,<3.0.0",
+    "google-auth>=2.30.0,<3.0.0",
+    "looker-sdk>=24.0.0,<25.0.0",
+]
+
+# Embedding models
+gemini = ["google-genai>=0.3.0,<1.0.0"]
+
 # All SQL drivers at once
-sql-all = ["asyncpg>=0.30.0,<1.0.0", "pymysql>=1.1.0,<2.0.0", "aioodbc>=0.5.0,<1.0.0"]
+sql-all = [
+    "asyncpg>=0.30.0,<1.0.0",
+    "aiomysql>=0.2.0,<1.0.0",
+    "aioodbc>=0.5.0,<1.0.0",
+    "oracledb>=2.0.0,<3.0.0",
+    "clickhouse-connect>=0.7.0,<1.0.0",
+    "snowflake-sqlalchemy>=1.5.0,<2.0.0",
+    "trino>=0.329.0,<1.0.0",
+    "fdb>=2.0.0,<3.0.0",
+]
 
 # --- Features ---
 hot-reload = ["watchdog>=6.0.0,<7.0.0"]
@@ -44,14 +95,47 @@ telemetry = [
 
 # --- All optional deps combined ---
 all = [
+    # SQL drivers
     "asyncpg>=0.30.0,<1.0.0",
-    "pymysql>=1.1.0,<2.0.0",
     "aiomysql>=0.2.0,<1.0.0",
-    "cryptography>=41.0.0,<46.0.0",
     "aioodbc>=0.5.0,<1.0.0",
+    "oracledb>=2.0.0,<3.0.0",
+    "clickhouse-connect>=0.7.0,<1.0.0",
+    "snowflake-sqlalchemy>=1.5.0,<2.0.0",
+    "trino>=0.329.0,<1.0.0",
+    "fdb>=2.0.0,<3.0.0",
+    # NoSQL drivers
+    "pymongo>=4.8.0,<5.0.0",
     "redis[hiredis]>=5.0.0,<6.0.0",
+    "cassandra-driver>=3.29.0,<4.0.0",
+    "neo4j>=5.20.0,<6.0.0",
+    "elasticsearch>=8.0.0,<9.0.0",
+    "valkey>=6.0.0,<7.0.0",
+    "couchbase>=4.3.0,<5.0.0",
+    "happybase>=1.2.0,<2.0.0",
+    "pydgraph>=21.3.0,<22.0.0",
+    # HTTP
     "httpx>=0.28.0,<1.0.0",
-    "motor>=4.0.0,<5.0.0",
+    # GCP / Cloud
+    "google-cloud-alloydb>=0.9.0,<1.0.0",
+    "google-cloud-alloydb-connector>=1.6.0,<2.0.0",
+    "google-cloud-bigquery>=3.20.0,<4.0.0",
+    "google-cloud-bigtable>=2.27.0,<3.0.0",
+    "google-cloud-storage>=2.18.0,<3.0.0",
+    "google-cloud-spanner>=3.45.0,<4.0.0",
+    "google-cloud-firestore>=2.16.0,<3.0.0",
+    "google-cloud-logging>=3.11.0,<4.0.0",
+    "google-cloud-monitoring>=2.20.0,<3.0.0",
+    "google-cloud-datalineage>=1.10.0,<2.0.0",
+    "google-cloud-dataplex>=2.0.0,<3.0.0",
+    "google-cloud-dataproc>=5.12.0,<6.0.0",
+    "cloud-sql-python-connector>=1.13.0,<2.0.0",
+    "google-api-python-client>=2.140.0,<3.0.0",
+    "google-auth>=2.30.0,<3.0.0",
+    "looker-sdk>=24.0.0,<25.0.0",
+    # Embedding
+    "google-genai>=0.3.0,<1.0.0",
+    # Features
     "watchdog>=6.0.0,<7.0.0",
     "opentelemetry-api>=1.30.0,<2.0.0",
     "opentelemetry-sdk>=1.30.0,<2.0.0",

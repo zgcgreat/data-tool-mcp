@@ -5,13 +5,13 @@
 本包在导入时会 auto-import 下方所有 source 模块，以触发各自的 `@register_source`
 装饰器完成注册。因此：
 
-- **禁止在模块顶层 eager import 任何「可选 extra 驱动」**（如 mongodb → `motor`、
-  postgres → `asyncpg`、clickhouse → `clickhouse-driver` 等）。否则未安装对应 extra
+- **禁止在模块顶层 eager import 任何「可选 extra 驱动」**（如 mongodb → `pymongo`、
+  postgres → `asyncpg`、clickhouse → `clickhouse-connect` 等）。否则未安装对应 extra
   的用户在后端启动时会立即 `ModuleNotFoundError`，拖垮整个服务。
 - **正确范式**：将驱动 import 放在 `SourceConfig.initialize()`（或 `connect()`）
   **内部延迟导入**，只有在真正创建该类型连接时才需要它。
 - `mongodb.py`、`http_source.py`、`redis.py` 均已采用此范式（分别在 `initialize()`
-  内延迟导入 `motor` / `httpx` / `redis.asyncio`），作为参考范例。新增可选驱动
+  内延迟导入 `pymongo` / `httpx` / `redis.asyncio`），作为参考范例。新增可选驱动
   source 时务必沿用，避免重蹈覆辙。
 """
 

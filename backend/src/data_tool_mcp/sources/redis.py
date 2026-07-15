@@ -63,7 +63,12 @@ class RedisSourceConfig(SourceConfig):
         )
 
     async def initialize(self, tracer=None) -> RedisSource:
-        import redis.asyncio as aioredis
+        try:
+            import redis.asyncio as aioredis
+        except ImportError as e:
+            raise ImportError(
+                "redis is required for Redis support: pip install 'redis[hiredis]'"
+            ) from e
 
         client = aioredis.Redis(
             host=self.address.split(":")[0],

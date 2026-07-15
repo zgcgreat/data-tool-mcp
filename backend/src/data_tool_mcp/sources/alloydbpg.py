@@ -93,7 +93,7 @@ class AlloyDBPGSourceConfig(SourceConfig):
             "postgresql+asyncpg://",
             async_creator=lambda: connector.connect(
                 f"projects/{self.project_id}/locations/us-central1/clusters/{self.cluster_id}/instances/{self.instance_id}",
-                "pg8000",
+                "asyncpg",
                 user=self.user,
                 password=self.password,
                 db=self.database,

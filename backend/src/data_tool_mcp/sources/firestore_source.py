@@ -79,7 +79,12 @@ class FirestoreSource(Source):
         return results
 
     async def get_rules(self) -> str:
-        from google.cloud import firestore_admin_v1
+        try:
+            from google.cloud import firestore_admin_v1
+        except ImportError as e:
+            raise ImportError(
+                "google-cloud-firestore is required: pip install google-cloud-firestore"
+            ) from e
         admin = firestore_admin_v1.FirestoreAdminClient()
         name = f"projects/{self._client.project}/databases/(default)/securityRules"
         try:

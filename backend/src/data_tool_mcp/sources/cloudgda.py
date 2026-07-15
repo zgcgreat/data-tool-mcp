@@ -31,9 +31,15 @@ class CloudGDASource(Source):
         pass
 
     async def _request(self, method: str, path: str, body: dict | None = None) -> Any:
-        import httpx
-        from google.auth import default
-        from google.auth.transport.requests import Request
+        try:
+            import httpx
+            from google.auth import default
+            from google.auth.transport.requests import Request
+        except ImportError as e:
+            raise ImportError(
+                "httpx and google-auth are required for Cloud GDA support: "
+                "pip install httpx google-auth"
+            ) from e
 
         creds, _ = default()
         creds.refresh(Request())

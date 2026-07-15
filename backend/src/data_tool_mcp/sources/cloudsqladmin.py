@@ -64,8 +64,14 @@ class CloudSQLAdminSource(Source):
         body = {"database": database, "sqlStatement": sql}
         if access_token:
             # Build a new service with the provided access token for client OAuth
-            from google.oauth2.credentials import Credentials
-            from googleapiclient.discovery import build
+            try:
+                from google.oauth2.credentials import Credentials
+                from googleapiclient.discovery import build
+            except ImportError as e:
+                raise ImportError(
+                    "google-api-python-client and google-auth are required: "
+                    "pip install google-api-python-client google-auth"
+                ) from e
             creds = Credentials(token=access_token)
             client = build("sqladmin", "v1", credentials=creds)
             return await self._execute(lambda: client.instances().executeSql(project=project, instance=instance, body=body).execute())

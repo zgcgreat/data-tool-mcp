@@ -88,7 +88,12 @@ class HTTPSourceConfig(SourceConfig):
         elif self.auth_type == "basic" and self.auth_token:
             client_headers["Authorization"] = f"Basic {self.auth_token}"
 
-        import httpx
+        try:
+            import httpx
+        except ImportError as e:
+            raise ImportError(
+                "httpx is required for HTTP source support: pip install httpx"
+            ) from e
 
         client = httpx.AsyncClient(headers=client_headers, timeout=30.0)
         source = HTTPSource(

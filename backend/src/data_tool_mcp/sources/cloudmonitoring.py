@@ -35,7 +35,12 @@ class CloudMonitoringSource(Source):
         loop = asyncio.get_event_loop()
 
         def _run() -> list[dict[str, Any]]:
-            from google.cloud import monitoring_v1
+            try:
+                from google.cloud import monitoring_v1
+            except ImportError as e:
+                raise ImportError(
+                    "google-cloud-monitoring is required: pip install google-cloud-monitoring"
+                ) from e
             query_service = monitoring_v1.QueryServiceClient()
             request = monitoring_v1.QueryTimeSeriesRequest(
                 name=self._project_path,
