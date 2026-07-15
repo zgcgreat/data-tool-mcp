@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchTools, getTool, invokeTool, deleteTool, fetchSystems } from '../api/client';
+import { fetchTools, getTool, invokeTool, deleteTool, fetchSystems, fetchEnvironments } from '../api/client';
 import type { SystemInfo } from '../api/client';
 import { toast } from '../components/Toast';
 import type { ToolInfo, ToolParam } from '../api/types';
@@ -64,11 +64,14 @@ export default function Tools() {
   const [invoking, setInvoking] = useState(false);
   const [filterSource, setFilterSource] = useState<string>('');
   const [selectedSystemId, setSelectedSystemId] = useState('');
+  const [selectedEnvironment, setSelectedEnvironment] = useState('');
   const [systems, setSystems] = useState<SystemInfo[]>([]);
+  const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
 
   useEffect(() => {
     loadTools();
     loadSystems();
+    loadEnvironments();
   }, []);
 
   const loadSystems = async () => {
@@ -77,6 +80,17 @@ export default function Tools() {
       setSystems(data);
     } catch {
       // 静默失败
+    }
+  };
+
+  const loadEnvironments = async () => {
+    try {
+      const data = await fetchEnvironments();
+      if (Array.isArray(data) && data.length > 0) {
+        setEnvironments(data);
+      }
+    } catch {
+      // 静默失败,保留默认环境列表
     }
   };
 
@@ -140,35 +154,29 @@ export default function Tools() {
     }
   };
 
-  // 构建数据源名 → 系统编号 的映射
-  const sourceToSystem = new Map<string, string>();
-  systems.forEach(sys => {
-    sys.sources.forEach(srcName => sourceToSystem.set(srcName, sys.systemId));
-  });
-
-  // 数据源下拉框跟随系统编号联动：选了系统编号时只显示该系统下的数据源
-  const sourceNames = Array.from(new Set(
-    tools
-      .map(t => t.source)
-      .filter((s): s is string => Boolean(s))
-      .filter(s => !selectedSystemId || sourceToSystem.get(s) === selectedSystemId)
-  ));
-
-  // 切换系统编号时清空已选数据源（避免不一致）
-  // 注意：需要在事件处理中清空，不能在这里直接 setFilterSource
-
-  // 工具筛选：先按系统编号，再按数据源
+  // 工具筛选：按系统编号 + 环境 + 数据源
   const filteredTools = tools.filter(t => {
-    if (selectedSystemId) {
-      const sysId = t.source ? sourceToSystem.get(t.source) : undefined;
-      if (sysId !== selectedSystemId) return false;
-    }
+    if (selectedSystemId && (t.systemId || '') !== selectedSystemId) return false;
+    if (selectedEnvironment && (t.environment || '') !== selectedEnvironment) return false;
     if (filterSource && t.source !== filterSource) return false;
     return true;
   });
 
+  // 数据源下拉框跟随系统编号+环境联动
+  const sourceNames = Array.from(new Set(
+    filteredTools
+      .map(t => t.source)
+      .filter((s): s is string => Boolean(s))
+  ));
+
   const handleSystemChange = (sid: string) => {
     setSelectedSystemId(sid);
+    setSelectedEnvironment('');
+    setFilterSource('');
+  };
+
+  const handleEnvironmentChange = (env: string) => {
+    setSelectedEnvironment(env);
     setFilterSource('');
   };
 
@@ -213,6 +221,17 @@ export default function Tools() {
               ))}
             </select>
           )}
+          <select
+            className="form-select tools-filter"
+            value={selectedEnvironment}
+            onChange={e => handleEnvironmentChange(e.target.value)}
+            style={{ width: 'auto', minWidth: '120px' }}
+          >
+            <option value="">全部环境</option>
+            {environments.map(env => (
+              <option key={env} value={env}>{env}</option>
+            ))}
+          </select>
           {sourceNames.length > 0 && (
             <select
               className="form-select tools-filter"

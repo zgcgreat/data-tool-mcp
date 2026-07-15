@@ -440,9 +440,21 @@ async def dashboard(request: Request) -> dict[str, Any]:
     config = _get_config(request)
     sources = rm.get_sources_map()
     tools = rm.get_tools_map()
-    # 今日请求数 — 从内存计数器读取(跨日自动重置)
-    from data_tool_mcp.server.stats import get_request_counter
-    today_requests = get_request_counter().get_today_count()
+    # 今日请求数 — 优先从数据库 mcp_request_logs 表查询（持久化，重启不丢）
+    # 回退到内存计数器（未启用持久化时）
+    today_requests = 0
+    store = get_store()
+    if store is not None and store.is_persistent:
+        try:
+            from datetime import date
+            today_str = date.today().isoformat()
+            stats = await store.query_mcp_stats(start_date=today_str, end_date=today_str)
+            today_requests = stats.get("summary", {}).get("total", 0)
+        except Exception as exc:
+            logger.warning("查询今日 MCP 请求数失败: %s", exc)
+    if today_requests == 0:
+        from data_tool_mcp.server.stats import get_request_counter
+        today_requests = get_request_counter().get_today_count()
     return {
         "version": getattr(config, "version", "0.1.0"),
         "uptime": None,
@@ -796,12 +808,22 @@ async def list_tools(request: Request) -> list[dict[str, Any]]:
     for name, tool in tools.items():
         manifest = tool.manifest() if hasattr(tool, "manifest") else None
         tool_type = rm.get_tool_type(name)
+        source_name = getattr(tool, "source_name", None)
+        # 从数据源配置中提取 systemId / environment,用于前端按系统+环境筛选
+        system_id = ""
+        environment = ""
+        if source_name:
+            src_cfg = rm.get_source_config(source_name) or {}
+            system_id = str(src_cfg.get("systemId", "") or "").strip()
+            environment = str(src_cfg.get("environment", "") or "").strip()
         result.append({
             "name": name,
             "type": tool_type,
-            "source": getattr(tool, "source_name", None),
+            "source": source_name,
             "description": manifest.description if manifest else None,
             "category": _classify_tool(tool, tool_type),
+            "systemId": system_id,
+            "environment": environment,
         })
     return result
 

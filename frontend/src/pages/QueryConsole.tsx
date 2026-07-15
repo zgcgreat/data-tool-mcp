@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { fetchSources, executeQuery, fetchSourceTables, fetchSystems } from '../api/client';
+import { fetchSources, executeQuery, fetchSourceTables, fetchSystems, fetchEnvironments } from '../api/client';
 import type { SystemInfo } from '../api/client';
 import { toast } from '../components/Toast';
 import type { SourceInfo, QueryResult } from '../api/types';
@@ -71,7 +71,9 @@ export default function QueryConsole() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [selectedSource, setSelectedSource] = useState<string>('');
   const [selectedSystemId, setSelectedSystemId] = useState('');
+  const [selectedEnvironment, setSelectedEnvironment] = useState('');
   const [systems, setSystems] = useState<SystemInfo[]>([]);
+  const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
   const [sql, setSql] = useState('');
   const [result, setResult] = useState<QueryResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -89,6 +91,13 @@ export default function QueryConsole() {
       .catch(() => toast.error('加载数据源失败'));
     fetchSystems()
       .then(setSystems)
+      .catch(() => { /* 静默失败 */ });
+    fetchEnvironments()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setEnvironments(data);
+        }
+      })
       .catch(() => { /* 静默失败 */ });
   }, []);
 
@@ -140,6 +149,12 @@ export default function QueryConsole() {
 
   const handleSystemChange = (sid: string) => {
     setSelectedSystemId(sid);
+    setSelectedEnvironment('');
+    setSelectedSource('');
+  };
+
+  const handleEnvironmentChange = (env: string) => {
+    setSelectedEnvironment(env);
     setSelectedSource('');
   };
 
@@ -186,6 +201,7 @@ export default function QueryConsole() {
   const sqlSources = sources.filter((s) => {
     if (!SQL_SOURCE_TYPES.includes(s.type)) return false;
     if (selectedSystemId && String(s.systemId || '') !== selectedSystemId) return false;
+    if (selectedEnvironment && String(s.environment || '') !== selectedEnvironment) return false;
     return true;
   });
   const filteredTables = tableFilter.trim()
@@ -287,6 +303,19 @@ export default function QueryConsole() {
                     </select>
                   </div>
                 )}
+                <div className="form-group qc-field">
+                  <label className="form-label">环境</label>
+                  <select
+                    className="form-select"
+                    value={selectedEnvironment}
+                    onChange={(e) => handleEnvironmentChange(e.target.value)}
+                  >
+                    <option value="">全部</option>
+                    {environments.map((env) => (
+                      <option key={env} value={env}>{env}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="form-group qc-field">
                   <label className="form-label">数据源</label>
                   <select

@@ -33,6 +33,8 @@ export interface ToolInfo {
     required: string[];
   };
   category?: 'oneclick' | 'parameterized' | 'sql';
+  systemId?: string;
+  environment?: string;
 }
 
 interface ToolParamSchema {
