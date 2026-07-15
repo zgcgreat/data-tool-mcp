@@ -26,6 +26,25 @@ def _load_dotenv() -> None:
             os.environ.setdefault(key.strip(), val.strip())
 
 
+def _resolve_store_password(raw: str) -> str:
+    """解析 TOOLBOX_STORE_PASSWORD 配置值。
+
+    支持两种形式:
+      1. 明文密码: 直接返回
+      2. 加密密文: 检测到有效密文时解密后返回
+
+    这样企业部署时可在 env 中配置加密后的密文，避免明文密码暴露在
+    环境变量或 CI/CD 配置中。加密密钥由 TOOLBOX_ENCRYPTION_KEY 提供，
+    加解密实现见 utils/crypto.py（企业可替换为 SM4/KMS）。
+    """
+    if not raw:
+        return ""
+    from data_tool_mcp.utils.crypto import decrypt, is_encrypted
+    if is_encrypted(raw):
+        return decrypt(raw)
+    return raw
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="toolbox",
@@ -145,7 +164,7 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         user_agent_metadata=args.user_agent_metadata or [],
         store_url=args.store_url or "",
         store_username=args.store_username or "",
-        store_password=args.store_password or "",
+        store_password=_resolve_store_password(args.store_password or ""),
         # 数据源类型白名单: 逗号分隔字符串 → 去空白的列表
         enabled_source_types=[
             t.strip() for t in (args.enabled_source_types or "").split(",") if t.strip()

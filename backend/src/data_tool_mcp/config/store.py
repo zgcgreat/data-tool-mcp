@@ -26,111 +26,23 @@ system_id 为 VARCHAR(10) 字符串，由用户在创建数据源时指定，
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
-import os
 from typing import Any
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
+# 加解密统一入口 — 企业部署时可替换 utils/crypto.py 为 SM4/KMS 实现
+from data_tool_mcp.utils.crypto import (
+    decrypt_password,
+    encrypt_password,
+    is_encrypted,
+    normalize_password_for_storage,
+)
+
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Password encryption — application-level Fernet encryption for source passwords.
-# The encryption key is derived from TOOLBOX_ENCRYPTION_KEY env var (or a
-# default development key). In production, set TOOLBOX_ENCRYPTION_KEY to a
-# strong random value (32+ bytes, base64-encoded for Fernet).
-# ---------------------------------------------------------------------------
-_ENCRYPTION_KEY_ENV = "TOOLBOX_ENCRYPTION_KEY"
-_DEFAULT_KEY_FALLBACK = "dev-only-key-do-not-use-in-production-0123456789"
-_fernet = None
-
-
-def _get_fernet():
-    """Lazy-initialize Fernet cipher for password encryption."""
-    global _fernet
-    if _fernet is not None:
-        return _fernet
-    try:
-        from cryptography.fernet import Fernet
-        key_env = os.environ.get(_ENCRYPTION_KEY_ENV, "")
-        if key_env:
-            # Use provided key (must be valid base64 32-byte key)
-            _fernet = Fernet(key_env.encode() if isinstance(key_env, str) else key_env)
-        else:
-            # Derive a stable key from the fallback for development
-            import hashlib
-            key = base64.urlsafe_b64encode(
-                hashlib.sha256(_DEFAULT_KEY_FALLBACK.encode()).digest()
-            )
-            _fernet = Fernet(key)
-    except ImportError:
-        logger.warning("cryptography not available — passwords stored in plaintext")
-        _fernet = False  # Sentinel: encryption disabled
-    except Exception as exc:
-        logger.warning("Fernet init failed (%s) — passwords stored in plaintext", exc)
-        _fernet = False
-    return _fernet
-
-
-def encrypt_password(plaintext: str) -> str:
-    """Encrypt a password for storage. Returns encrypted string or plaintext if encryption unavailable."""
-    if not plaintext:
-        return ""
-    f = _get_fernet()
-    if not f:
-        return plaintext
-    try:
-        return f.encrypt(plaintext.encode("utf-8")).decode("utf-8")
-    except Exception as exc:
-        logger.warning("password encryption failed: %s", exc)
-        return plaintext
-
-
-def decrypt_password(ciphertext: str) -> str:
-    """Decrypt a stored password. Returns plaintext or original if decryption fails."""
-    if not ciphertext:
-        return ""
-    f = _get_fernet()
-    if not f:
-        return ciphertext
-    try:
-        return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
-    except Exception:
-        # Not encrypted (legacy plaintext) or wrong key — return as-is
-        return ciphertext
-
-
-def _is_encrypted(value: str) -> bool:
-    """判断字符串是否是有效的 Fernet 密文(能被当前密钥解密)。"""
-    if not value:
-        return False
-    f = _get_fernet()
-    if not f:
-        return False
-    try:
-        f.decrypt(value.encode("utf-8"))
-        return True
-    except Exception:
-        return False
-
-
-def _normalize_password_for_storage(raw: str) -> str:
-    """归一化待存储的密码值。
-
-    - 空字符串 → 空字符串(无密码)
-    - 已是有效密文(编辑未改动密码) → 原样保留, 不重复加密
-    - 其他(新明文密码) → encrypt_password 加密后返回
-    """
-    if not raw:
-        return ""
-    if _is_encrypted(raw):
-        return raw
-    return encrypt_password(raw)
 
 
 class Base(DeclarativeBase):
@@ -142,18 +54,21 @@ class SourceRecord(Base):
 
     结构化字段（host/port/database/username/password）+ params（JSON 扩展参数）。
     system_id 为业务隔离维度（系统编号，10 位字符串）。
+
+    注意：数据库列名加 `src_` / `db_` 前缀避开 MySQL/PG 保留字
+    （name/type/database/host/password 等都是保留字），Python 属性名保持简洁。
     """
     __tablename__ = "sources"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     system_id = Column(String(10), nullable=False, default="", index=True)  # 系统编号
-    name = Column(String(128), nullable=False, index=True)
-    type = Column(String(64), nullable=False)
-    host = Column(String(255), nullable=False, default="")
-    port = Column(Integer, default=0)
-    database = Column(String(128), default="")
-    username = Column(String(128), default="")
-    password = Column(String(512), default="")
+    name = Column("src_name", String(128), nullable=False, index=True)
+    type = Column("src_type", String(64), nullable=False)
+    host = Column("db_host", String(255), nullable=False, default="")
+    port = Column("db_port", Integer, default=0)
+    database = Column("db_name", String(128), default="")
+    username = Column("db_user", String(128), default="")
+    password = Column("db_password", String(512), default="")
     params = Column(Text, default="{}")  # JSON 字符串
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -164,15 +79,17 @@ class ToolRecord(Base):
 
     source_name 引用 sources.name，params 存额外工具参数。
     system_id 冗余存储，便于按系统编号查询工具。
+
+    注意：数据库列名加 `tool_` 前缀避开保留字（name/type/description）。
     """
     __tablename__ = "tools"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     system_id = Column(String(10), nullable=False, default="", index=True)  # 系统编号
-    name = Column(String(128), nullable=False, index=True)
-    type = Column(String(64), nullable=False)
-    source_name = Column(String(128), nullable=False, default="")
-    description = Column(Text, default="")
+    name = Column("tool_name", String(128), nullable=False, index=True)
+    type = Column("tool_type", String(64), nullable=False)
+    source_name = Column("src_name", String(128), nullable=False, default="")
+    description = Column("tool_desc", Text, default="")
     params = Column(Text, default="{}")  # JSON 字符串
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -183,12 +100,14 @@ class ToolsetRecord(Base):
 
     tool_names 用逗号分隔字符串存储。
     system_id 为业务隔离维度。
+
+    注意：数据库列名 `set_name` 避开保留字 `name`。
     """
     __tablename__ = "toolsets"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     system_id = Column(String(10), nullable=False, default="", index=True)
-    name = Column(String(128), nullable=False)
+    name = Column("set_name", String(128), nullable=False)
     tool_names = Column(Text, default="")  # 逗号分隔
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -316,7 +235,7 @@ class ConfigStore:
         username = str(config_data.get("user", config_data.get("username", "")) or "")
         # 密码幂等处理: 已是密文则保留, 否则视为新明文密码加密
         raw_password = str(config_data.get("password", "") or "")
-        password = _normalize_password_for_storage(raw_password)
+        password = normalize_password_for_storage(raw_password)
 
         # params 存储非结构化字段（systemId 作为结构化字段提取到独立列）
         structured_keys = {"systemId", "host", "port", "database", "path", "user", "username", "password", "name", "type"}
@@ -366,6 +285,74 @@ class ConfigStore:
             )
             return record.password if record else ""
 
+    async def count_sources(self) -> int:
+        """返回数据源总数，用于判断是否需要首次导入预置配置。"""
+        from sqlalchemy import func as sa_func
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(sa_func.count(SourceRecord.id))
+            ) or 0
+
+    async def save_toolset(
+        self,
+        name: str,
+        tool_names: list[str],
+        config_data: dict[str, Any] | None = None,
+    ) -> None:
+        """保存或更新工具集配置。
+
+        tool_names 用逗号分隔字符串存储。system_id 从 config_data 提取。
+        """
+        config_data = config_data or {}
+        system_id = str(config_data.get("systemId", "") or "").strip()
+        tool_names_str = ",".join(tool_names)
+
+        async with self._session_factory() as session:
+            existing = await session.scalar(
+                select(ToolsetRecord).where(
+                    ToolsetRecord.name == name,
+                    ToolsetRecord.system_id == system_id,
+                )
+            )
+            if existing:
+                existing.tool_names = tool_names_str
+            else:
+                session.add(ToolsetRecord(
+                    system_id=system_id,
+                    name=name,
+                    tool_names=tool_names_str,
+                ))
+            await session.commit()
+
+    async def count_toolsets(self) -> int:
+        """返回工具集总数。"""
+        from sqlalchemy import func as sa_func
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(sa_func.count(ToolsetRecord.id))
+            ) or 0
+
+    async def load_toolsets(self) -> list[dict[str, Any]]:
+        """加载所有工具集。"""
+        async with self._session_factory() as session:
+            result = await session.scalars(
+                select(ToolsetRecord)
+            )
+            toolsets = []
+            for r in result:
+                ts: dict[str, Any] = {
+                    "name": r.name,
+                    "tools": [
+                        {"name": tn.strip()}
+                        for tn in (r.tool_names or "").split(",")
+                        if tn.strip()
+                    ],
+                }
+                if r.system_id:
+                    ts["systemId"] = r.system_id
+                toolsets.append(ts)
+            return toolsets
+
     async def delete_source(self, name: str) -> None:
         async with self._session_factory() as session:
             record = await session.scalar(
@@ -376,6 +363,50 @@ class ConfigStore:
             if record:
                 await session.delete(record)
                 await session.commit()
+
+    # --- 批量导入（YAML/Prebuilt → DB 一次性导入）---
+
+    async def import_toolbox_file(self, tf: "ToolboxFile") -> dict[str, int]:
+        """将 ToolboxFile（YAML/Prebuilt 解析结果）批量导入到 store。
+
+        用于 `toolbox import` 子命令和首次启动时自动导入预置配置。
+        幂等：同 (system_id, name) 的记录会更新而非重复创建。
+
+        返回: {"sources": N, "tools": N, "toolsets": N} 导入计数。
+        """
+        counts = {"sources": 0, "tools": 0, "toolsets": 0}
+
+        # 导入数据源
+        for name, src_data in tf.sources.items():
+            src_type = src_data.get("type", "")
+            if not src_type:
+                continue
+            await self.save_source(name, src_type, src_data)
+            counts["sources"] += 1
+
+        # 导入工具
+        for name, tool_data in tf.tools.items():
+            tool_type = tool_data.get("type", "")
+            source = tool_data.get("source", "")
+            description = tool_data.get("description", "")
+            if not tool_type:
+                continue
+            await self.save_tool(name, tool_type, source, description, tool_data)
+            counts["tools"] += 1
+
+        # 导入工具集
+        for name, ts_data in tf.toolsets.items():
+            tool_names = [
+                t["name"] for t in ts_data.get("tools", []) if "name" in t
+            ]
+            await self.save_toolset(name, tool_names, ts_data)
+            counts["toolsets"] += 1
+
+        logger.info(
+            "ToolboxFile 导入完成: %d sources, %d tools, %d toolsets",
+            counts["sources"], counts["tools"], counts["toolsets"],
+        )
+        return counts
 
     async def load_sources(self) -> list[dict[str, Any]]:
         """加载所有数据源，合并结构化字段和 params。"""

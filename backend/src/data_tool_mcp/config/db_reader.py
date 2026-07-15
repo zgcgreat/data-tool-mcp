@@ -163,12 +163,13 @@ async def _load_system(
     Maps to Go: dbconfigreader.readDept()
     """
     # -- Sources --
+    # 注意：列名加前缀避开 MySQL 保留字（name/type/database/host/password）
     src_rows = await session.execute(
         text("""
-            SELECT name, type, host, port, database, username, password, params
+            SELECT src_name, src_type, db_host, db_port, db_name, db_user, db_password, params
             FROM sources
             WHERE system_id = :system_id
-            ORDER BY name
+            ORDER BY src_name
         """),
         {"system_id": system_id},
     )
@@ -205,12 +206,13 @@ async def _load_system(
         sources[name] = src_config
 
     # -- Tools --
+    # 列名加 tool_ 前缀避开保留字
     tool_rows = await session.execute(
         text("""
-            SELECT name, type, source_name, description, params
+            SELECT tool_name, tool_type, src_name, tool_desc, params
             FROM tools
             WHERE system_id = :system_id
-            ORDER BY name
+            ORDER BY tool_name
         """),
         {"system_id": system_id},
     )
@@ -234,9 +236,10 @@ async def _load_system(
         tools[name] = tool_config
 
     # -- Toolset --
+    # 列名 set_name 避开保留字 name
     ts_row = await session.execute(
         text("""
-            SELECT name, tool_names
+            SELECT set_name, tool_names
             FROM toolsets
             WHERE system_id = :system_id
         """),
