@@ -18,14 +18,15 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<AppLayout />}>
-        <Route index element={<Suspense fallback={<PageLoader />}><Dashboard /></Suspense>} />
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<Suspense fallback={<PageLoader />}><Dashboard /></Suspense>} />
         <Route path="quick-connect" element={<Suspense fallback={<PageLoader />}><QuickConnect /></Suspense>} />
         <Route path="sources" element={<Suspense fallback={<PageLoader />}><Sources /></Suspense>} />
         <Route path="tools" element={<Suspense fallback={<PageLoader />}><Tools /></Suspense>} />
         <Route path="query" element={<Suspense fallback={<PageLoader />}><QueryConsole /></Suspense>} />
         <Route path="mcp-stats" element={<Suspense fallback={<PageLoader />}><McpStats /></Suspense>} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }

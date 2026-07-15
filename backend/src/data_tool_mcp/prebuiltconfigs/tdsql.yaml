@@ -16,80 +16,68 @@ source: tdsql-source
 description: 使用此工具在 TDSQL 上执行 SQL 语句（可能修改数据）。
 ---
 kind: tool
-name: list_tables
-type: tdsql-sql
+name: list_active_queries
+type: tdsql-list-active-queries
 source: tdsql-source
-description: 以 JSON 格式列出 TDSQL 数据库中用户创建的表的详细 Schema 信息。
-statement: |
-  SELECT
-      T.TABLE_SCHEMA AS schema_name,
-      T.TABLE_NAME AS object_name,
-      CONVERT( JSON_OBJECT(
-          'schema_name', T.TABLE_SCHEMA,
-          'object_name', T.TABLE_NAME,
-          'object_type', 'TABLE',
-          'comment', IFNULL(T.TABLE_COMMENT, ''),
-          'columns', (
-              SELECT
-                  IFNULL(
-                      JSON_ARRAYAGG(
-                          JSON_OBJECT(
-                              'column_name', C.COLUMN_NAME,
-                              'data_type', C.COLUMN_TYPE,
-                              'ordinal_position', C.ORDINAL_POSITION,
-                              'is_not_nullable', IF(C.IS_NULLABLE = 'NO', TRUE, FALSE),
-                              'column_default', C.COLUMN_DEFAULT,
-                              'column_comment', IFNULL(C.COLUMN_COMMENT, '')
-                          )
-                      ),
-                      JSON_ARRAY()
-                  )
-              FROM
-                  INFORMATION_SCHEMA.COLUMNS C
-              WHERE
-                  C.TABLE_SCHEMA = T.TABLE_SCHEMA AND C.TABLE_NAME = T.TABLE_NAME
-              ORDER BY C.ORDINAL_POSITION
-          ),
-          'indexes', (
-              SELECT
-                  IFNULL(
-                      JSON_ARRAYAGG(
-                          JSON_OBJECT(
-                              'index_name', IndexData.INDEX_NAME,
-                              'is_unique', IF(IndexData.NON_UNIQUE = 0, TRUE, FALSE),
-                              'is_primary', IF(IndexData.INDEX_NAME = 'PRIMARY', TRUE, FALSE),
-                              'index_columns', IFNULL(IndexData.INDEX_COLUMNS_ARRAY, JSON_ARRAY())
-                          )
-                      ),
-                      JSON_ARRAY()
-                  )
-              FROM (
-                  SELECT
-                      S.TABLE_SCHEMA,
-                      S.TABLE_NAME,
-                      S.INDEX_NAME,
-                      MIN(S.NON_UNIQUE) AS NON_UNIQUE,
-                      JSON_ARRAYAGG(S.COLUMN_NAME) AS INDEX_COLUMNS_ARRAY
-                  FROM
-                      INFORMATION_SCHEMA.STATISTICS S
-                  WHERE
-                      S.TABLE_SCHEMA = T.TABLE_SCHEMA AND S.TABLE_NAME = T.TABLE_NAME
-                  GROUP BY
-                      S.TABLE_SCHEMA, S.TABLE_NAME, S.INDEX_NAME
-              ) AS IndexData
-              ORDER BY IndexData.INDEX_NAME
-          )
-      ) USING utf8mb4) AS object_details
-  FROM
-      INFORMATION_SCHEMA.TABLES T
-  WHERE
-      T.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
-      AND T.TABLE_TYPE = 'BASE TABLE'
-  ORDER BY
-      T.TABLE_SCHEMA, T.TABLE_NAME;
+description: 列出 TDSQL 中正在执行的查询（processlist 中非 Sleep 状态），包括进程 ID、用户、主机、数据库、命令类型、执行时间、状态和查询语句。
+---
+kind: tool
+name: get_query_plan
+type: tdsql-get-query-plan
+source: tdsql-source
+description: "提供 TDSQL 如何执行 SQL 语句的信息。常见用途包括：1）分析查询计划以提升性能；2）评估现有索引的有效性并考虑新索引。在 sql 参数中传入单条 SQL 语句，工具返回其执行计划但不会执行。"
+---
+kind: tool
+name: list_tables
+type: tdsql-list-tables
+source: tdsql-source
+description: 列出 TDSQL 数据库中的所有表。
+---
+kind: tool
+name: list_table_stats
+type: tdsql-list-table-stats
+source: tdsql-source
+description: 显示 TDSQL 表统计信息，包括表名、行数、数据长度和索引长度。
+---
+kind: tool
+name: list_tables_missing_unique_indexes
+type: tdsql-list-tables-missing-unique-indexes
+source: tdsql-source
+description: 查找 TDSQL 中没有唯一键约束的表。主键或唯一键是保证行唯一性的唯一机制，缺少它们将失去数据库级的数据完整性保护。
+---
+kind: tool
+name: list_table_fragmentation
+type: tdsql-list-table-fragmentation
+source: tdsql-source
+description: 列出 TDSQL 中的表碎片情况，通过计算每张表的数据和空闲空间。可使用 OPTIMIZE TABLE 回收高碎片表的存储空间。
+---
+kind: tool
+name: list_all_locks
+type: tdsql-list-all-locks
+source: tdsql-source
+description: 列出 TDSQL 数据库中当前的 InnoDB 锁信息。
+---
+kind: tool
+name: show_query_stats
+type: tdsql-show-query-stats
+source: tdsql-source
+description: 显示 TDSQL 查询执行统计信息，包括执行次数、总延迟等，按执行次数降序排列前 20 条。
 ---
 kind: toolset
-name: tdsql_database_tools
+name: data
 tools:
 - execute_sql
 - list_tables
+- get_query_plan
+- list_active_queries
+---
+kind: toolset
+name: monitor
+tools:
+- get_query_plan
+- list_active_queries
+- list_all_locks
+- list_table_fragmentation
+- list_table_stats
+- list_tables_missing_unique_indexes
+- show_query_stats

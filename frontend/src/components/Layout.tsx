@@ -57,7 +57,7 @@ const Icon = {
 };
 
 const navItems = [
-  { path: '/', label: '仪表盘', icon: <Icon.Dashboard /> },
+  { path: '/dashboard', label: '仪表盘', icon: <Icon.Dashboard /> },
   { path: '/quick-connect', label: '快速接入', icon: <Icon.Bolt /> },
   { path: '/sources', label: '数据源', icon: <Icon.Database /> },
   { path: '/tools', label: '工具', icon: <Icon.Tool /> },
@@ -66,7 +66,7 @@ const navItems = [
 ];
 
 const pageNames: Record<string, string> = {
-  '/': '仪表盘',
+  '/dashboard': '仪表盘',
   '/quick-connect': '快速接入',
   '/sources': '数据源',
   '/tools': '工具',
