@@ -85,6 +85,7 @@ async def test_create_source_blocked_by_whitelist(app, client):
         "name": "test-mysql",
         "type": "mysql",
         "systemId": "sys001",
+        "environment": "dev",
         "host": "localhost",
         "port": 3306,
         "database": "test",

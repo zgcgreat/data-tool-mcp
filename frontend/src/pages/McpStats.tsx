@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchMcpStats, fetchMcpLogs, fetchSystems, fetchSources } from '../api/client';
+import { fetchMcpStats, fetchMcpLogs, fetchSystems, fetchSources, fetchEnvironments } from '../api/client';
 import type { SystemInfo, McpStatsResult, McpLogsResult } from '../api/client';
 import type { SourceInfo } from '../api/types';
 import { toast } from '../components/Toast';
@@ -28,7 +28,9 @@ export default function McpStats() {
   const [logsPageSize] = useState(20);
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
+  const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
   const [selectedSystemId, setSelectedSystemId] = useState('');
+  const [selectedEnvironment, setSelectedEnvironment] = useState('');
   const [selectedSourceName, setSelectedSourceName] = useState('');
   // 日期直接用输入框,默认近30天
   const today = new Date();
@@ -38,11 +40,14 @@ export default function McpStats() {
   const [endDate, setEndDate] = useState(formatDate(today));
 
   useEffect(() => {
-    // 初始化系统/数据源列表
-    Promise.all([fetchSystems(), fetchSources()])
-      .then(([sysData, srcData]) => {
+    // 初始化系统/数据源/环境列表
+    Promise.all([fetchSystems(), fetchSources(), fetchEnvironments()])
+      .then(([sysData, srcData, envData]) => {
         setSystems(sysData);
         setSources(srcData);
+        if (Array.isArray(envData) && envData.length > 0) {
+          setEnvironments(envData);
+        }
       })
       .catch(() => {
         // 静默
@@ -64,6 +69,7 @@ export default function McpStats() {
         endDate: end,
         systemId: selectedSystemId,
         sourceName: selectedSourceName,
+        environment: selectedEnvironment,
       });
       setStats(data);
     } catch (error) {
@@ -84,6 +90,7 @@ export default function McpStats() {
         endDate: end,
         systemId: selectedSystemId,
         sourceName: selectedSourceName,
+        environment: selectedEnvironment,
       });
       setLogs(data);
     } catch (error) {
@@ -110,16 +117,19 @@ export default function McpStats() {
   const handleSystemChange = (value: string) => {
     setSelectedSystemId(value);
     setSelectedSourceName(''); // 切换系统时清空数据源筛选
+    setSelectedEnvironment(''); // 切换系统时清空环境筛选
   };
 
   const handleLogsPageChange = (newPage: number) => {
     loadLogs(startDate, endDate, newPage);
   };
 
-  // 当前展示的数据源列表（按系统筛选）
-  const filteredSources = selectedSystemId
-    ? sources.filter(s => String(s.systemId || '') === selectedSystemId)
-    : sources;
+  // 当前展示的数据源列表（按系统 + 环境筛选）
+  const filteredSources = sources.filter(s => {
+    if (selectedSystemId && String(s.systemId || '') !== selectedSystemId) return false;
+    if (selectedEnvironment && String(s.environment || '') !== selectedEnvironment) return false;
+    return true;
+  });
 
   // 趋势图最大值（用于柱状图高度计算）
   const timelineMax = stats?.timeline?.reduce((max, item) => Math.max(max, item.total), 0) || 0;
@@ -151,6 +161,19 @@ export default function McpStats() {
                 <option key={sys.systemId} value={sys.systemId}>
                   {sys.systemId}
                 </option>
+              ))}
+            </select>
+          </div>
+          <div className="filter-item">
+            <label className="filter-label">环境</label>
+            <select
+              className="form-select"
+              value={selectedEnvironment}
+              onChange={e => setSelectedEnvironment(e.target.value)}
+            >
+              <option value="">全部环境</option>
+              {environments.map(env => (
+                <option key={env} value={env}>{env}</option>
               ))}
             </select>
           </div>
@@ -274,6 +297,34 @@ export default function McpStats() {
               </div>
             )}
 
+            {stats.by_environment.length > 0 && (
+              <div className="stats-section card">
+                <div className="section-header">
+                  <h3>按环境</h3>
+                </div>
+                <table className="stats-table">
+                  <thead>
+                    <tr>
+                      <th>环境</th>
+                      <th className="num-col">总数</th>
+                      <th className="num-col">成功</th>
+                      <th className="num-col">失败</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.by_environment.map((item, i) => (
+                      <tr key={i}>
+                        <td>{item.environment}</td>
+                        <td className="num-col">{item.total}</td>
+                        <td className="num-col success">{item.success}</td>
+                        <td className="num-col fail">{item.fail}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {stats.by_source.length > 0 && (
               <div className="stats-section card">
                 <div className="section-header">
@@ -360,6 +411,7 @@ export default function McpStats() {
                         <tr>
                           <th>时间</th>
                           <th>系统</th>
+                          <th>环境</th>
                           <th>数据源</th>
                           <th>工具</th>
                           <th>方法</th>
@@ -373,6 +425,7 @@ export default function McpStats() {
                           <tr key={item.id}>
                             <td className="time-cell">{item.created_at}</td>
                             <td>{item.system_id || '-'}</td>
+                            <td>{item.environment || '-'}</td>
                             <td>{item.source_name || '-'}</td>
                             <td className="tool-name-cell" title={item.tool_name}>{item.tool_name || '-'}</td>
                             <td className="method-cell">{item.method}</td>

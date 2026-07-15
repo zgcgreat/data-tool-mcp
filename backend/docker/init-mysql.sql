@@ -28,6 +28,7 @@ USE data_tool_mcp;
 CREATE TABLE IF NOT EXISTS sources (
     id          INT          NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
     system_id   VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '系统编号（业务隔离维度，用户指定，最多 10 位）',
+    environment VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '环境标识（dev/st/uat/prd）',
     src_name    VARCHAR(128) NOT NULL COMMENT '数据源名称（同一系统编号下唯一）',
     src_type    VARCHAR(64)  NOT NULL COMMENT '数据源类型（mysql / postgres / sqlite / clickhouse 等）',
     db_host     VARCHAR(255) NOT NULL DEFAULT '' COMMENT '数据库主机地址',
@@ -39,9 +40,10 @@ CREATE TABLE IF NOT EXISTS sources (
     created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（行变更时自动维护）',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_system_source (system_id, src_name),
+    UNIQUE KEY uk_system_env_source (system_id, environment, src_name),
     INDEX idx_sources_name (src_name),
-    INDEX idx_sources_system (system_id)
+    INDEX idx_sources_system (system_id),
+    INDEX idx_sources_env (environment)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='数据源表 — 用户添加的数据库连接配置，结构化字段（host/port/database/username/password）+ params（JSON）扩展';
 
@@ -50,6 +52,7 @@ CREATE TABLE IF NOT EXISTS sources (
 CREATE TABLE IF NOT EXISTS tools (
     id          INT          NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
     system_id   VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '系统编号（冗余存储，便于按系统编号查询工具）',
+    environment VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '环境标识（dev/st/uat/prd）',
     tool_name   VARCHAR(128) NOT NULL COMMENT '工具名称（同一系统编号下唯一）',
     tool_type   VARCHAR(64)  NOT NULL COMMENT '工具类型（mysql-execute-sql / postgres-execute-sql 等）',
     src_name    VARCHAR(128) NOT NULL DEFAULT '' COMMENT '关联数据源名称（引用 sources.src_name）',
@@ -58,10 +61,11 @@ CREATE TABLE IF NOT EXISTS tools (
     created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（行变更时自动维护）',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_system_tool (system_id, tool_name),
+    UNIQUE KEY uk_system_env_tool (system_id, environment, tool_name),
     INDEX idx_tools_name (tool_name),
     INDEX idx_tools_system (system_id),
-    INDEX idx_tools_source (src_name)
+    INDEX idx_tools_source (src_name),
+    INDEX idx_tools_env (environment)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='工具表 — MCP 工具定义，src_name 引用 sources.src_name，params 存额外工具参数';
 
@@ -70,12 +74,14 @@ CREATE TABLE IF NOT EXISTS tools (
 CREATE TABLE IF NOT EXISTS toolsets (
     id          INT          NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
     system_id   VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '系统编号（业务隔离维度）',
+    environment VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '环境标识（dev/st/uat/prd）',
     set_name    VARCHAR(128) NOT NULL COMMENT '工具集名称',
     tool_names  TEXT                 COMMENT '工具名称列表（逗号分隔字符串，读取时解析为列表）',
     created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（行变更时自动维护）',
     PRIMARY KEY (id),
-    INDEX idx_toolsets_system (system_id)
+    INDEX idx_toolsets_system (system_id),
+    INDEX idx_toolsets_env (environment)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='工具集表 — 将多个工具聚合为一个 toolset 对外暴露，tool_names 用逗号分隔字符串存储';
 
@@ -84,6 +90,7 @@ CREATE TABLE IF NOT EXISTS toolsets (
 CREATE TABLE IF NOT EXISTS mcp_request_logs (
     id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
     system_id   VARCHAR(10)  NOT NULL DEFAULT '' COMMENT '系统编号（请求上下文）',
+    environment VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '环境标识（请求上下文）',
     source_name VARCHAR(128) NOT NULL DEFAULT '' COMMENT '数据源名称（工具所属数据源）',
     tool_name   VARCHAR(128) NOT NULL DEFAULT '' COMMENT '工具名称（tools/call 才有值）',
     method      VARCHAR(32)  NOT NULL COMMENT 'MCP 方法名（tools/list, tools/call 等）',
@@ -95,6 +102,7 @@ CREATE TABLE IF NOT EXISTS mcp_request_logs (
     PRIMARY KEY (id),
     INDEX idx_logs_created (created_at),
     INDEX idx_logs_system (system_id),
-    INDEX idx_logs_source (source_name)
+    INDEX idx_logs_source (source_name),
+    INDEX idx_logs_env (environment)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='MCP 请求日志表 — 记录每次 MCP 协议调用，支持按系统/数据源/日期范围统计';

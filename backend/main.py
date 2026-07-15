@@ -21,5 +21,6 @@ if env_path.exists():
 from data_tool_mcp.cli.main import main
 
 if __name__ == "__main__":
-    sys.argv = ["toolbox", "serve", "--prebuilt", "sqlite", "--port", "15000"]
+    # sys.argv = ["toolbox", "serve", "--prebuilt", "sqlite", "--port", "15000"]
+    sys.argv = ["toolbox", "serve", "--port", "15000"]
     main()

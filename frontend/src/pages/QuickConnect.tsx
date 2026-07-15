@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchSourceTypes, createSource, testSourceConnection } from '../api/client';
+import { fetchSourceTypes, fetchEnvironments, createSource, testSourceConnection } from '../api/client';
 import { toast } from '../components/Toast';
 import type { SourceTypeSchema, SourceInfo } from '../api/types';
 import './QuickConnect.css';
@@ -115,9 +115,11 @@ export default function QuickConnect() {
   const [submitting, setSubmitting] = useState(false);
   const [createdSource, setCreatedSource] = useState<SourceInfo | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
 
   useEffect(() => {
     loadSourceTypes();
+    loadEnvironments();
   }, []);
 
   const loadSourceTypes = async () => {
@@ -132,6 +134,17 @@ export default function QuickConnect() {
     }
   };
 
+  const loadEnvironments = async () => {
+    try {
+      const data = await fetchEnvironments();
+      if (Array.isArray(data) && data.length > 0) {
+        setEnvironments(data);
+      }
+    } catch {
+      // 静默失败, 保留预设列表
+    }
+  };
+
   const handleSelectType = (type: string) => {
     setSelectedType(type);
     const schema = sourceTypes[type];
@@ -141,7 +154,7 @@ export default function QuickConnect() {
         if (f.default !== undefined) defaults[f.name] = f.default;
       });
     }
-    setFormData({ systemId: '', name: '', ...defaults });
+    setFormData({ systemId: '', environment: '', name: '', ...defaults });
     setShowPassword(false);
     setStep(2);
   };
@@ -153,6 +166,7 @@ export default function QuickConnect() {
   const handleCreate = async () => {
     const name = formData['name'] as string;
     const systemId = (formData['systemId'] as string || '').trim();
+    const environment = (formData['environment'] as string || '').trim();
     if (!systemId) {
       toast.warning('请输入系统编号');
       return;
@@ -161,14 +175,18 @@ export default function QuickConnect() {
       toast.warning('系统编号长度不能超过 10 位');
       return;
     }
+    if (!environment) {
+      toast.warning('请选择环境');
+      return;
+    }
     if (!name) {
       toast.warning('请输入数据源名称');
       return;
     }
     setSubmitting(true);
     try {
-      const { name: _, systemId: __, ...rest } = formData;
-      const result = await createSource({ name, type: selectedType, systemId, ...rest });
+      const { name: _, systemId: __, environment: ___, ...rest } = formData;
+      const result = await createSource({ name, type: selectedType, systemId, environment, ...rest });
       setCreatedSource(result);
       setStep(3);
       const toolCount = result.toolCount ?? 0;
@@ -188,12 +206,17 @@ export default function QuickConnect() {
   const handleTestAndCreate = async () => {
     const name = formData['name'] as string;
     const systemId = (formData['systemId'] as string || '').trim();
+    const environment = (formData['environment'] as string || '').trim();
     if (!systemId) {
       toast.warning('请输入系统编号');
       return;
     }
     if (systemId.length > 10) {
       toast.warning('系统编号长度不能超过 10 位');
+      return;
+    }
+    if (!environment) {
+      toast.warning('请选择环境');
       return;
     }
     if (!name) {
@@ -203,8 +226,8 @@ export default function QuickConnect() {
     setSubmitting(true);
     try {
       // 先创建
-      const { name: _, systemId: __, ...rest } = formData;
-      const result = await createSource({ name, type: selectedType, systemId, ...rest });
+      const { name: _, systemId: __, environment: ___, ...rest } = formData;
+      const result = await createSource({ name, type: selectedType, systemId, environment, ...rest });
       // 创建后测试连接
       try {
         const testResult = await testSourceConnection(name);
@@ -327,6 +350,7 @@ export default function QuickConnect() {
                   maxLength?: number;
                   autoFocus?: boolean;
                   isPassword?: boolean;
+                  options?: string[];
                 };
                 const allFields: FieldDef[] = [
                   {
@@ -339,6 +363,15 @@ export default function QuickConnect() {
                     placeholder: '例如：SYS001',
                     maxLength: 10,
                     autoFocus: true,
+                  },
+                  {
+                    key: 'environment',
+                    label: '环境',
+                    required: true,
+                    inputType: 'select',
+                    value: (formData['environment'] as string) || '',
+                    onChange: v => handleFieldChange('environment', v),
+                    options: environments,
                   },
                   {
                     key: 'name',
@@ -366,6 +399,27 @@ export default function QuickConnect() {
                 const rightCol = allFields.slice(mid);
 
                 const renderField = (field: FieldDef) => {
+                  if (field.options) {
+                    return (
+                      <div key={field.key} className="form-group">
+                        <label className="form-label">
+                          {field.label}
+                          {field.required && <span className="required-mark">*</span>}
+                        </label>
+                        <select
+                          className="form-select"
+                          value={field.value}
+                          onChange={e => field.onChange(e.target.value)}
+                          required={field.required}
+                        >
+                          <option value="">请选择环境</option>
+                          {field.options.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  }
                   const inputType = field.isPassword ? (showPassword ? 'text' : 'password') : field.inputType;
                   return (
                     <div key={field.key} className="form-group">

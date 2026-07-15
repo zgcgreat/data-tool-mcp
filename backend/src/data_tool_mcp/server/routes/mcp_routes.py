@@ -218,6 +218,110 @@ def register_routes(app: FastAPI) -> None:
             content={"error": "Method not allowed. Use POST for JSON-RPC."},
         )
 
+    # -- System + Environment + Source scoped routes (/{systemId}/{environment}/{sourceName}/) --
+    # URL 中同时包含系统编号、环境和数据源名,实际按数据源名过滤工具。
+    # 三段式路由必须注册在两段式路由之前,避免被 /{toolsetName}/... 误匹配。
+
+    @app.get("/{systemId}/{environment}/{sourceName}/sse")
+    async def system_env_source_sse_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
+        """SSE endpoint scoped to a specific source within a system+environment.
+
+        URL: /{systemId}/{environment}/{sourceName}/sse
+        过滤逻辑: 使用 sourceName 对应的 toolset。
+        """
+        rm: ResourceManager = request.app.state.resource_manager
+        toolset = rm.get_toolset(sourceName)
+        if not toolset:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"toolset not found: {sourceName}"},
+            )
+        base_url = _get_base_url(request)
+        access_token = _extract_access_token(request)
+        protocol = MCPProtocol(
+            rm, toolset_name=sourceName, access_token=access_token,
+            system_id=systemId, environment=environment,
+            client_addr=_get_client_addr(request),
+        )
+        # toolset_name 使用复合路径,确保 message endpoint URL 为 /{systemId}/{environment}/{sourceName}/message
+        transport = SSETransport(
+            protocol,
+            base_url=base_url,
+            toolset_name=f"{systemId}/{environment}/{sourceName}",
+            sse_manager=sse_manager,
+        )
+        await sse_manager.add(transport.session)
+        return transport.create_sse_response()
+
+    @app.post("/{systemId}/{environment}/{sourceName}/message")
+    async def system_env_source_message_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
+        """Message endpoint for system+environment+source-scoped SSE transport."""
+        rm: ResourceManager = request.app.state.resource_manager
+        toolset = rm.get_toolset(sourceName)
+        if not toolset:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"toolset not found: {sourceName}"},
+            )
+        session_id = request.query_params.get("sessionId", "")
+        if not session_id:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "missing sessionId query parameter"},
+            )
+        session = await sse_manager.get(session_id)
+        if session is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"session not found: {session_id}"},
+            )
+        access_token = _extract_access_token(request)
+        protocol = MCPProtocol(
+            rm, toolset_name=sourceName, access_token=access_token,
+            system_id=systemId, environment=environment,
+            client_addr=_get_client_addr(request),
+        )
+        transport = SSETransport(
+            protocol, toolset_name=f"{systemId}/{environment}/{sourceName}", session=session
+        )
+        body = await request.body()
+        response = await transport.handle_post(body)
+        if response is None:
+            return JSONResponse(content={}, status_code=202)
+        return JSONResponse(content={}, status_code=202)
+
+    @app.post("/{systemId}/{environment}/{sourceName}/")
+    async def system_env_source_streamable_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
+        """Streamable HTTP endpoint scoped to a specific source within a system+environment."""
+        rm: ResourceManager = request.app.state.resource_manager
+        toolset = rm.get_toolset(sourceName)
+        if not toolset:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"toolset not found: {sourceName}"},
+            )
+        version = request.headers.get("mcp-protocol-version", "2025-06-18")
+        access_token = _extract_access_token(request)
+        protocol = MCPProtocol(
+            rm, version=version, toolset_name=sourceName, access_token=access_token,
+            system_id=systemId, environment=environment,
+            client_addr=_get_client_addr(request),
+        )
+        transport = StreamableHTTPTransport(protocol)
+        body = await request.body()
+        response = await transport.handle_request(body)
+        if response is None:
+            return JSONResponse(content={}, status_code=202)
+        return JSONResponse(content=response.to_dict())
+
+    @app.get("/{systemId}/{environment}/{sourceName}/")
+    async def system_env_source_get_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
+        """GET on system+environment+source — method not allowed."""
+        return JSONResponse(
+            status_code=405,
+            content={"error": "Method not allowed. Use POST for JSON-RPC."},
+        )
+
     # -- System + Source scoped routes (/{systemId}/{sourceName}/) --
     # URL 中同时包含系统编号和数据源名,实际按数据源名过滤工具。
 

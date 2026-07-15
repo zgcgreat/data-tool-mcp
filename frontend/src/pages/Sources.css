@@ -102,6 +102,7 @@
 .col-type { width: 110px; }
 .col-name { min-width: 140px; }
 .col-system { width: 90px; }
+.col-env { width: 80px; }
 .col-conn { min-width: 160px; }
 .col-status { min-width: 130px; }
 .col-tools { width: 60px; text-align: center; }
@@ -148,6 +149,22 @@
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
+  width: fit-content;
+}
+
+.source-env-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   width: fit-content;
 }
 
@@ -453,7 +470,8 @@
     padding: 8px 10px;
   }
   .col-conn,
-  .col-system {
+  .col-system,
+  .col-env {
     display: none;
   }
   .source-form-grid {

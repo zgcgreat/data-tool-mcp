@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { fetchSources, fetchSource, fetchSourceTypes, createSource, updateSource, deleteSource, testSourceConnection, fetchSystems } from '../api/client';
+import { fetchSources, fetchSource, fetchSourceTypes, createSource, updateSource, deleteSource, testSourceConnection, fetchSystems, fetchEnvironments } from '../api/client';
 import { toast } from '../components/Toast';
 import type { SystemInfo } from '../api/client';
 import type { SourceInfo, SourceTypeSchema } from '../api/types';
@@ -98,6 +98,8 @@ export default function Sources() {
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; latency: number; error: string | null }>>({});
   const [selectedSystemId, setSelectedSystemId] = useState('');
   const [systems, setSystems] = useState<SystemInfo[]>([]);
+  const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
+  const [selectedEnvironment, setSelectedEnvironment] = useState('');
   // 分页: 列表展示，默认每页 10 条
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
@@ -105,12 +107,13 @@ export default function Sources() {
   useEffect(() => {
     loadData();
     loadSystems();
+    loadEnvironments();
   }, []);
 
   // 筛选条件变化时重置到第 1 页
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSystemId]);
+  }, [selectedSystemId, selectedEnvironment]);
 
   const loadData = async () => {
     try {
@@ -131,6 +134,17 @@ export default function Sources() {
       setSystems(data);
     } catch {
       // 静默失败
+    }
+  };
+
+  const loadEnvironments = async () => {
+    try {
+      const data = await fetchEnvironments();
+      if (Array.isArray(data) && data.length > 0) {
+        setEnvironments(data);
+      }
+    } catch {
+      // 静默失败, 保留预设列表
     }
   };
 
@@ -212,10 +226,12 @@ export default function Sources() {
     }
   };
 
-  // 按系统编号筛选数据源
-  const filteredSources = selectedSystemId
-    ? sources.filter(s => String(s.systemId || '') === selectedSystemId)
-    : sources;
+  // 按系统编号 + 环境筛选数据源
+  const filteredSources = sources.filter(s => {
+    if (selectedSystemId && String(s.systemId || '') !== selectedSystemId) return false;
+    if (selectedEnvironment && String(s.environment || '') !== selectedEnvironment) return false;
+    return true;
+  });
 
   // 分页计算（边界保护：删除后当前页可能超出范围）
   const totalPages = Math.max(1, Math.ceil(filteredSources.length / pageSize));
@@ -263,6 +279,15 @@ export default function Sources() {
               ))}
             </select>
           )}
+          <select
+            className="form-select tools-filter"
+            value={selectedEnvironment}
+            onChange={e => setSelectedEnvironment(e.target.value)}
+            style={{ width: 'auto', minWidth: '130px' }}
+          >
+            <option value="">全部环境</option>
+            {environments.map(env => <option key={env} value={env}>{env}</option>)}
+          </select>
           <button className="btn-primary" onClick={() => setShowModal(true)}>
             <PlusIcon /> 添加数据源
           </button>
@@ -288,6 +313,7 @@ export default function Sources() {
                     <th className="col-type">类型</th>
                     <th className="col-name">名称</th>
                     <th className="col-system">系统</th>
+                    <th className="col-env">环境</th>
                     <th className="col-conn">连接</th>
                     <th className="col-status">状态</th>
                     <th className="col-tools">工具</th>
@@ -312,6 +338,11 @@ export default function Sources() {
                         <td className="col-system">
                           {source.systemId ? (
                             <span className="source-system-chip">{String(source.systemId)}</span>
+                          ) : <span className="cell-dash">—</span>}
+                        </td>
+                        <td className="col-env">
+                          {source.environment ? (
+                            <span className="source-env-chip">{String(source.environment)}</span>
                           ) : <span className="cell-dash">—</span>}
                         </td>
                         <td className="col-conn">
@@ -410,6 +441,7 @@ export default function Sources() {
         <SourceFormModal
           mode="create"
           sourceTypes={sourceTypes}
+          environments={environments}
           onClose={() => setShowModal(false)}
           onSubmit={handleCreate}
         />
@@ -419,6 +451,7 @@ export default function Sources() {
         <SourceFormModal
           mode="edit"
           sourceTypes={sourceTypes}
+          environments={environments}
           source={editingSource}
           onClose={() => setEditingSource(null)}
           onSubmit={handleEdit}
@@ -429,7 +462,7 @@ export default function Sources() {
 }
 
 // --- 配置字段元信息：哪些字段不展示在表单中 ---
-const HIDDEN_FIELDS = new Set(['name', 'type', 'status', 'latency', 'error', 'toolCount', 'createdTools', 'systemId']);
+const HIDDEN_FIELDS = new Set(['name', 'type', 'status', 'latency', 'error', 'toolCount', 'createdTools', 'systemId', 'environment']);
 
 // 密码部分脱敏: 前2位 + *** + 后2位
 // 用于编辑表单展示, 让用户知道密码已存在且大致内容, 但不暴露完整值
@@ -448,12 +481,14 @@ function maskPassword(value: string): string {
 function SourceFormModal({
   mode,
   sourceTypes,
+  environments,
   source,
   onClose,
   onSubmit,
 }: {
   mode: 'create' | 'edit';
   sourceTypes: Record<string, SourceTypeSchema>;
+  environments: string[];
   source?: SourceInfo | null;
   onClose: () => void;
   onSubmit: (data: { name: string; type: string; [key: string]: unknown }) => Promise<void>;
@@ -487,7 +522,7 @@ function SourceFormModal({
           }
         }
       }
-      setFormData({ systemId: (source.systemId as string) || '', name: source.name, ...configFields });
+      setFormData({ systemId: (source.systemId as string) || '', environment: (source.environment as string) || '', name: source.name, ...configFields });
     } else {
       // 创建模式: 不保留密码
       originalPasswordRef.current = '';
@@ -497,7 +532,7 @@ function SourceFormModal({
       schema.fields.forEach(f => {
         if (f.default !== undefined) defaults[f.name] = f.default;
       });
-      setFormData(prev => ({ systemId: prev['systemId'] || '', name: prev['name'] || '', ...defaults }));
+      setFormData(prev => ({ systemId: prev['systemId'] || '', environment: prev['environment'] || '', name: prev['name'] || '', ...defaults }));
     }
   }, [isEdit, source, type, sourceTypes]);
 
@@ -507,6 +542,7 @@ function SourceFormModal({
     e.preventDefault();
     const name = formData['name'] as string;
     const systemId = (formData['systemId'] as string || '').trim();
+    const environment = (formData['environment'] as string || '').trim();
     if (!systemId) {
       toast.warning('请输入系统编号');
       return;
@@ -515,14 +551,18 @@ function SourceFormModal({
       toast.warning('系统编号长度不能超过 10 位');
       return;
     }
+    if (!environment) {
+      toast.warning('请选择环境');
+      return;
+    }
     if (!name) {
       toast.warning('请输入数据源名称');
       return;
     }
     setSubmitting(true);
     try {
-      const { name: _, systemId: __, ...rest } = formData;
-      const payload: { name: string; type: string; systemId: string; [key: string]: unknown } = { name, type, systemId, ...rest };
+      const { name: _, systemId: __, environment: ___, ...rest } = formData;
+      const payload: { name: string; type: string; systemId: string; environment: string; [key: string]: unknown } = { name, type, systemId, environment, ...rest };
       // 密码字段处理:
       // - 编辑模式下用户未改密码(passwordModified=false): 从 payload 删除, 让后端保留原密码
       // - 用户输入了新密码(passwordModified=true): 提交新值, 后端加密后覆盖
@@ -593,6 +633,23 @@ function SourceFormModal({
                       readOnly={isEdit}
                       required
                     />
+                  ),
+                },
+                {
+                  key: 'environment',
+                  label: '环境',
+                  required: true,
+                  node: (
+                    <select
+                      className={`form-select${isEdit ? ' input-disabled' : ''}`}
+                      value={(formData['environment'] as string) || ''}
+                      onChange={e => handleFieldChange('environment', e.target.value)}
+                      disabled={isEdit}
+                      required
+                    >
+                      <option value="">请选择环境</option>
+                      {environments.map(env => <option key={env} value={env}>{env}</option>)}
+                    </select>
                   ),
                 },
                 {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchDashboard, fetchToolsets, fetchSystems, mcpTest } from '../api/client';
+import { fetchDashboard, fetchToolsets, fetchSystems, fetchEnvironments, mcpTest } from '../api/client';
 import type { McpTestTool, ToolsetInfo, SystemInfo } from '../api/client';
 import { toast } from '../components/Toast';
 import type { DashboardStats } from '../api/types';
@@ -98,6 +98,8 @@ export default function Dashboard() {
   const [selectedToolset, setSelectedToolset] = useState('');
   const [selectedSystemId, setSelectedSystemId] = useState('');
   const [systems, setSystems] = useState<SystemInfo[]>([]);
+  const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
+  const [selectedEnvironment, setSelectedEnvironment] = useState('');
   const [headers, setHeaders] = useState<Array<{ key: string; value: string }>>([
     { key: 'X-Server-Name', value: 'data-tool-mcp' },
   ]);
@@ -113,6 +115,7 @@ export default function Dashboard() {
     loadDashboard();
     loadToolsets();
     loadSystems();
+    loadEnvironments();
   }, []);
 
   const loadDashboard = async () => {
@@ -150,6 +153,17 @@ export default function Dashboard() {
     }
   };
 
+  const loadEnvironments = async () => {
+    try {
+      const data = await fetchEnvironments();
+      if (Array.isArray(data) && data.length > 0) {
+        setEnvironments(data);
+      }
+    } catch {
+      // 静默失败,保留默认环境列表
+    }
+  };
+
   // --- MCP 配置生成 ---
   // 使用后端实际监听端口构造 MCP 端点 URL,避免误用前端/nginx 端口。
   // hostname 复用当前页面访问的主机名(兼容 localhost / 局域网 IP / 域名)。
@@ -158,13 +172,20 @@ export default function Dashboard() {
   const serverOrigin = `${window.location.protocol}//${mcpHost}:${mcpPort}`;
 
   // 端点 URL 路径规则:
-  //   选了系统编号 + 数据源 → /{systemId}/{sourceName}/{suffix} (该数据源工具)
-  //   仅选系统编号         → /{systemId}/{suffix} (该系统全部工具)
-  //   仅选数据源           → /{sourceName}/{suffix} (该数据源工具)
-  //   都未选               → /{suffix} (全部工具)
+  //   选了系统编号 + 环境 + 数据源 → /{systemId}/{environment}/{sourceName}/{suffix} (该数据源工具)
+  //   选了系统编号 + 环境         → /{systemId}/{environment}/{suffix} (该系统该环境全部工具)
+  //   选了系统编号 + 数据源       → /{systemId}/{sourceName}/{suffix} (该数据源工具)
+  //   仅选系统编号               → /{systemId}/{suffix} (该系统全部工具)
+  //   仅选数据源                 → /{sourceName}/{suffix} (该数据源工具)
+  //   都未选                     → /{suffix} (全部工具)
   // 其中 suffix 在 SSE 模式下为 'sse',Streamable HTTP 模式下为空字符串(POST 到根路径)
+  // 环境不能单独使用,必须配合系统编号
   let endpointPrefix: string;
-  if (selectedSystemId && selectedToolset) {
+  if (selectedSystemId && selectedEnvironment && selectedToolset) {
+    endpointPrefix = `/${selectedSystemId}/${selectedEnvironment}/${selectedToolset}`;
+  } else if (selectedSystemId && selectedEnvironment) {
+    endpointPrefix = `/${selectedSystemId}/${selectedEnvironment}`;
+  } else if (selectedSystemId && selectedToolset) {
     endpointPrefix = `/${selectedSystemId}/${selectedToolset}`;
   } else if (selectedSystemId) {
     endpointPrefix = `/${selectedSystemId}`;
@@ -189,14 +210,32 @@ export default function Dashboard() {
     return allSources.filter(ts => sys.sources.includes(ts.name));
   }, [toolsets, systems, selectedSystemId]);
 
-  // 切换系统编号时清空已选数据源,避免不一致
+  // 切换系统编号时清空已选环境和数据源,避免不一致
   const handleSystemChange = (sid: string) => {
     setSelectedSystemId(sid);
+    setSelectedEnvironment('');
     setSelectedToolset('');
   };
 
-  // JSON 配置中的 server 名称
-  const serverName = selectedToolset || selectedSystemId || 'data-tool-mcp';
+  // 切换环境时清空已选数据源,避免不一致
+  const handleEnvironmentChange = (env: string) => {
+    setSelectedEnvironment(env);
+    setSelectedToolset('');
+  };
+
+  // 环境下拉可选项:选了系统编号时取该系统的 environments,否则取全局环境列表
+  const environmentOptions = useMemo(() => {
+    if (!selectedSystemId) return environments;
+    const sys = systems.find(s => s.systemId === selectedSystemId);
+    return sys && sys.environments.length > 0 ? sys.environments : environments;
+  }, [systems, selectedSystemId, environments]);
+
+  // JSON 配置中的 server 名称:
+  //   优先使用数据源名 → 其次 {systemId}-{environment} → 再次 systemId → 兜底 data-tool-mcp
+  const serverName = selectedToolset
+    || (selectedSystemId && selectedEnvironment ? `${selectedSystemId}-${selectedEnvironment}`
+    : selectedSystemId
+    || 'data-tool-mcp');
 
   const jsonConfig = useMemo(() => {
     // MCP 客户端配置字段约定:
@@ -262,7 +301,7 @@ export default function Dashboard() {
     setTestResult(null);
     setTestError(null);
     try {
-      const result = await mcpTest(selectedToolset, selectedSystemId);
+      const result = await mcpTest(selectedToolset, selectedSystemId, selectedEnvironment);
       setTestResult(result.tools);
       toast.success(`测试成功，共 ${result.count} 个工具`);
     } catch (error) {
@@ -372,7 +411,7 @@ export default function Dashboard() {
           <div className="mcp-config-grid">
             {/* 左栏：配置控件 */}
             <div className="mcp-config-left">
-              {/* 第一行：系统编号 + 数据源（联动） */}
+              {/* 第一行：系统编号 + 环境（联动） */}
               <div className="mcp-config-row-pair">
                 {/* 系统编号筛选 */}
                 <div className="mcp-config-row">
@@ -391,25 +430,40 @@ export default function Dashboard() {
                   </select>
                 </div>
 
-                {/* 数据源筛选（跟随系统编号联动） */}
+                {/* 环境筛选（跟随系统编号联动） */}
                 <div className="mcp-config-row">
-                  <label className="form-label">数据源</label>
+                  <label className="form-label">环境</label>
                   <select
                     className="form-select"
-                    value={selectedToolset}
-                    onChange={e => setSelectedToolset(e.target.value)}
+                    value={selectedEnvironment}
+                    onChange={e => handleEnvironmentChange(e.target.value)}
                   >
                     <option value="">全部</option>
-                    {filteredSources.map(ts => (
-                      <option key={ts.name} value={ts.name}>
-                        {ts.displayName}{ts.toolCount > 0 ? ` (${ts.toolCount})` : ''}
-                      </option>
+                    {environmentOptions.map(env => (
+                      <option key={env} value={env}>{env}</option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              {/* 第二行：传输模式 */}
+              {/* 第二行：数据源（跟随系统编号联动） */}
+              <div className="mcp-config-row">
+                <label className="form-label">数据源</label>
+                <select
+                  className="form-select"
+                  value={selectedToolset}
+                  onChange={e => setSelectedToolset(e.target.value)}
+                >
+                  <option value="">全部</option>
+                  {filteredSources.map(ts => (
+                    <option key={ts.name} value={ts.name}>
+                      {ts.displayName}{ts.toolCount > 0 ? ` (${ts.toolCount})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 第三行：传输模式 */}
               <div className="mcp-config-row">
                 <label className="form-label">传输模式</label>
                 <div className="segmented-control">

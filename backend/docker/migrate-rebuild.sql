@@ -6,7 +6,7 @@
 -- 执行后：
 --   1. 旧表全部删除（departments / sources / tools / toolsets / api_keys）
 --   2. 重启后端服务，Base.metadata.create_all 会自动按新 schema 创建表
---      （新表：sources / tools / toolsets，均使用 system_id VARCHAR(10) 列）
+--      （新表：sources / tools / toolsets / mcp_request_logs，均使用 system_id + environment 双维度隔离）
 --   3. 也可直接执行 docker/init-mysql.sql 手动创建新表
 --
 -- ⚠️ 警告：此脚本会删除所有数据，请确认无需保留后执行！

@@ -70,6 +70,18 @@ def _normalize_system_id(name: str) -> str:
     return name
 
 
+def _normalize_environment(name: str) -> str:
+    """归一化 environment 参数。
+
+    - "all" 或 "" → ""（表示加载所有环境）
+    - 其他 → 原样返回
+    """
+    name = name.strip()
+    if name == "all" or not name:
+        return ""
+    return name
+
+
 def _to_async_url(db_url: str) -> str:
     """将 MySQL URL 转换为 SQLAlchemy 异步驱动 URL。"""
     if db_url.startswith("mysql+aiomysql://"):
@@ -86,6 +98,7 @@ async def load_config_from_db(
     db_url: str | None = None,
     env_passwords_json: str | None = None,
     system_id: str | None = None,
+    environment: str | None = None,
 ) -> dict[str, Any]:
     """Load configuration from MySQL database.
 
@@ -93,6 +106,11 @@ async def load_config_from_db(
       {"sources": {...}, "tools": {...}, "toolsets": {...}}
 
     Maps to Go: dbconfigreader.Reader.read()
+
+    加载范围说明：
+      - system_id + environment：加载单个系统的单个环境
+      - 仅 system_id：加载该系统所有环境
+      - 都没有：加载所有系统的所有环境
     """
     db_url = db_url or os.environ.get("TOOLBOX_CONFIG_DB_URL", "")
     if not db_url:
@@ -112,6 +130,8 @@ async def load_config_from_db(
 
     # Normalize system_id
     search_system = _normalize_system_id(system_id or "")
+    # Normalize environment
+    search_env = _normalize_environment(environment or "")
 
     # Convert to async URL
     async_url = _to_async_url(db_url)
@@ -133,7 +153,7 @@ async def load_config_from_db(
         async with session_factory() as session:
             if search_system:
                 # Load a single system
-                await _load_system(session, search_system, sources, tools, toolsets, env_passwords)
+                await _load_system(session, search_system, sources, tools, toolsets, env_passwords, search_env)
             else:
                 # Load ALL systems — 查询 distinct system_id
                 rows = await session.execute(
@@ -141,7 +161,7 @@ async def load_config_from_db(
                 )
                 for row in rows.fetchall():
                     try:
-                        await _load_system(session, row[0], sources, tools, toolsets, env_passwords)
+                        await _load_system(session, row[0], sources, tools, toolsets, env_passwords, search_env)
                     except Exception as exc:
                         logger.warning("skipping system %r: %s", row[0], exc)
     finally:
@@ -157,30 +177,45 @@ async def _load_system(
     tools: dict[str, Any],
     toolsets: dict[str, Any],
     env_passwords: dict[str, str],
+    environment: str = "",
 ) -> None:
     """Load sources, tools, and toolset for a single system_id.
 
     Maps to Go: dbconfigreader.readDept()
+
+    environment 为空字符串时加载该系统所有环境；非空时仅加载指定环境。
     """
     # -- Sources --
     # 注意：列名加前缀避开 MySQL 保留字（name/type/database/host/password）
-    src_rows = await session.execute(
-        text("""
-            SELECT src_name, src_type, db_host, db_port, db_name, db_user, db_password, params
-            FROM sources
-            WHERE system_id = :system_id
-            ORDER BY src_name
-        """),
-        {"system_id": system_id},
-    )
+    if environment:
+        src_rows = await session.execute(
+            text("""
+                SELECT src_name, src_type, db_host, db_port, db_name, db_user, db_password, params, environment
+                FROM sources
+                WHERE system_id = :system_id AND environment = :environment
+                ORDER BY src_name
+            """),
+            {"system_id": system_id, "environment": environment},
+        )
+    else:
+        src_rows = await session.execute(
+            text("""
+                SELECT src_name, src_type, db_host, db_port, db_name, db_user, db_password, params, environment
+                FROM sources
+                WHERE system_id = :system_id
+                ORDER BY src_name
+            """),
+            {"system_id": system_id},
+        )
     for src_row in src_rows.fetchall():
-        name, src_type, host, port, database, username, password, params_json = src_row
+        name, src_type, host, port, database, username, password, params_json, environment_val = src_row
         src_config: dict[str, Any] = {
             "kind": "source",
             "name": name,
             "type": src_type,
             "host": host,
             "systemId": system_id,
+            "environment": environment_val,
         }
         if port and port > 0:
             src_config["port"] = port
@@ -207,23 +242,35 @@ async def _load_system(
 
     # -- Tools --
     # 列名加 tool_ 前缀避开保留字
-    tool_rows = await session.execute(
-        text("""
-            SELECT tool_name, tool_type, src_name, tool_desc, params
-            FROM tools
-            WHERE system_id = :system_id
-            ORDER BY tool_name
-        """),
-        {"system_id": system_id},
-    )
+    if environment:
+        tool_rows = await session.execute(
+            text("""
+                SELECT tool_name, tool_type, src_name, tool_desc, params, environment
+                FROM tools
+                WHERE system_id = :system_id AND environment = :environment
+                ORDER BY tool_name
+            """),
+            {"system_id": system_id, "environment": environment},
+        )
+    else:
+        tool_rows = await session.execute(
+            text("""
+                SELECT tool_name, tool_type, src_name, tool_desc, params, environment
+                FROM tools
+                WHERE system_id = :system_id
+                ORDER BY tool_name
+            """),
+            {"system_id": system_id},
+        )
     for tool_row in tool_rows.fetchall():
-        name, tool_type, source_name, description, params_json = tool_row
+        name, tool_type, source_name, description, params_json, environment_val = tool_row
         tool_config: dict[str, Any] = {
             "kind": "tool",
             "name": name,
             "type": tool_type,
             "source": source_name or "",
             "description": description or "",
+            "environment": environment_val,
         }
         if params_json:
             try:

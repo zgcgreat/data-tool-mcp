@@ -152,13 +152,15 @@ class MCPProtocol:
 
     def __init__(self, resource_manager: Any, version: str = DEFAULT_MCP_VERSION,
                  toolset_name: str = "", access_token: str = "",
-                 system_id: str = "", client_addr: str = ""):
+                 system_id: str = "", environment: str = "",
+                 client_addr: str = ""):
         from data_tool_mcp.resources import ResourceManager
         self.rm: ResourceManager = resource_manager
         self.toolset_name = toolset_name
         self.access_token = access_token
         # 请求上下文（用于统计日志埋点）
         self.system_id = system_id
+        self.environment = environment
         self.client_addr = client_addr
         self.version_config = MCP_VERSIONS.get(version)
         if not self.version_config:
@@ -474,8 +476,9 @@ class MCPProtocol:
     ) -> None:
         """异步写入 MCP 请求日志（失败静默，不影响主流程）。
 
-        当 system_id 为空时（客户端连 /{sourceName}/sse 而非 /{systemId}/{sourceName}/sse），
-        从 source_name 或 toolset_name 反查 system_id，确保统计维度完整。
+        当 system_id / environment 为空时（客户端连 /{sourceName}/sse 而非
+        /{systemId}/{environment}/{sourceName}/sse），从 source_name 或 toolset_name
+        反查 system_id 和 environment，确保统计维度完整。
         """
         try:
             from data_tool_mcp.config.store import get_store
@@ -484,27 +487,35 @@ class MCPProtocol:
                 return
 
             resolved_system = self.system_id
+            resolved_env = self.environment
             resolved_source = source_name
 
-            # system_id 为空时尝试反查
-            if not resolved_system:
+            # system_id 或 environment 为空时尝试反查
+            if not resolved_system or not resolved_env:
                 if resolved_source:
-                    # 从 source_name 反查 system_id
+                    # 从 source_name 反查 system_id 和 environment
                     config = self.rm.get_source_config(resolved_source)
                     if config:
-                        resolved_system = str(config.get("systemId", ""))
+                        if not resolved_system:
+                            resolved_system = str(config.get("systemId", "") or "").strip()
+                        if not resolved_env:
+                            resolved_env = str(config.get("environment", "") or "").strip()
                 elif self.toolset_name:
                     # tools/list 没有 source_name: 尝试把 toolset_name 当 sourceName 查
                     config = self.rm.get_source_config(self.toolset_name)
                     if config:
                         resolved_source = self.toolset_name
-                        resolved_system = str(config.get("systemId", ""))
+                        if not resolved_system:
+                            resolved_system = str(config.get("systemId", "") or "").strip()
+                        if not resolved_env:
+                            resolved_env = str(config.get("environment", "") or "").strip()
                     else:
-                        # toolset_name 不是 sourceName,可能是 systemId
+                        # toolset_name 不是 sourceName,可能是 systemId 或 {system_id}-{environment}
                         resolved_system = self.toolset_name
 
             await store.log_mcp_request(
                 system_id=resolved_system,
+                environment=resolved_env,
                 source_name=resolved_source,
                 tool_name=tool_name,
                 method=method,

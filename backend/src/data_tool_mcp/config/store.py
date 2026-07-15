@@ -54,6 +54,7 @@ class SourceRecord(Base):
 
     结构化字段（host/port/database/username/password）+ params（JSON 扩展参数）。
     system_id 为业务隔离维度（系统编号，10 位字符串）。
+    environment 为环境标识（dev/st/uat/prd），同一系统在不同环境下有独立数据源实例。
 
     注意：数据库列名加 `src_` / `db_` 前缀避开 MySQL/PG 保留字
     （name/type/database/host/password 等都是保留字），Python 属性名保持简洁。
@@ -62,6 +63,7 @@ class SourceRecord(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     system_id = Column(String(10), nullable=False, default="", index=True)  # 系统编号
+    environment = Column(String(16), nullable=False, default="", index=True)  # 环境（dev/st/uat/prd）
     name = Column("src_name", String(128), nullable=False, index=True)
     type = Column("src_type", String(64), nullable=False)
     host = Column("db_host", String(255), nullable=False, default="")
@@ -78,7 +80,7 @@ class ToolRecord(Base):
     """工具表 — MCP 工具定义。
 
     source_name 引用 sources.name，params 存额外工具参数。
-    system_id 冗余存储，便于按系统编号查询工具。
+    system_id + environment 冗余存储，便于按系统+环境查询工具。
 
     注意：数据库列名加 `tool_` 前缀避开保留字（name/type/description）。
     """
@@ -86,6 +88,7 @@ class ToolRecord(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     system_id = Column(String(10), nullable=False, default="", index=True)  # 系统编号
+    environment = Column(String(16), nullable=False, default="", index=True)  # 环境（dev/st/uat/prd）
     name = Column("tool_name", String(128), nullable=False, index=True)
     type = Column("tool_type", String(64), nullable=False)
     source_name = Column("src_name", String(128), nullable=False, default="")
@@ -99,7 +102,7 @@ class ToolsetRecord(Base):
     """工具集表 — 将工具聚合为 toolset。
 
     tool_names 用逗号分隔字符串存储。
-    system_id 为业务隔离维度。
+    system_id + environment 为业务隔离维度。
 
     注意：数据库列名 `set_name` 避开保留字 `name`。
     """
@@ -107,6 +110,7 @@ class ToolsetRecord(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     system_id = Column(String(10), nullable=False, default="", index=True)
+    environment = Column(String(16), nullable=False, default="", index=True)
     name = Column("set_name", String(128), nullable=False)
     tool_names = Column(Text, default="")  # 逗号分隔
     created_at = Column(DateTime, server_default=func.now())
@@ -117,12 +121,13 @@ class McpRequestLogRecord(Base):
     """MCP 请求日志表 — 记录每次 MCP 协议调用，用于统计审计。
 
     每条记录对应一次 tools/list 或 tools/call 请求。
-    system_id / source_name / tool_name 为请求上下文维度。
+    system_id / environment / source_name / tool_name 为请求上下文维度。
     """
     __tablename__ = "mcp_request_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     system_id = Column(String(10), nullable=False, default="", index=True)
+    environment = Column(String(16), nullable=False, default="", index=True)
     source_name = Column(String(128), nullable=False, default="", index=True)
     tool_name = Column(String(128), nullable=False, default="")
     method = Column(String(32), nullable=False)  # tools/list, tools/call 等
@@ -222,13 +227,14 @@ class ConfigStore:
     async def save_source(self, name: str, src_type: str, config_data: dict[str, Any]) -> None:
         """保存或更新数据源配置。
 
-        从 config_data 中提取结构化字段（system_id/host/port/database/username/password），
+        从 config_data 中提取结构化字段（system_id/environment/host/port/database/username/password），
         剩余字段存入 params JSON。密码在落库前加密。
 
         幂等处理: 如果传入的 password 已经是有效密文(能被 decrypt_password 解密),
         说明是编辑时未修改的原密文, 直接保留不重复加密; 否则视为新密码加密后落库。
         """
         system_id = str(config_data.get("systemId", "") or "").strip()
+        environment = str(config_data.get("environment", "") or "").strip()
         host = str(config_data.get("host", ""))
         port = int(config_data.get("port", 0) or 0)
         database = str(config_data.get("database", config_data.get("path", "")) or "")
@@ -237,8 +243,8 @@ class ConfigStore:
         raw_password = str(config_data.get("password", "") or "")
         password = normalize_password_for_storage(raw_password)
 
-        # params 存储非结构化字段（systemId 作为结构化字段提取到独立列）
-        structured_keys = {"systemId", "host", "port", "database", "path", "user", "username", "password", "name", "type"}
+        # params 存储非结构化字段（systemId/environment 作为结构化字段提取到独立列）
+        structured_keys = {"systemId", "environment", "host", "port", "database", "path", "user", "username", "password", "name", "type"}
         params = {k: v for k, v in config_data.items() if k not in structured_keys}
         params_json = json.dumps(params, ensure_ascii=False, default=str)
 
@@ -247,6 +253,7 @@ class ConfigStore:
                 select(SourceRecord).where(
                     SourceRecord.name == name,
                     SourceRecord.system_id == system_id,
+                    SourceRecord.environment == environment,
                 )
             )
             if existing:
@@ -260,6 +267,7 @@ class ConfigStore:
             else:
                 session.add(SourceRecord(
                     system_id=system_id,
+                    environment=environment,
                     name=name,
                     type=src_type,
                     host=host,
@@ -271,18 +279,22 @@ class ConfigStore:
                 ))
             await session.commit()
 
-    async def get_source_password(self, name: str) -> str:
+    async def get_source_password(self, name: str, system_id: str = "", environment: str = "") -> str:
         """读取数据源在数据库中存储的密码密文。
 
         用于编辑场景: _source_to_dict 返回密文给前端, 前端原样回传即可保持密码不变。
         未启用持久化或记录不存在时返回空字符串。
+        可通过 system_id + environment 精确定位（不同环境下同名数据源密码可能不同）。
         """
         if not self.is_persistent:
             return ""
         async with self._session_factory() as session:
-            record = await session.scalar(
-                select(SourceRecord).where(SourceRecord.name == name)
-            )
+            stmt = select(SourceRecord).where(SourceRecord.name == name)
+            if system_id:
+                stmt = stmt.where(SourceRecord.system_id == system_id)
+            if environment:
+                stmt = stmt.where(SourceRecord.environment == environment)
+            record = await session.scalar(stmt)
             return record.password if record else ""
 
     async def count_sources(self) -> int:
@@ -301,10 +313,11 @@ class ConfigStore:
     ) -> None:
         """保存或更新工具集配置。
 
-        tool_names 用逗号分隔字符串存储。system_id 从 config_data 提取。
+        tool_names 用逗号分隔字符串存储。system_id / environment 从 config_data 提取。
         """
         config_data = config_data or {}
         system_id = str(config_data.get("systemId", "") or "").strip()
+        environment = str(config_data.get("environment", "") or "").strip()
         tool_names_str = ",".join(tool_names)
 
         async with self._session_factory() as session:
@@ -312,6 +325,7 @@ class ConfigStore:
                 select(ToolsetRecord).where(
                     ToolsetRecord.name == name,
                     ToolsetRecord.system_id == system_id,
+                    ToolsetRecord.environment == environment,
                 )
             )
             if existing:
@@ -319,6 +333,7 @@ class ConfigStore:
             else:
                 session.add(ToolsetRecord(
                     system_id=system_id,
+                    environment=environment,
                     name=name,
                     tool_names=tool_names_str,
                 ))
@@ -350,16 +365,19 @@ class ConfigStore:
                 }
                 if r.system_id:
                     ts["systemId"] = r.system_id
+                if r.environment:
+                    ts["environment"] = r.environment
                 toolsets.append(ts)
             return toolsets
 
-    async def delete_source(self, name: str) -> None:
+    async def delete_source(self, name: str, system_id: str = "", environment: str = "") -> None:
         async with self._session_factory() as session:
-            record = await session.scalar(
-                select(SourceRecord).where(
-                    SourceRecord.name == name,
-                )
-            )
+            stmt = select(SourceRecord).where(SourceRecord.name == name)
+            if system_id:
+                stmt = stmt.where(SourceRecord.system_id == system_id)
+            if environment:
+                stmt = stmt.where(SourceRecord.environment == environment)
+            record = await session.scalar(stmt)
             if record:
                 await session.delete(record)
                 await session.commit()
@@ -422,6 +440,8 @@ class ConfigStore:
                 }
                 if r.system_id:
                     src["systemId"] = r.system_id
+                if r.environment:
+                    src["environment"] = r.environment
                 if r.host:
                     src["host"] = r.host
                 if r.port and r.port > 0:
@@ -460,15 +480,16 @@ class ConfigStore:
     ) -> None:
         """保存或更新工具配置。
 
-        从 config_data 中提取结构化字段（含 systemId），剩余存入 params JSON。
-        systemId 冗余存储到 tools.system_id 列，便于按系统编号查询。
+        从 config_data 中提取结构化字段（含 systemId / environment），剩余存入 params JSON。
+        systemId / environment 冗余存储到 tools 对应列，便于按系统编号+环境查询。
         """
         source_name = source or ""
         desc = description or ""
         system_id = str(config_data.get("systemId", "") or "").strip()
+        environment = str(config_data.get("environment", "") or "").strip()
 
         # params 存储非结构化字段
-        structured_keys = {"systemId", "name", "type", "source", "source_name", "description", "kind"}
+        structured_keys = {"systemId", "environment", "name", "type", "source", "source_name", "description", "kind"}
         params = {k: v for k, v in config_data.items() if k not in structured_keys}
         params_json = json.dumps(params, ensure_ascii=False, default=str)
 
@@ -477,6 +498,7 @@ class ConfigStore:
                 select(ToolRecord).where(
                     ToolRecord.name == name,
                     ToolRecord.system_id == system_id,
+                    ToolRecord.environment == environment,
                 )
             )
             if existing:
@@ -485,9 +507,11 @@ class ConfigStore:
                 existing.description = desc
                 existing.params = params_json
                 existing.system_id = system_id
+                existing.environment = environment
             else:
                 session.add(ToolRecord(
                     system_id=system_id,
+                    environment=environment,
                     name=name,
                     type=tool_type,
                     source_name=source_name,
@@ -496,24 +520,26 @@ class ConfigStore:
                 ))
             await session.commit()
 
-    async def delete_tool(self, name: str) -> None:
+    async def delete_tool(self, name: str, system_id: str = "", environment: str = "") -> None:
         async with self._session_factory() as session:
-            record = await session.scalar(
-                select(ToolRecord).where(
-                    ToolRecord.name == name,
-                )
-            )
+            stmt = select(ToolRecord).where(ToolRecord.name == name)
+            if system_id:
+                stmt = stmt.where(ToolRecord.system_id == system_id)
+            if environment:
+                stmt = stmt.where(ToolRecord.environment == environment)
+            record = await session.scalar(stmt)
             if record:
                 await session.delete(record)
                 await session.commit()
 
-    async def delete_tools_by_source(self, source_name: str) -> None:
+    async def delete_tools_by_source(self, source_name: str, system_id: str = "", environment: str = "") -> None:
         async with self._session_factory() as session:
-            result = await session.scalars(
-                select(ToolRecord).where(
-                    ToolRecord.source_name == source_name,
-                )
-            )
+            stmt = select(ToolRecord).where(ToolRecord.source_name == source_name)
+            if system_id:
+                stmt = stmt.where(ToolRecord.system_id == system_id)
+            if environment:
+                stmt = stmt.where(ToolRecord.environment == environment)
+            result = await session.scalars(stmt)
             for record in result:
                 await session.delete(record)
             await session.commit()
@@ -534,6 +560,8 @@ class ConfigStore:
                 }
                 if r.system_id:
                     tool["systemId"] = r.system_id
+                if r.environment:
+                    tool["environment"] = r.environment
                 # 合并 params JSON
                 if r.params:
                     try:
@@ -552,6 +580,7 @@ class ConfigStore:
         self,
         *,
         system_id: str = "",
+        environment: str = "",
         source_name: str = "",
         tool_name: str = "",
         method: str,
@@ -565,6 +594,7 @@ class ConfigStore:
             async with self._session_factory() as session:
                 session.add(McpRequestLogRecord(
                     system_id=system_id[:10],
+                    environment=environment[:16],
                     source_name=source_name[:128],
                     tool_name=tool_name[:128],
                     method=method[:32],
@@ -583,6 +613,7 @@ class ConfigStore:
         start_date: str | None = None,
         end_date: str | None = None,
         system_id: str = "",
+        environment: str = "",
         source_name: str = "",
     ) -> dict[str, Any]:
         """聚合查询 MCP 请求统计。
@@ -591,12 +622,14 @@ class ConfigStore:
             start_date: 起始日期 YYYY-MM-DD（含），None 表示不限
             end_date:   截止日期 YYYY-MM-DD（含），None 表示不限
             system_id:  筛选系统编号，空串表示不限
+            environment: 筛选环境标识，空串表示不限
             source_name: 筛选数据源名称，空串表示不限
 
         返回:
             {
               "summary": {"total": N, "success": N, "fail": N, "avg_latency_ms": N},
               "by_system": [{"system_id": "...", "total": N, "success": N, "fail": N}],
+              "by_environment": [{"environment": "...", "total": N, "success": N, "fail": N}],
               "by_source": [{"source_name": "...", "total": N, "success": N, "fail": N}],
               "by_tool":   [{"tool_name": "...", "total": N, "success": N, "fail": N}],
               "timeline":  [{"date": "YYYY-MM-DD", "total": N, "success": N, "fail": N}],
@@ -618,6 +651,9 @@ class ConfigStore:
         if system_id:
             conditions.append("system_id = :system_id")
             params["system_id"] = system_id
+        if environment:
+            conditions.append("environment = :environment")
+            params["environment"] = environment
         if source_name:
             conditions.append("source_name = :source_name")
             params["source_name"] = source_name
@@ -662,7 +698,25 @@ class ConfigStore:
                 for r in system_rows
             ]
 
-            # 3. by_source
+            # 3. by_environment（与 by_system 对称；若已筛选 environment 则只返回该环境）
+            environment_rows = (await session.execute(
+                text(f"""
+                    SELECT environment,
+                           COUNT(*) AS total,
+                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
+                    FROM mcp_request_logs{where_clause}
+                    GROUP BY environment
+                    ORDER BY total DESC
+                """),
+                params,
+            )).fetchall()
+            by_environment = [
+                {"environment": r.environment or "(未指定)", "total": r.total, "success": r.success, "fail": r.fail}
+                for r in environment_rows
+            ]
+
+            # 4. by_source
             source_rows = (await session.execute(
                 text(f"""
                     SELECT source_name,
@@ -680,7 +734,7 @@ class ConfigStore:
                 for r in source_rows
             ]
 
-            # 4. by_tool（只统计 tools/call，tools/list 不分工具）
+            # 5. by_tool（只统计 tools/call，tools/list 不分工具）
             tool_where = where_clause
             tool_params = dict(params)
             if "method" not in conditions:
@@ -703,7 +757,7 @@ class ConfigStore:
                 for r in tool_rows
             ]
 
-            # 5. timeline（按天聚合）
+            # 6. timeline（按天聚合）
             # SQLite 用 DATE()，MySQL 用 DATE()，两者都支持
             timeline_rows = (await session.execute(
                 text(f"""
@@ -725,6 +779,7 @@ class ConfigStore:
             return {
                 "summary": summary,
                 "by_system": by_system,
+                "by_environment": by_environment,
                 "by_source": by_source,
                 "by_tool": by_tool,
                 "timeline": timeline,
@@ -738,13 +793,14 @@ class ConfigStore:
         start_date: str | None = None,
         end_date: str | None = None,
         system_id: str = "",
+        environment: str = "",
         source_name: str = "",
     ) -> dict[str, Any]:
         """分页查询 MCP 请求记录明细（最新记录排在最前面）。
 
         返回:
             {
-              "items": [{id, system_id, source_name, tool_name, method,
+              "items": [{id, system_id, environment, source_name, tool_name, method,
                          success, latency_ms, client_addr, error_msg, created_at}],
               "total": N,
               "page": N,
@@ -765,6 +821,9 @@ class ConfigStore:
         if system_id:
             conditions.append("system_id = :system_id")
             params["system_id"] = system_id
+        if environment:
+            conditions.append("environment = :environment")
+            params["environment"] = environment
         if source_name:
             conditions.append("source_name = :source_name")
             params["source_name"] = source_name
@@ -787,7 +846,7 @@ class ConfigStore:
             # 分页明细（最新在前）
             rows = (await session.execute(
                 text(f"""
-                    SELECT id, system_id, source_name, tool_name, method,
+                    SELECT id, system_id, environment, source_name, tool_name, method,
                            success, latency_ms, client_addr, error_msg, created_at
                     FROM mcp_request_logs{where_clause}
                     ORDER BY created_at DESC, id DESC
@@ -800,6 +859,7 @@ class ConfigStore:
                 {
                     "id": r.id,
                     "system_id": r.system_id or "",
+                    "environment": r.environment or "",
                     "source_name": r.source_name or "",
                     "tool_name": r.tool_name or "",
                     "method": r.method,

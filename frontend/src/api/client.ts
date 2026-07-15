@@ -102,8 +102,8 @@ export interface McpTestResult {
   tools: McpTestTool[];
 }
 
-export async function mcpTest(toolset: string, systemId: string = ''): Promise<McpTestResult> {
-  const { data } = await api.post('/mcp-test', { toolset, systemId });
+export async function mcpTest(toolset: string, systemId: string = '', environment: string = ''): Promise<McpTestResult> {
+  const { data } = await api.post('/mcp-test', { toolset, systemId, environment });
   return data;
 }
 
@@ -123,6 +123,12 @@ export interface SystemInfo {
   systemId: string;
   sourceCount: number;
   sources: string[];
+  environments: string[];
+}
+
+export async function fetchEnvironments(): Promise<string[]> {
+  const { data } = await api.get('/environments');
+  return data;
 }
 
 export async function fetchSystems(): Promise<SystemInfo[]> {
@@ -148,6 +154,7 @@ export interface McpStatsGroupItem {
   system_id?: string;
   source_name?: string;
   tool_name?: string;
+  environment?: string;
   total: number;
   success: number;
   fail: number;
@@ -163,6 +170,7 @@ export interface McpStatsTimelineItem {
 export interface McpStatsResult {
   summary: McpStatsSummary;
   by_system: McpStatsGroupItem[];
+  by_environment: McpStatsGroupItem[];
   by_source: McpStatsGroupItem[];
   by_tool: McpStatsGroupItem[];
   timeline: McpStatsTimelineItem[];
@@ -176,12 +184,14 @@ export async function fetchMcpStats(params: {
   endDate?: string;
   systemId?: string;
   sourceName?: string;
+  environment?: string;
 }): Promise<McpStatsResult> {
   const query: Record<string, string> = {};
   if (params.startDate) query.start_date = params.startDate;
   if (params.endDate) query.end_date = params.endDate;
   if (params.systemId) query.system_id = params.systemId;
   if (params.sourceName) query.source_name = params.sourceName;
+  if (params.environment) query.environment = params.environment;
   const { data } = await api.get('/mcp-stats', { params: query });
   return data;
 }
@@ -199,6 +209,7 @@ export interface McpLogItem {
   client_addr: string;
   error_msg: string;
   created_at: string;
+  environment: string;
 }
 
 export interface McpLogsResult {
@@ -219,6 +230,7 @@ export async function fetchMcpLogs(params: {
   endDate?: string;
   systemId?: string;
   sourceName?: string;
+  environment?: string;
 }): Promise<McpLogsResult> {
   const query: Record<string, string> = {};
   if (params.page) query.page = String(params.page);
@@ -227,6 +239,7 @@ export async function fetchMcpLogs(params: {
   if (params.endDate) query.end_date = params.endDate;
   if (params.systemId) query.system_id = params.systemId;
   if (params.sourceName) query.source_name = params.sourceName;
+  if (params.environment) query.environment = params.environment;
   const { data } = await api.get('/mcp-logs', { params: query });
   return data;
 }

@@ -38,6 +38,10 @@ _PREBUILT_YAML_OVERRIDES: dict[str, str] = {
 # set is derived directly from that yaml by _load_prebuilt_tools(), so the
 # entries below for those types are ignored.
 # Spec = (tool name suffix, registered tool type).
+
+# 预设环境列表（按命名规范顺序）
+ENVIRONMENTS = ["dev", "st", "uat", "prd"]
+
 _SOURCE_DEFAULT_TOOLS: dict[str, list[tuple[str, str]]] = {
     "postgres": [("execute-sql", "postgres-execute-sql")],
     "mysql": [("execute-sql", "mysql-execute-sql")],
@@ -360,9 +364,10 @@ async def _auto_create_tools(rm, src_type: str, name: str) -> list[str]:
     """
     created: list[str] = []
 
-    # 从数据源配置中提取 systemId,注入到 tool_data 中便于持久化
+    # 从数据源配置中提取 systemId / environment,注入到 tool_data 中便于持久化
     src_cfg = rm.get_source_config(name) or {}
     tool_system_id = str(src_cfg.get("systemId", "") or "").strip()
+    tool_environment = str(src_cfg.get("environment", "") or "").strip()
 
     prebuilt = _load_prebuilt_tools(src_type)
     if prebuilt is not None:
@@ -384,6 +389,8 @@ async def _auto_create_tools(rm, src_type: str, name: str) -> list[str]:
             tool_data["source"] = name
             if tool_system_id:
                 tool_data["systemId"] = tool_system_id
+            if tool_environment:
+                tool_data["environment"] = tool_environment
             tool_data.setdefault(
                 "description",
                 f"Auto-generated {tool_type} tool for source '{name}'.",
@@ -413,6 +420,8 @@ async def _auto_create_tools(rm, src_type: str, name: str) -> list[str]:
         }
         if tool_system_id:
             tool_data["systemId"] = tool_system_id
+        if tool_environment:
+            tool_data["environment"] = tool_environment
         try:
             tool_config = decode_tool_config(tool_type, tool_name, tool_data)
             tool = await tool_config.initialize()
@@ -480,6 +489,12 @@ async def source_types(request: Request) -> dict[str, Any]:
     return {k: {"fields": v} for k, v in SOURCE_TYPE_SCHEMAS.items()}
 
 
+@router.get("/environments")
+async def list_environments() -> list[str]:
+    """返回预设环境列表，供前端下拉选择。"""
+    return ENVIRONMENTS
+
+
 @router.get("/systems")
 async def list_systems(request: Request) -> list[dict[str, Any]]:
     """列出所有系统编号及其数据源数量,供 MCP 配置按系统筛选使用。"""
@@ -491,9 +506,18 @@ async def list_systems(request: Request) -> list[dict[str, Any]]:
         if not sid:
             continue
         if sid not in systems:
-            systems[sid] = {"systemId": sid, "sourceCount": 0, "sources": []}
+            systems[sid] = {
+                "systemId": sid,
+                "sourceCount": 0,
+                "sources": [],
+                "environments": [],
+            }
         systems[sid]["sourceCount"] += 1
         systems[sid]["sources"].append(name)
+        # 收集该系统下的所有 environment（去重）
+        env = str(cfg.get("environment", "") or "").strip()
+        if env and env not in systems[sid]["environments"]:
+            systems[sid]["environments"].append(env)
     # 按系统编号排序返回
     return sorted(systems.values(), key=lambda x: x["systemId"])
 
@@ -570,12 +594,20 @@ async def create_source(request: Request) -> dict[str, Any]:
     name = body.get("name", "")
     src_type = body.get("type", "")
     system_id = str(body.get("systemId", "") or "").strip()
+    environment = str(body.get("environment", "") or "").strip()
     if not name or not src_type:
         raise HTTPException(status_code=400, detail="name and type are required")
     if not system_id:
         raise HTTPException(status_code=400, detail="systemId is required")
     if len(system_id) > 10:
         raise HTTPException(status_code=400, detail="systemId 长度不能超过 10 位")
+    if not environment:
+        raise HTTPException(status_code=400, detail="environment is required")
+    if environment not in ENVIRONMENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"environment 必须为 {ENVIRONMENTS} 之一",
+        )
     # 数据源类型白名单校验: 防止绕过 UI 直接调用 API 创建被禁用类型
     config = _get_config(request)
     enabled = getattr(config, "enabled_source_types", []) or []
@@ -585,13 +617,16 @@ async def create_source(request: Request) -> dict[str, Any]:
             detail=f"数据源类型 {src_type!r} 未启用,请联系管理员调整 --enabled-source-types",
         )
     rm = _get_rm(request)
-    # 数据源主键包含系统编号: 同一系统下数据源名不可重复,不同系统可同名
-    existing_sources = rm.get_sources_map()
+    # 数据源主键包含系统编号+环境: 同一系统同一环境下数据源名不可重复,不同系统/环境可同名
     for existing_name, existing_config in rm.get_all_source_configs().items():
-        if existing_name == name and existing_config.get("systemId") == system_id:
+        if (
+            existing_name == name
+            and existing_config.get("systemId") == system_id
+            and existing_config.get("environment") == environment
+        ):
             raise HTTPException(
                 status_code=409,
-                detail=f"系统 {system_id} 下数据源 {name!r} 已存在",
+                detail=f"系统 {system_id} 环境 {environment} 下数据源 {name!r} 已存在",
             )
     # Normalize field names: frontend sends "database" for sqlite, backend expects "path"
     config_data = {k: v for k, v in body.items() if k not in ("name", "type")}
@@ -631,7 +666,10 @@ async def get_source(request: Request, name: str) -> dict[str, Any]:
     store = get_store()
     if store is not None and store.is_persistent:
         try:
-            password_ciphertext = await store.get_source_password(name)
+            cfg = rm.get_source_config(name) or {}
+            sid = str(cfg.get("systemId", "") or "").strip()
+            env = str(cfg.get("environment", "") or "").strip()
+            password_ciphertext = await store.get_source_password(name, sid, env)
         except Exception as exc:
             logger.warning("读取数据源 %r 密文失败: %s", name, exc)
     if not password_ciphertext:
@@ -668,11 +706,15 @@ async def update_source(request: Request, name: str) -> dict[str, Any]:
     default_ts = rm.get_toolset("")
     if default_ts is not None:
         default_ts.tool_names = [n for n in default_ts.tool_names if n not in old_tools]
-    # 同步清除 store 中该数据源的旧工具（随后 _auto_create_tools 会重新持久化）
+    # 同步清除 store 中该数据源的旧工具（随后 _auto_create_tools 会重新持久化）。
+    # 旧工具仍属于更新前的 system_id + environment，需从旧 source config 中提取。
     store = get_store()
     if store is not None and store.is_persistent:
         try:
-            await store.delete_tools_by_source(name)
+            old_cfg = rm.get_source_config(name) or {}
+            old_sid = str(old_cfg.get("systemId", "") or "").strip()
+            old_env = str(old_cfg.get("environment", "") or "").strip()
+            await store.delete_tools_by_source(name, old_sid, old_env)
         except Exception as exc:
             logger.warning("清除数据源 %r 的旧工具失败: %s", name, exc)
     try:
@@ -702,6 +744,10 @@ async def delete_source(request: Request, name: str):
                 await source.close()
             except Exception:
                 pass
+        # 持久化删除前先取出 system_id + environment，用于精确删除 store 中记录
+        old_cfg = rm.get_source_config(name) or {}
+        sid = str(old_cfg.get("systemId", "") or "").strip()
+        env = str(old_cfg.get("environment", "") or "").strip()
         rm.remove_source(name)
         # Remove tools bound to this source (auto-generated or manual) and
         # drop them from the default toolset so no orphan tools remain.
@@ -718,8 +764,8 @@ async def delete_source(request: Request, name: str):
         store = get_store()
         if store is not None and store.is_persistent:
             try:
-                await store.delete_source(name)
-                await store.delete_tools_by_source(name)
+                await store.delete_source(name, sid, env)
+                await store.delete_tools_by_source(name, sid, env)
             except Exception as exc:
                 logger.warning("持久化删除数据源 %r 失败: %s", name, exc)
 
@@ -930,18 +976,24 @@ async def mcp_test(request: Request) -> dict[str, Any]:
 
     过滤逻辑与 MCP 路由一致：
       - 选了数据源(toolset) → 按数据源 toolset 过滤
-      - 仅选系统编号(systemId) → 按系统编号 toolset 过滤
+      - 仅选系统编号+环境(systemId/environment) → 按系统-环境 toolset 过滤
       - 都未选 → 返回全部工具
     """
     body = await request.json()
     toolset_name = body.get("toolset", "") or ""
     system_id = str(body.get("systemId", "") or "").strip()
+    environment = str(body.get("environment", "") or "").strip()
     rm = _get_rm(request)
 
     # 确定最终用于过滤的 toolset 名称:
     #   选了数据源 → 用数据源名(数据源本身就是一个 toolset)
-    #   仅选系统编号 → 用系统编号(系统编号本身也是一个 toolset)
-    effective_toolset = toolset_name or system_id
+    #   仅选系统编号+环境 → 优先用 {system_id}-{environment} 格式
+    if toolset_name:
+        effective_toolset = toolset_name
+    elif system_id and environment:
+        effective_toolset = f"{system_id}-{environment}"
+    else:
+        effective_toolset = system_id
 
     # 如果指定了 toolset，先校验其是否存在
     if effective_toolset:
