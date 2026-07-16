@@ -231,11 +231,24 @@ export default function Dashboard() {
   }, [systems, selectedSystemId, environments]);
 
   // JSON 配置中的 server 名称:
-  //   优先使用数据源名 → 其次 {systemId}-{environment} → 再次 systemId → 兜底 data-tool-mcp
-  const serverName = selectedToolset
-    || (selectedSystemId && selectedEnvironment ? `${selectedSystemId}-${selectedEnvironment}`
-    : selectedSystemId
-    || 'data-tool-mcp');
+  //   规则: data-tool-mcp[-systemId][-environment][+sourceName]
+  //   示例:
+  //     未选任何 → data-tool-mcp
+  //     仅系统   → data-tool-mcp-erp
+  //     系统+环境 → data-tool-mcp-erp-prd
+  //     系统+环境+数据源 → data-tool-mcp-erp-prd+mysql-source
+  //     仅数据源 → data-tool-mcp+mysql-source
+  //   environment 不能脱离 systemId 单独使用
+  let serverName = 'data-tool-mcp';
+  if (selectedSystemId) {
+    serverName += `-${selectedSystemId}`;
+    if (selectedEnvironment) {
+      serverName += `-${selectedEnvironment}`;
+    }
+  }
+  if (selectedToolset) {
+    serverName += `+${selectedToolset}`;
+  }
 
   const jsonConfig = useMemo(() => {
     // MCP 客户端配置字段约定:
