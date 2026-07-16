@@ -72,6 +72,8 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="配置持久化存储 MySQL 用户名（与 --store-url 分离，避免凭据写在 URL 中）")
     serve.add_argument("--store-password", default=os.environ.get("TOOLBOX_STORE_PASSWORD"),
                        help="配置持久化存储 MySQL 密码（与 --store-url 分离）")
+    serve.add_argument("--db-pool-size", type=int, default=int(os.environ.get("TOOLBOX_DB_POOL_SIZE", "5")),
+                       help="数据库连接池大小（默认 5，多实例部署时按 实例数×pool_size×数据源数 估算 MySQL max_connections）")
 
     # Network
     serve.add_argument("--address", "-a", default="0.0.0.0", help="Listen address")
@@ -165,6 +167,7 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         store_url=args.store_url or "",
         store_username=args.store_username or "",
         store_password=_resolve_store_password(args.store_password or ""),
+        db_pool_size=args.db_pool_size,
         # 数据源类型白名单: 逗号分隔字符串 → 去空白的列表
         enabled_source_types=[
             t.strip() for t in (args.enabled_source_types or "").split(",") if t.strip()
@@ -184,6 +187,10 @@ async def _run_http(config: "ServerConfig") -> None:
     from data_tool_mcp.config.loader import load_config
     from data_tool_mcp.resources import ResourceManager
     from data_tool_mcp.server.app import create_app
+    from data_tool_mcp.utils.crypto import validate_encryption_key
+
+    # 启动时校验加密密钥配置（仅警告，不阻塞启动）
+    validate_encryption_key()
 
     # Setup OpenTelemetry before anything else
     if config.telemetry_otlp or config.telemetry_gcp:
@@ -204,6 +211,14 @@ async def _run_http(config: "ServerConfig") -> None:
     # 初始化配置持久化存储（默认在当前目录创建 SQLite 文件 toolbox_data.db）
     from data_tool_mcp.config.store import init_store
     store = await init_store(config.store_url, config.store_username, config.store_password)
+    if store.is_sqlite and config.address not in ("127.0.0.1", "localhost"):
+        # 0.0.0.0 也警告，因为可能被外部访问
+        import logging
+        logging.getLogger(__name__).warning(
+            "当前使用 SQLite 存储且监听地址为 %s，多实例部署将导致数据不一致。"
+            "请配置 --store-url 指向共享 MySQL。",
+            config.address,
+        )
     if store.is_persistent:
         await _load_persisted_resources(config, rm, store)
 
@@ -268,6 +283,10 @@ async def _run_stdio(config: "ServerConfig") -> None:
     from data_tool_mcp.resources import ResourceManager
     from data_tool_mcp.server.mcp.protocol import MCPProtocol
     from data_tool_mcp.server.mcp.stdio import STDIOTransport
+    from data_tool_mcp.utils.crypto import validate_encryption_key
+
+    # 启动时校验加密密钥配置（仅警告，不阻塞启动）
+    validate_encryption_key()
 
     if config.telemetry_otlp or config.telemetry_gcp:
         from data_tool_mcp.telemetry import setup_otel

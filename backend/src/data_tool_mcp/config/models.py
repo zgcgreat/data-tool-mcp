@@ -139,6 +139,9 @@ class ServerConfig(BaseModel):
     store_username: str = ""  # TOOLBOX_STORE_USERNAME — MySQL 用户名（与 store_url 分离）
     store_password: str = ""  # TOOLBOX_STORE_PASSWORD — MySQL 密码（与 store_url 分离）
 
+    # 数据库连接池大小（多实例部署时按 实例数×pool_size×数据源数 估算 MySQL max_connections）
+    db_pool_size: int = 5
+
     # Logging
     log_level: str = "INFO"
     logging_format: Literal["standard", "json"] = "standard"

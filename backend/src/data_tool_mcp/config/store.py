@@ -154,11 +154,15 @@ class ConfigStore:
         self._session_factory = None
 
         if not url:
-            # 默认使用当前工作目录下的 SQLite 文件
             import os
             db_path = os.path.join(os.getcwd(), "toolbox_data.db")
             self._url = f"sqlite+aiosqlite:///{db_path}"
-            logger.info("ConfigStore: 未配置 store_url，默认使用 SQLite 文件: %s", db_path)
+            logger.warning(
+                "ConfigStore: 未配置 store_url，默认使用 SQLite 文件: %s。"
+                "多实例部署时必须配置 --store-url 指向共享 MySQL，"
+                "否则各实例数据隔离且不一致。",
+                db_path,
+            )
         elif url.startswith("sqlite"):
             if "aiosqlite" not in url:
                 self._url = url.replace("sqlite://", "sqlite+aiosqlite://")
@@ -197,10 +201,13 @@ class ConfigStore:
         return f"{parsed.scheme}://{host}{port}{parsed.path}"
 
     async def initialize(self) -> None:
+        import os
+        pool_size = int(os.environ.get("TOOLBOX_DB_POOL_SIZE", "5"))
         self._engine = create_async_engine(
             self._url,
             echo=False,
-            pool_size=5,
+            pool_size=pool_size,
+            max_overflow=int(os.environ.get("TOOLBOX_DB_MAX_OVERFLOW", "10")),
             pool_recycle=3600,
             pool_pre_ping=True,
         )
@@ -221,6 +228,10 @@ class ConfigStore:
     def is_persistent(self) -> bool:
         """是否为持久化存储（文件/MySQL）。内存 SQLite 视为非持久化。"""
         return ":memory:" not in self._url
+
+    @property
+    def is_sqlite(self) -> bool:
+        return "sqlite" in self._url
 
     # --- Source CRUD ---
 
@@ -277,7 +288,16 @@ class ConfigStore:
                     password=password,
                     params=params_json,
                 ))
-            await session.commit()
+            try:
+                await session.commit()
+            except Exception as exc:
+                # 捕获唯一键约束冲突（并发创建同名数据源）
+                from sqlalchemy.exc import IntegrityError
+                if isinstance(exc, IntegrityError):
+                    raise ValueError(
+                        f"数据源 {name!r} 在系统 {system_id} 环境 {environment} 下已存在（并发冲突）"
+                    ) from exc
+                raise
 
     async def get_source_password(self, name: str, system_id: str = "", environment: str = "") -> str:
         """读取数据源在数据库中存储的密码密文。
@@ -346,6 +366,165 @@ class ConfigStore:
             return await session.scalar(
                 select(sa_func.count(ToolsetRecord.id))
             ) or 0
+
+    async def count_tools(self) -> int:
+        """返回工具总数。"""
+        from sqlalchemy import func as sa_func
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(sa_func.count(ToolRecord.id))
+            ) or 0
+
+    async def get_source(self, name: str, system_id: str = "", environment: str = "") -> dict[str, Any] | None:
+        """按名查询单个数据源配置，返回合并后的 dict（含结构化字段和 params）。
+        可选 system_id + environment 精确定位。
+        不存在时返回 None。
+        """
+        async with self._session_factory() as session:
+            stmt = select(SourceRecord).where(SourceRecord.name == name)
+            if system_id:
+                stmt = stmt.where(SourceRecord.system_id == system_id)
+            if environment:
+                stmt = stmt.where(SourceRecord.environment == environment)
+            r = await session.scalar(stmt)
+            if not r:
+                return None
+            src: dict[str, Any] = {
+                "name": r.name,
+                "type": r.type,
+                "host": r.host,
+                "port": r.port,
+                "database": r.database,
+                "user": r.username,
+                "password": r.password,
+            }
+            try:
+                params = json.loads(r.params or "{}")
+                src.update(params)
+            except json.JSONDecodeError:
+                pass
+            if r.system_id:
+                src["systemId"] = r.system_id
+            if r.environment:
+                src["environment"] = r.environment
+            return src
+
+    async def get_tool(self, name: str, system_id: str = "", environment: str = "") -> dict[str, Any] | None:
+        """按名查询单个工具配置，返回合并后的 dict。
+        不存在时返回 None。
+        """
+        async with self._session_factory() as session:
+            stmt = select(ToolRecord).where(ToolRecord.name == name)
+            if system_id:
+                stmt = stmt.where(ToolRecord.system_id == system_id)
+            if environment:
+                stmt = stmt.where(ToolRecord.environment == environment)
+            r = await session.scalar(stmt)
+            if not r:
+                return None
+            tool: dict[str, Any] = {
+                "name": r.name,
+                "type": r.type,
+                "source": r.source_name,
+                "description": r.description,
+            }
+            try:
+                params = json.loads(r.params or "{}")
+                tool.update(params)
+            except json.JSONDecodeError:
+                pass
+            if r.system_id:
+                tool["systemId"] = r.system_id
+            if r.environment:
+                tool["environment"] = r.environment
+            return tool
+
+    async def load_tools_by_source(self, source_name: str) -> list[dict[str, Any]]:
+        """按数据源名查询其所有工具配置。"""
+        async with self._session_factory() as session:
+            result = await session.scalars(
+                select(ToolRecord).where(ToolRecord.source_name == source_name)
+            )
+            tools = []
+            for r in result:
+                tool: dict[str, Any] = {
+                    "name": r.name,
+                    "type": r.type,
+                    "source": r.source_name,
+                    "description": r.description,
+                }
+                try:
+                    params = json.loads(r.params or "{}")
+                    tool.update(params)
+                except json.JSONDecodeError:
+                    pass
+                if r.system_id:
+                    tool["systemId"] = r.system_id
+                if r.environment:
+                    tool["environment"] = r.environment
+                tools.append(tool)
+            return tools
+
+    async def count_tools_by_source(self, source_name: str) -> int:
+        """按数据源名统计工具数量。"""
+        from sqlalchemy import func as sa_func
+        async with self._session_factory() as session:
+            return await session.scalar(
+                select(sa_func.count(ToolRecord.id)).where(ToolRecord.source_name == source_name)
+            ) or 0
+
+    async def load_sources_by_system(self, system_id: str) -> list[dict[str, Any]]:
+        """按系统编号查询数据源列表。"""
+        async with self._session_factory() as session:
+            result = await session.scalars(
+                select(SourceRecord).where(SourceRecord.system_id == system_id)
+            )
+            sources = []
+            for r in result:
+                src: dict[str, Any] = {
+                    "name": r.name,
+                    "type": r.type,
+                    "host": r.host,
+                    "port": r.port,
+                    "database": r.database,
+                    "user": r.username,
+                    "password": r.password,
+                }
+                try:
+                    params = json.loads(r.params or "{}")
+                    src.update(params)
+                except json.JSONDecodeError:
+                    pass
+                src["systemId"] = r.system_id
+                if r.environment:
+                    src["environment"] = r.environment
+                sources.append(src)
+            return sources
+
+    async def get_toolset(self, name: str, system_id: str = "", environment: str = "") -> dict[str, Any] | None:
+        """按名查询单个工具集配置。不存在时返回 None。"""
+        async with self._session_factory() as session:
+            stmt = select(ToolsetRecord).where(ToolsetRecord.name == name)
+            if system_id:
+                stmt = stmt.where(ToolsetRecord.system_id == system_id)
+            if environment:
+                stmt = stmt.where(ToolsetRecord.environment == environment)
+            r = await session.scalar(stmt)
+            if not r:
+                return None
+            ts: dict[str, Any] = {
+                "name": r.name,
+                "tools": [
+                    {"name": tn.strip()}
+                    for tn in (r.tool_names or "").split(",")
+                    if tn.strip()
+                ],
+            }
+            if r.system_id:
+                ts["systemId"] = r.system_id
+            if r.environment:
+                ts["environment"] = r.environment
+            return ts
 
     async def load_toolsets(self) -> list[dict[str, Any]]:
         """加载所有工具集。"""
@@ -518,7 +697,16 @@ class ConfigStore:
                     description=desc,
                     params=params_json,
                 ))
-            await session.commit()
+            try:
+                await session.commit()
+            except Exception as exc:
+                # 捕获唯一键约束冲突（并发创建同名工具）
+                from sqlalchemy.exc import IntegrityError
+                if isinstance(exc, IntegrityError):
+                    raise ValueError(
+                        f"工具 {name!r} 在系统 {system_id} 环境 {environment} 下已存在（并发冲突）"
+                    ) from exc
+                raise
 
     async def delete_tool(self, name: str, system_id: str = "", environment: str = "") -> None:
         async with self._session_factory() as session:

@@ -438,8 +438,6 @@ async def _auto_create_tools(rm, src_type: str, name: str) -> list[str]:
 async def dashboard(request: Request) -> dict[str, Any]:
     rm = _get_rm(request)
     config = _get_config(request)
-    sources = rm.get_sources_map()
-    tools = rm.get_tools_map()
     # 今日请求数 — 优先从数据库 mcp_request_logs 表查询（持久化，重启不丢）
     # 回退到内存计数器（未启用持久化时）
     today_requests = 0
@@ -455,12 +453,24 @@ async def dashboard(request: Request) -> dict[str, Any]:
     if today_requests == 0:
         from data_tool_mcp.server.stats import get_request_counter
         today_requests = get_request_counter().get_today_count()
+    # 数据源/工具计数 — 优先从数据库查询（多实例一致性），回退到 rm 内存
+    source_count = 0
+    tool_count = 0
+    if store is not None and store.is_persistent:
+        try:
+            source_count = await store.count_sources()
+            tool_count = await store.count_tools()
+        except Exception as exc:
+            logger.warning("查询 dashboard 计数失败: %s", exc)
+    else:
+        source_count = len(rm.get_sources_map())
+        tool_count = len(rm.get_tools_map())
     return {
         "version": getattr(config, "version", "0.1.0"),
         "uptime": None,
-        "sourceCount": len(sources),
-        "sourceOnline": len(sources),
-        "toolCount": len(tools),
+        "sourceCount": source_count,
+        "sourceOnline": source_count,
+        "toolCount": tool_count,
         "todayRequests": today_requests,
         "sourceHealth": [],
         "recentErrors": [],
@@ -473,15 +483,27 @@ async def dashboard(request: Request) -> dict[str, Any]:
 @router.get("/health")
 async def health(request: Request) -> dict[str, Any]:
     rm = _get_rm(request)
-    sources = rm.get_sources_map()
-    source_health = []
-    for name, source in sources.items():
-        source_health.append({
+    # 数据源名列表 — 优先从数据库查询（多实例一致性），回退到 rm 内存
+    source_names: list[str] = []
+    store = get_store()
+    if store is not None and store.is_persistent:
+        try:
+            sources_list = await store.load_sources()
+            source_names = [s.get("name", "") for s in sources_list if s.get("name")]
+        except Exception as exc:
+            logger.warning("查询 health 数据源列表失败: %s", exc)
+            source_names = list(rm.get_sources_map().keys())
+    else:
+        source_names = list(rm.get_sources_map().keys())
+    source_health = [
+        {
             "name": name,
             "status": "unknown",
             "latency": None,
             "lastError": None,
-        })
+        }
+        for name in source_names
+    ]
     return {"sources": source_health, "server": "running"}
 
 
@@ -510,8 +532,23 @@ async def list_environments() -> list[str]:
 @router.get("/systems")
 async def list_systems(request: Request) -> list[dict[str, Any]]:
     """列出所有系统编号及其数据源数量,供 MCP 配置按系统筛选使用。"""
-    rm = _get_rm(request)
-    configs = rm.get_all_source_configs()
+    store = get_store()
+    configs: dict[str, dict[str, Any]] = {}
+    if store is not None and store.is_persistent:
+        try:
+            sources_list = await store.load_sources()
+            # 转为 {name: cfg} 形式以保持后续逻辑一致
+            for s in sources_list:
+                sname = s.get("name", "")
+                if sname:
+                    configs[sname] = s
+        except Exception as exc:
+            logger.warning("查询系统列表失败: %s", exc)
+            rm = _get_rm(request)
+            configs = rm.get_all_source_configs()
+    else:
+        rm = _get_rm(request)
+        configs = rm.get_all_source_configs()
     systems: dict[str, dict[str, Any]] = {}
     for name, cfg in configs.items():
         sid = str(cfg.get("systemId", "") or "").strip()
@@ -537,6 +574,18 @@ async def list_systems(request: Request) -> list[dict[str, Any]]:
 @router.get("/systems/{system_id}/sources")
 async def list_sources_by_system(request: Request, system_id: str) -> list[dict[str, Any]]:
     """按系统编号列出该系统下所有数据源。"""
+    store = get_store()
+    if store is not None and store.is_persistent:
+        try:
+            sources_list = await store.load_sources_by_system(system_id)
+            return [
+                await _source_to_dict(s["name"], s, store=store)
+                for s in sources_list
+                if s.get("name")
+            ]
+        except Exception as exc:
+            logger.warning("查询系统 %r 数据源失败: %s", system_id, exc)
+    # 回退到 rm
     rm = _get_rm(request)
     configs = rm.get_all_source_configs()
     result: list[dict[str, Any]] = []
@@ -544,60 +593,99 @@ async def list_sources_by_system(request: Request, system_id: str) -> list[dict[
     for name, cfg in configs.items():
         sid = str(cfg.get("systemId", "") or "").strip()
         if sid == system_id and name in sources:
-            result.append(_source_to_dict(name, sources[name], rm))
+            src_cfg = rm.get_source_config(name) or {}
+            item = await _source_to_dict(name, src_cfg)
+            # 回退场景下手动计算 tool_count（_source_to_dict 在无 store 时返回 0）
+            item["toolCount"] = sum(
+                1 for t in rm.get_tools_map().values()
+                if getattr(t, "source_name", None) == name
+            )
+            result.append(item)
     return result
 
 
-def _source_to_dict(
+async def _source_to_dict(
     name: str,
-    source: Any,
-    rm=None,
+    source_config: dict[str, Any] | None = None,
     *,
     password_ciphertext: str = "",
+    store=None,
 ) -> dict[str, Any]:
     """转换单个数据源为响应 dict。
 
     Args:
+        source_config: 数据源配置 dict（含 type/host/port/database/user/password/
+            systemId/environment 等）。None 时从 store 查询（需要 store 参数）。
         password_ciphertext: 非空时直接作为 password 字段返回(供编辑场景使用,
             前端原样回传即可保持密码不变); 空字符串时密码字段统一脱敏为
             "********"(列表场景使用)。
+        store: ConfigStore 实例，用于查询 tool_count 和 source_config。
     """
+    # 如果没有 source_config，从 store 查询
+    if source_config is None and store is not None:
+        source_config = await store.get_source(name) or {}
+    if source_config is None:
+        source_config = {}
+
     tool_count = 0
-    if rm is not None:
-        tool_count = sum(
-            1 for t in rm.get_tools_map().values()
-            if getattr(t, "source_name", None) == name
-        )
+    if store is not None:
+        try:
+            tool_count = await store.count_tools_by_source(name)
+        except Exception:
+            pass
+
     result: dict[str, Any] = {
         "name": name,
-        "type": getattr(source, "source_type", "unknown"),
+        "type": source_config.get("type", "unknown"),
         "status": "connected",
         "latency": None,
         "error": None,
         "toolCount": tool_count,
     }
+
     # 附加配置字段
-    if rm is not None:
-        config = rm.get_source_config(name)
-        if config:
-            for k, v in config.items():
-                if k == "password" and v:
-                    if password_ciphertext:
-                        # 编辑场景: 优先返回持久化存储中的密文, 前端原样回传即可保持密码不变
-                        result[k] = password_ciphertext
-                    else:
-                        # 列表场景: 统一脱敏为占位符
-                        result[k] = "********"
-                else:
-                    result[k] = v
+    for k, v in source_config.items():
+        if k in ("name", "type"):
+            continue
+        if k == "password" and v:
+            if password_ciphertext:
+                # 编辑场景: 优先返回持久化存储中的密文, 前端原样回传即可保持密码不变
+                result[k] = password_ciphertext
+            else:
+                # 列表场景: 统一脱敏为占位符
+                result[k] = "********"
+        else:
+            result[k] = v
     return result
 
 
 @router.get("/sources")
 async def list_sources(request: Request) -> list[dict[str, Any]]:
+    store = get_store()
+    if store is not None and store.is_persistent:
+        try:
+            sources_list = await store.load_sources()
+            return [
+                await _source_to_dict(s["name"], s, store=store)
+                for s in sources_list
+                if s.get("name")
+            ]
+        except Exception as exc:
+            logger.warning("查询数据源列表失败: %s", exc)
+    # 回退到 rm
     rm = _get_rm(request)
     sources = rm.get_sources_map()
-    return [_source_to_dict(name, source, rm) for name, source in sources.items()]
+    result: list[dict[str, Any]] = []
+    for name, source in sources.items():
+        src_cfg = rm.get_source_config(name) or {}
+        item = await _source_to_dict(name, src_cfg)
+        # 回退场景下手动计算 tool_count（_source_to_dict 在无 store 时返回 0）
+        item["toolCount"] = sum(
+            1 for t in rm.get_tools_map().values()
+            if getattr(t, "source_name", None) == name
+        )
+        result.append(item)
+    return result
 
 
 @router.post("/sources")
@@ -630,16 +718,26 @@ async def create_source(request: Request) -> dict[str, Any]:
         )
     rm = _get_rm(request)
     # 数据源主键包含系统编号+环境: 同一系统同一环境下数据源名不可重复,不同系统/环境可同名
-    for existing_name, existing_config in rm.get_all_source_configs().items():
-        if (
-            existing_name == name
-            and existing_config.get("systemId") == system_id
-            and existing_config.get("environment") == environment
-        ):
+    # 优先从 store 查询唯一性（多实例一致性），回退到 rm 内存
+    store = get_store()
+    if store is not None and store.is_persistent:
+        existing = await store.get_source(name, system_id, environment)
+        if existing is not None:
             raise HTTPException(
                 status_code=409,
                 detail=f"系统 {system_id} 环境 {environment} 下数据源 {name!r} 已存在",
             )
+    else:
+        for existing_name, existing_config in rm.get_all_source_configs().items():
+            if (
+                existing_name == name
+                and existing_config.get("systemId") == system_id
+                and existing_config.get("environment") == environment
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"系统 {system_id} 环境 {environment} 下数据源 {name!r} 已存在",
+                )
     # Normalize field names: frontend sends "database" for sqlite, backend expects "path"
     config_data = {k: v for k, v in body.items() if k not in ("name", "type")}
     if src_type == "sqlite" and "database" in config_data and "path" not in config_data:
@@ -652,14 +750,27 @@ async def create_source(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"创建数据源失败: {exc}")
     rm.add_source(name, source, config=config_data)
     created_tools = await _auto_create_tools(rm, src_type, name)
-    # 持久化到 ConfigStore
-    store = get_store()
+    # 持久化到 ConfigStore（store 已在上方唯一性校验时获取）
     if store is not None and store.is_persistent:
         try:
             await store.save_source(name, src_type, config_data)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
         except Exception as exc:
             logger.warning("持久化数据源 %r 失败: %s", name, exc)
-    result = _source_to_dict(name, source, rm)
+    # 创建后从 store 读取配置（多实例一致性），回退到 config_data + rm
+    if store is not None and store.is_persistent:
+        result = await _source_to_dict(name, store=store)
+    else:
+        # 回退: 手动构造 source_config（config_data 缺少 name/type，补上）
+        src_cfg = dict(config_data)
+        src_cfg["name"] = name
+        src_cfg["type"] = src_type
+        result = await _source_to_dict(name, src_cfg)
+        result["toolCount"] = sum(
+            1 for t in rm.get_tools_map().values()
+            if getattr(t, "source_name", None) == name
+        )
     result["createdTools"] = created_tools
     return result
 
@@ -667,35 +778,56 @@ async def create_source(request: Request) -> dict[str, Any]:
 @router.get("/sources/{name}")
 async def get_source(request: Request, name: str) -> dict[str, Any]:
     rm = _get_rm(request)
-    sources = rm.get_sources_map()
-    if name not in sources:
-        raise HTTPException(status_code=404, detail=f"source {name!r} not found")
-    source = sources[name]
+    store = get_store()
+    # 存在性检查 + 配置读取: 优先用 store, 回退到 rm
+    src_cfg: dict[str, Any] | None = None
+    if store is not None and store.is_persistent:
+        try:
+            src_cfg = await store.get_source(name)
+        except Exception as exc:
+            logger.warning("查询数据源 %r 失败: %s", name, exc)
+            src_cfg = None
+    if src_cfg is None:
+        # 回退到 rm
+        if name not in rm.get_sources_map():
+            raise HTTPException(status_code=404, detail=f"source {name!r} not found")
+        src_cfg = rm.get_source_config(name) or {}
     # 编辑场景: 优先从持久化存储读取密文, 前端原样回传即可保持密码不变;
     # 回退到 ResourceManager 内存配置中的明文密码(未启用持久化时),
     # 前端原样回传时 _normalize_password_for_storage 会加密后落库。
     password_ciphertext = ""
-    store = get_store()
     if store is not None and store.is_persistent:
         try:
-            cfg = rm.get_source_config(name) or {}
-            sid = str(cfg.get("systemId", "") or "").strip()
-            env = str(cfg.get("environment", "") or "").strip()
+            sid = str(src_cfg.get("systemId", "") or "").strip()
+            env = str(src_cfg.get("environment", "") or "").strip()
             password_ciphertext = await store.get_source_password(name, sid, env)
         except Exception as exc:
             logger.warning("读取数据源 %r 密文失败: %s", name, exc)
     if not password_ciphertext:
         # 未启用持久化或读取失败: 回退到内存中的明文密码
-        cfg = rm.get_source_config(name) or {}
-        password_ciphertext = str(cfg.get("password", "") or "")
-    return _source_to_dict(name, source, rm, password_ciphertext=password_ciphertext)
+        password_ciphertext = str(src_cfg.get("password", "") or "")
+    return await _source_to_dict(
+        name, src_cfg, password_ciphertext=password_ciphertext, store=store
+    )
 
 
 @router.put("/sources/{name}")
 async def update_source(request: Request, name: str) -> dict[str, Any]:
     body = await request.json()
     rm = _get_rm(request)
-    if name not in rm.get_sources_map():
+    store = get_store()
+    # 存在性检查: 优先用 store, 回退到 rm
+    exists = False
+    if store is not None and store.is_persistent:
+        try:
+            existing = await store.get_source(name)
+            exists = existing is not None
+        except Exception as exc:
+            logger.warning("查询数据源 %r 失败: %s", name, exc)
+            exists = name in rm.get_sources_map()
+    else:
+        exists = name in rm.get_sources_map()
+    if not exists:
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
     # Close old source before replacing
     old = rm.get_source(name)
@@ -709,10 +841,22 @@ async def update_source(request: Request, name: str) -> dict[str, Any]:
     if src_type == "sqlite" and "database" in config_data and "path" not in config_data:
         config_data["path"] = config_data.pop("database")
     # Remove old tools bound to this source before recreating
-    old_tools = [
-        tname for tname, t in rm.get_tools_map().items()
-        if getattr(t, "source_name", None) == name
-    ]
+    # 优先从 store 查询（多实例一致性），回退到 rm 内存
+    if store is not None and store.is_persistent:
+        try:
+            old_tools_list = await store.load_tools_by_source(name)
+            old_tools = [t["name"] for t in old_tools_list if t.get("name")]
+        except Exception as exc:
+            logger.warning("查询数据源 %r 的旧工具失败: %s", name, exc)
+            old_tools = [
+                tname for tname, t in rm.get_tools_map().items()
+                if getattr(t, "source_name", None) == name
+            ]
+    else:
+        old_tools = [
+            tname for tname, t in rm.get_tools_map().items()
+            if getattr(t, "source_name", None) == name
+        ]
     for tname in old_tools:
         rm.remove_tool(tname)
     default_ts = rm.get_toolset("")
@@ -720,7 +864,6 @@ async def update_source(request: Request, name: str) -> dict[str, Any]:
         default_ts.tool_names = [n for n in default_ts.tool_names if n not in old_tools]
     # 同步清除 store 中该数据源的旧工具（随后 _auto_create_tools 会重新持久化）。
     # 旧工具仍属于更新前的 system_id + environment，需从旧 source config 中提取。
-    store = get_store()
     if store is not None and store.is_persistent:
         try:
             old_cfg = rm.get_source_config(name) or {}
@@ -743,13 +886,37 @@ async def update_source(request: Request, name: str) -> dict[str, Any]:
             await store.save_source(name, src_type, config_data)
         except Exception as exc:
             logger.warning("持久化更新数据源 %r 失败: %s", name, exc)
-    return _source_to_dict(name, source, rm)
+    # 更新后从 store 读取配置（多实例一致性），回退到 config_data + rm
+    if store is not None and store.is_persistent:
+        return await _source_to_dict(name, store=store)
+    # 回退: 手动构造 source_config（config_data 缺少 name/type，补上）
+    src_cfg = dict(config_data)
+    src_cfg["name"] = name
+    src_cfg["type"] = src_type
+    result = await _source_to_dict(name, src_cfg)
+    result["toolCount"] = sum(
+        1 for t in rm.get_tools_map().values()
+        if getattr(t, "source_name", None) == name
+    )
+    return result
 
 
 @router.delete("/sources/{name}", status_code=204)
 async def delete_source(request: Request, name: str):
     rm = _get_rm(request)
-    if name in rm.get_sources_map():
+    store = get_store()
+    # 存在性检查: 优先用 store, 回退到 rm
+    exists = False
+    if store is not None and store.is_persistent:
+        try:
+            existing = await store.get_source(name)
+            exists = existing is not None
+        except Exception as exc:
+            logger.warning("查询数据源 %r 失败: %s", name, exc)
+            exists = name in rm.get_sources_map()
+    else:
+        exists = name in rm.get_sources_map()
+    if exists:
         source = rm.get_source(name)
         if hasattr(source, "close"):
             try:
@@ -763,17 +930,28 @@ async def delete_source(request: Request, name: str):
         rm.remove_source(name)
         # Remove tools bound to this source (auto-generated or manual) and
         # drop them from the default toolset so no orphan tools remain.
-        removed = [
-            tname for tname, t in rm.get_tools_map().items()
-            if getattr(t, "source_name", None) == name
-        ]
+        # 优先从 store 查询（多实例一致性），回退到 rm 内存
+        if store is not None and store.is_persistent:
+            try:
+                removed_list = await store.load_tools_by_source(name)
+                removed = [t["name"] for t in removed_list if t.get("name")]
+            except Exception as exc:
+                logger.warning("查询数据源 %r 的工具失败: %s", name, exc)
+                removed = [
+                    tname for tname, t in rm.get_tools_map().items()
+                    if getattr(t, "source_name", None) == name
+                ]
+        else:
+            removed = [
+                tname for tname, t in rm.get_tools_map().items()
+                if getattr(t, "source_name", None) == name
+            ]
         for tname in removed:
             rm.remove_tool(tname)
         default_ts = rm.get_toolset("")
         if default_ts is not None:
             default_ts.tool_names = [n for n in default_ts.tool_names if n not in removed]
         # 持久化删除到 ConfigStore
-        store = get_store()
         if store is not None and store.is_persistent:
             try:
                 await store.delete_source(name, sid, env)
@@ -1041,6 +1219,45 @@ async def list_toolsets(request: Request) -> list[dict[str, Any]]:
     返回每个 toolset 的名称和工具数量。空名 toolset（默认包含所有工具）
     显示为 "全部工具"。标注 toolset 类型(source/system/custom)以便前端分组。
     """
+    store = get_store()
+    if store is not None and store.is_persistent:
+        try:
+            toolsets_list = await store.load_toolsets()
+            sources_list = await store.load_sources()
+        except Exception as exc:
+            logger.warning("查询 toolset 列表失败: %s", exc)
+            toolsets_list = []
+            sources_list = []
+        source_names = {s["name"] for s in sources_list if s.get("name")}
+        system_ids = {
+            str(s.get("systemId", "") or "").strip()
+            for s in sources_list
+            if str(s.get("systemId", "") or "").strip()
+        }
+        result: list[dict[str, Any]] = []
+        for item in toolsets_list:
+            name = item.get("name", "")
+            tools = item.get("tools", []) or []
+            # 判断 toolset 类型
+            if not name:
+                ts_type = "all"
+            elif name in system_ids:
+                ts_type = "system"
+            elif name in source_names:
+                ts_type = "source"
+            else:
+                ts_type = "custom"
+            result.append({
+                "name": name,
+                "displayName": "全部工具" if not name else name,
+                "toolCount": len(tools),
+                "type": ts_type,
+            })
+        # 排序: 全部 → system → source → custom, 每组内按名称排序
+        type_order = {"all": 0, "system": 1, "source": 2, "custom": 3}
+        result.sort(key=lambda x: (type_order.get(x["type"], 9), x["name"]))
+        return result
+    # 回退到 rm
     rm = _get_rm(request)
     toolsets = rm.get_toolsets_map()
     source_names = set(rm.get_sources_map().keys())

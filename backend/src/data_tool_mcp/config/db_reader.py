@@ -137,9 +137,10 @@ async def load_config_from_db(
     async_url = _to_async_url(db_url)
 
     # MySQL 连接池配置：wait_timeout 默认 8 小时，但生产环境可能更短
+    pool_size = int(os.environ.get("TOOLBOX_DB_POOL_SIZE", "2"))
     engine = create_async_engine(
         async_url,
-        pool_size=2,
+        pool_size=pool_size,
         pool_recycle=3600,  # 1 小时回收，避免 MySQL 连接超时
         pool_pre_ping=True,  # 连接前检测有效性
     )
@@ -322,9 +323,10 @@ async def watch_config_changes(
     Runs forever until the surrounding task is cancelled.
     """
     async_url = _to_async_url(db_url)
+    pool_size = int(os.environ.get("TOOLBOX_DB_WATCH_POOL_SIZE", "1"))
     engine = create_async_engine(
         async_url,
-        pool_size=1,
+        pool_size=pool_size,
         pool_recycle=3600,
         pool_pre_ping=True,
     )

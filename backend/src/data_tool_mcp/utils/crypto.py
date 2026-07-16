@@ -99,6 +99,24 @@ def _get_fernet():
     return _fernet
 
 
+def validate_encryption_key() -> bool:
+    """校验加密密钥是否已正确配置。
+
+    Returns:
+        True 表示密钥已配置且有效
+        False 表示使用开发回退密钥（生产环境应警告）
+    """
+    key_env = os.environ.get(_ENCRYPTION_KEY_ENV, "")
+    if not key_env:
+        logger.warning(
+            "TOOLBOX_ENCRYPTION_KEY 未配置，使用开发回退密钥。"
+            "生产环境必须配置该环境变量，且多实例必须使用相同密钥，"
+            "否则无法解密数据源密码。"
+        )
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # 公开 API — 企业替换时只需修改这三个函数的实现
 # ---------------------------------------------------------------------------
@@ -132,8 +150,12 @@ def decrypt(ciphertext: str) -> str:
         return ciphertext
     try:
         return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
-    except Exception:
-        # 不是密文（旧明文数据）或密钥不匹配 — 原样返回
+    except Exception as exc:
+        # 不是密文（旧明文数据）或密钥不匹配 — 记录 WARNING 后原样返回
+        logger.warning(
+            "解密失败（密钥不匹配或数据损坏）: %s。原样返回，可能导致数据源连接失败。",
+            exc,
+        )
         return ciphertext
 
 
