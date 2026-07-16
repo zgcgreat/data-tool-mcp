@@ -31,17 +31,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_gda_source(
+async def _get_gda_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> CloudGDASource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, CloudGDASource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Cloud GDA source")
     return source
 
@@ -58,10 +60,13 @@ class CloudGDAQueryTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_gda_source(source_provider, self._source_name, self.name)
-        query = params.get("query", "")
-        result = await source.query(query)
-        return {"result": result}
+        source = await _get_gda_source(source_provider, self._source_name, self.name)
+        try:
+            query = params.get("query", "")
+            result = await source.query(query)
+            return {"result": result}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -108,24 +113,27 @@ class ConversationalAnalyticsGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_gda_source(source_provider, self._source_name, self.name)
-        tt = self._tool_type
+        source = await _get_gda_source(source_provider, self._source_name, self.name)
+        try:
+            tt = self._tool_type
 
-        if tt == "conversational-analytics-query":
-            query = params.get("query", "")
-            result = await source.query(query)
-            return {"result": result}
-        elif tt == "conversational-analytics-list-accessible-data-agents":
-            agents = await source.list_accessible_data_agents()
-            return {"data_agents": agents}
-        elif tt == "conversational-analytics-get-data-agent-info":
-            info = await source.get_data_agent_info(params["agent_id"])
-            return {"data_agent": info}
-        elif tt == "conversational-analytics-ask-data-agent":
-            result = await source.ask_data_agent(params["agent_id"], params["question"])
-            return {"result": result}
-        else:
-            raise ValueError(f"unknown Conversational Analytics tool type: {tt}")
+            if tt == "conversational-analytics-query":
+                query = params.get("query", "")
+                result = await source.query(query)
+                return {"result": result}
+            elif tt == "conversational-analytics-list-accessible-data-agents":
+                agents = await source.list_accessible_data_agents()
+                return {"data_agents": agents}
+            elif tt == "conversational-analytics-get-data-agent-info":
+                info = await source.get_data_agent_info(params["agent_id"])
+                return {"data_agent": info}
+            elif tt == "conversational-analytics-ask-data-agent":
+                result = await source.ask_data_agent(params["agent_id"], params["question"])
+                return {"result": result}
+            else:
+                raise ValueError(f"unknown Conversational Analytics tool type: {tt}")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

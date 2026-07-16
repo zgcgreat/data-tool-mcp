@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_looker_source(
+async def _get_looker_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> LookerSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, LookerSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Looker source")
     return source
 
@@ -51,72 +53,75 @@ class LookerGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_looker_source(source_provider, self._source_name, self.name)
-        tt = self._tool_type
+        source = await _get_looker_source(source_provider, self._source_name, self.name)
+        try:
+            tt = self._tool_type
 
-        # LookML
-        if tt == "looker-get-models":
-            models = await source.get_lookml_models()
-            return {"models": models}
-        elif tt == "looker-get-model":
-            return {"model": await source.get_lookml_model(params["model_name"])}
-        elif tt == "looker-get-explores":
-            model = await source.get_lookml_model(params["model_name"])
-            return {"explores": model.get("explores", [])}
-        elif tt == "looker-get-explore":
-            return {"explore": await source.get_lookml_explore(params["model_name"], params["explore_name"])}
+            # LookML
+            if tt == "looker-get-models":
+                models = await source.get_lookml_models()
+                return {"models": models}
+            elif tt == "looker-get-model":
+                return {"model": await source.get_lookml_model(params["model_name"])}
+            elif tt == "looker-get-explores":
+                model = await source.get_lookml_model(params["model_name"])
+                return {"explores": model.get("explores", [])}
+            elif tt == "looker-get-explore":
+                return {"explore": await source.get_lookml_explore(params["model_name"], params["explore_name"])}
 
-        # Query
-        elif tt == "looker-create-query":
-            return {"query": await source.create_query(params["body"])}
-        elif tt == "looker-run-query":
-            result = await source.run_query(params["query_id"], params.get("result_format", "json"))
-            return {"result": result}
-        elif tt == "looker-run-inline-query":
-            result = await source.run_inline_query(params.get("result_format", "json"), params["body"])
-            return {"result": result}
+            # Query
+            elif tt == "looker-create-query":
+                return {"query": await source.create_query(params["body"])}
+            elif tt == "looker-run-query":
+                result = await source.run_query(params["query_id"], params.get("result_format", "json"))
+                return {"result": result}
+            elif tt == "looker-run-inline-query":
+                result = await source.run_inline_query(params.get("result_format", "json"), params["body"])
+                return {"result": result}
 
-        # Looks
-        elif tt == "looker-get-looks":
-            return {"looks": await source.get_look(params.get("look_id", 0))} if "look_id" in params else {"looks": []}
-        elif tt == "looker-get-look":
-            return {"look": await source.get_look(params["look_id"])}
-        elif tt == "looker-run-look":
-            result = await source.run_look(params["look_id"], params.get("result_format", "json"))
-            return {"result": result}
+            # Looks
+            elif tt == "looker-get-looks":
+                return {"looks": await source.get_look(params.get("look_id", 0))} if "look_id" in params else {"looks": []}
+            elif tt == "looker-get-look":
+                return {"look": await source.get_look(params["look_id"])}
+            elif tt == "looker-run-look":
+                result = await source.run_look(params["look_id"], params.get("result_format", "json"))
+                return {"result": result}
 
-        # Dashboards
-        elif tt == "looker-get-dashboards":
-            dashboards = await source.get_all_dashboards()
-            return {"dashboards": dashboards}
-        elif tt == "looker-get-dashboard":
-            return {"dashboard": await source.get_dashboard(params["dashboard_id"])}
-        elif tt == "looker-run-dashboard":
-            return {"dashboard": await source.get_dashboard(params["dashboard_id"])}
+            # Dashboards
+            elif tt == "looker-get-dashboards":
+                dashboards = await source.get_all_dashboards()
+                return {"dashboards": dashboards}
+            elif tt == "looker-get-dashboard":
+                return {"dashboard": await source.get_dashboard(params["dashboard_id"])}
+            elif tt == "looker-run-dashboard":
+                return {"dashboard": await source.get_dashboard(params["dashboard_id"])}
 
-        # Connections
-        elif tt == "looker-get-connections":
-            connections = await source.get_all_connections()
-            return {"connections": connections}
+            # Connections
+            elif tt == "looker-get-connections":
+                connections = await source.get_all_connections()
+                return {"connections": connections}
 
-        # Users
-        elif tt == "looker-get-users":
-            users = await source.get_all_users()
-            return {"users": users}
+            # Users
+            elif tt == "looker-get-users":
+                users = await source.get_all_users()
+                return {"users": users}
 
-        # Folders
-        elif tt == "looker-get-folders":
-            folders = await source.get_all_folders()
-            return {"folders": folders}
+            # Folders
+            elif tt == "looker-get-folders":
+                folders = await source.get_all_folders()
+                return {"folders": folders}
 
-        # Projects
-        elif tt == "looker-get-projects":
-            projects = await source.get_all_projects()
-            return {"projects": projects}
+            # Projects
+            elif tt == "looker-get-projects":
+                projects = await source.get_all_projects()
+                return {"projects": projects}
 
-        # Fallback for tools that need more SDK methods
-        else:
-            return {"tool_type": tt, "params": params, "note": "SDK method not yet mapped in LookerSource"}
+            # Fallback for tools that need more SDK methods
+            else:
+                return {"tool_type": tt, "params": params, "note": "SDK method not yet mapped in LookerSource"}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

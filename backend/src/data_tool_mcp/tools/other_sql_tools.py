@@ -7,7 +7,7 @@ Maps to Go: internal/tools/clickhouse/, internal/tools/snowflake/, etc.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from data_tool_mcp.sources.base import SQLSource
 from data_tool_mcp.tools.base import (
@@ -18,23 +18,9 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
-
-
-def _get_sql_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> SQLSource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
-    if source is None:
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, SQLSource):
-        raise TypeError(f"source {source_name!r} is not a SQL source")
-    return source
 
 
 # ---------------------------------------------------------------------------
@@ -49,12 +35,15 @@ class GenericSQLTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        sql = params.get("sql", "")
-        if not sql:
-            raise ValueError("missing 'sql' parameter")
-        rows = await source.execute_sql(sql)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            sql = params.get("sql", "")
+            if not sql:
+                raise ValueError("missing 'sql' parameter")
+            rows = await source.execute_sql(sql)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -72,12 +61,15 @@ class GenericExecuteSQLTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        sql = params.get("sql", "")
-        if not sql:
-            raise ValueError("missing 'sql' parameter")
-        rows = await source.execute_sql(sql)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            sql = params.get("sql", "")
+            if not sql:
+                raise ValueError("missing 'sql' parameter")
+            rows = await source.execute_sql(sql)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -96,9 +88,12 @@ class GenericListTablesTool(BaseTool):
         self._sql = sql
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        rows = await source.execute_sql(self._sql)
-        return {"tables": [list(r.values())[0] for r in rows]}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await source.execute_sql(self._sql)
+            return {"tables": [list(r.values())[0] for r in rows]}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)
@@ -113,9 +108,12 @@ class GenericListQueryTool(BaseTool):
         self._sql = sql
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        rows = await source.execute_sql(self._sql)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await source.execute_sql(self._sql)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)
@@ -179,6 +177,21 @@ _TOOL_DEFS: list[tuple[str, str, str, dict[str, Any]]] = [
 
 def _make_other_sql_tool_config(tool_type: str, description: str, kind: str, extra: dict[str, Any]):
     """Factory: create a ToolConfig class for an other-SQL tool."""
+    _default_desc = description
+
+    def _build_tool(cfg: ConfigBase, source: str) -> BaseTool:
+        builders: dict[str, Callable[[ConfigBase, str], BaseTool]] = {
+            "sql": lambda c, s: GenericSQLTool(cfg=c, source_name=s),
+            "exec": lambda c, s: GenericExecuteSQLTool(cfg=c, source_name=s),
+        }
+        if kind in builders:
+            return builders[kind](cfg, source)
+        if kind == "list-tables":
+            return GenericListTablesTool(cfg=cfg, source_name=source, sql=extra["sql"])
+        if kind == "list-query":
+            return GenericListQueryTool(cfg=cfg, source_name=source, sql=extra["sql"])
+        raise ValueError(f"unknown kind: {kind}")
+
     @register_tool(tool_type)
     @dataclass
     class _OtherSQLToolConfig(ToolConfig):
@@ -192,20 +205,11 @@ def _make_other_sql_tool_config(tool_type: str, description: str, kind: str, ext
 
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _OtherSQLToolConfig:
-            return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
+            return cls(_name=name, source=data.get("source", ""), description=data.get("description", _default_desc))
 
         async def initialize(self):
             cfg = ConfigBase(name=self._name, description=self.description)
-            if kind == "sql":
-                return GenericSQLTool(cfg=cfg, source_name=self.source)
-            elif kind == "exec":
-                return GenericExecuteSQLTool(cfg=cfg, source_name=self.source)
-            elif kind == "list-tables":
-                return GenericListTablesTool(cfg=cfg, source_name=self.source, sql=extra["sql"])
-            elif kind == "list-query":
-                return GenericListQueryTool(cfg=cfg, source_name=self.source, sql=extra["sql"])
-            else:
-                raise ValueError(f"unknown kind: {kind}")
+            return _build_tool(cfg, self.source)
 
     _OtherSQLToolConfig.__name__ = f"{tool_type.replace('-', '_').title().replace('_', '')}ToolConfig"
     _OtherSQLToolConfig.__qualname__ = _OtherSQLToolConfig.__name__

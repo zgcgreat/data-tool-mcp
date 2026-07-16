@@ -17,24 +17,11 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _build_sql_tool_parameters,
+    _execute_sql_with_modes,
+    _get_typed_source_async,
     register_tool,
 )
-from data_tool_mcp.tools.template import render_sql_template as render_template
-
-
-def _get_sql_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> SQLSource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
-    if source is None:
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, SQLSource):
-        raise TypeError(f"source {source_name!r} is not a SQL source")
-    return source
 
 
 # ---------------------------------------------------------------------------
@@ -62,42 +49,18 @@ class MSSQLSQLTool(BaseTool):
         self._parameters = parameters or []
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        if self._statement:
-            if self._template_parameters:
-                sql = render_template(self._statement, params)
-                rows = await source.execute_sql(sql)
-            elif self._parameters:
-                bind_values = [params.get(p["name"]) for p in self._parameters]
-                rows = await source.execute_sql(self._statement, bind_values)
-            else:
-                rows = await source.execute_sql(self._statement)
-        else:
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await _execute_sql_with_modes(
+                source, self._statement, self._template_parameters, self._parameters, params
+            )
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         param_defs = self._template_parameters or self._parameters
-        if param_defs:
-            parameters = [
-                ParameterManifest(
-                    name=p.get("name", ""),
-                    type=p.get("type", "string"),
-                    description=p.get("description", ""),
-                    required=p.get("required", False),
-                    default=p.get("default"),
-                )
-                for p in param_defs
-            ]
-        elif not self._statement:
-            parameters = [
-                ParameterManifest(name="sql", type="string", description="SQL query to execute", required=True),
-            ]
-        else:
-            parameters = []
+        parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL query to execute")
         return ToolManifest(
             description=self.description,
             parameters=parameters,
@@ -166,42 +129,18 @@ class MSSQLExecuteSQLTool(BaseTool):
         self._parameters = parameters or []
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        if self._statement:
-            if self._template_parameters:
-                sql = render_template(self._statement, params)
-                rows = await source.execute_sql(sql)
-            elif self._parameters:
-                bind_values = [params.get(p["name"]) for p in self._parameters]
-                rows = await source.execute_sql(self._statement, bind_values)
-            else:
-                rows = await source.execute_sql(self._statement)
-        else:
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await _execute_sql_with_modes(
+                source, self._statement, self._template_parameters, self._parameters, params
+            )
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         param_defs = self._template_parameters or self._parameters
-        if param_defs:
-            parameters = [
-                ParameterManifest(
-                    name=p.get("name", ""),
-                    type=p.get("type", "string"),
-                    description=p.get("description", ""),
-                    required=p.get("required", False),
-                    default=p.get("default"),
-                )
-                for p in param_defs
-            ]
-        elif not self._statement:
-            parameters = [
-                ParameterManifest(name="sql", type="string", description="SQL statement to execute", required=True),
-            ]
-        else:
-            parameters = []
+        parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL statement to execute")
         return ToolManifest(
             description=self.description,
             parameters=parameters,
@@ -257,11 +196,14 @@ class MSSQLListTablesTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        rows = await source.execute_sql(
-            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'"
-        )
-        return {"tables": [r["TABLE_NAME"] for r in rows]}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await source.execute_sql(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'"
+            )
+            return {"tables": [r["TABLE_NAME"] for r in rows]}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)

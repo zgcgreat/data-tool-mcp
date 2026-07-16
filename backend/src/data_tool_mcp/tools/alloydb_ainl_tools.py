@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_alloydb_pg_source(
+async def _get_alloydb_pg_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> AlloyDBPGSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, AlloyDBPGSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not an AlloyDB PostgreSQL source")
     return source
 
@@ -55,32 +57,35 @@ class AlloyDBAINLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_alloydb_pg_source(source_provider, self._source_name, self.name)
-        question = params.get("question", "")
-        if not question:
-            raise ValueError("missing 'question' parameter")
+        source = await _get_alloydb_pg_source(source_provider, self._source_name, self.name)
+        try:
+            question = params.get("question", "")
+            if not question:
+                raise ValueError("missing 'question' parameter")
 
-        if self._nl_config_parameters:
-            param_names = list(self._nl_config_parameters.keys())
-            param_values = list(self._nl_config_parameters.values())
-            names_literal = ", ".join(f"'{n}'" for n in param_names)
-            values_literal = ", ".join(f"'{v}'" for v in param_values)
-            sql = (
-                f"SELECT alloydb_ai_nl.execute_nl_query("
-                f"nl_question => :question, "
-                f"nl_config_id => :nl_config_id, "
-                f"param_names => ARRAY[{names_literal}], "
-                f"param_values => ARRAY[{values_literal}])"
-            )
-        else:
-            sql = (
-                "SELECT alloydb_ai_nl.execute_nl_query("
-                "nl_question => :question, "
-                "nl_config_id => :nl_config_id)"
-            )
+            if self._nl_config_parameters:
+                param_names = list(self._nl_config_parameters.keys())
+                param_values = list(self._nl_config_parameters.values())
+                names_literal = ", ".join(f"'{n}'" for n in param_names)
+                values_literal = ", ".join(f"'{v}'" for v in param_values)
+                sql = (
+                    f"SELECT alloydb_ai_nl.execute_nl_query("
+                    f"nl_question => :question, "
+                    f"nl_config_id => :nl_config_id, "
+                    f"param_names => ARRAY[{names_literal}], "
+                    f"param_values => ARRAY[{values_literal}])"
+                )
+            else:
+                sql = (
+                    "SELECT alloydb_ai_nl.execute_nl_query("
+                    "nl_question => :question, "
+                    "nl_config_id => :nl_config_id)"
+                )
 
-        rows = await source.execute_sql(sql, {"question": question, "nl_config_id": self._nl_config})
-        return {"rows": rows, "rowCount": len(rows)}
+            rows = await source.execute_sql(sql, {"question": question, "nl_config_id": self._nl_config})
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(

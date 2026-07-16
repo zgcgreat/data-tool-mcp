@@ -17,24 +17,11 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _build_sql_tool_parameters,
+    _execute_sql_with_modes,
+    _get_typed_source_async,
     register_tool,
 )
-from data_tool_mcp.tools.template import render_sql_template as render_template
-
-
-def _get_sql_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> SQLSource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
-    if source is None:
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, SQLSource):
-        raise TypeError(f"source {source_name!r} is not a SQL source")
-    return source
 
 
 # ---------------------------------------------------------------------------
@@ -71,46 +58,18 @@ class PgSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        if self._statement:
-            if self._template_parameters:
-                sql = render_template(self._statement, params)
-                rows = await source.execute_sql(sql)
-            elif self._parameters:
-                # Bind positional params ($1, $2, ...) from ordered param values
-                bind_values = [params.get(p["name"]) for p in self._parameters]
-                rows = await source.execute_sql(self._statement, bind_values)
-            else:
-                rows = await source.execute_sql(self._statement)
-        else:
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await _execute_sql_with_modes(
+                source, self._statement, self._template_parameters, self._parameters, params
+            )
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
-        # If templateParameters or parameters are defined, expose those
         param_defs = self._template_parameters or self._parameters
-        if param_defs:
-            parameters = [
-                ParameterManifest(
-                    name=p.get("name", ""),
-                    type=p.get("type", "string"),
-                    description=p.get("description", ""),
-                    required=p.get("required", False),
-                    default=p.get("default"),
-                )
-                for p in param_defs
-            ]
-        elif not self._statement:
-            # No statement → user must provide SQL
-            parameters = [
-                ParameterManifest(name="sql", type="string", description="SQL query to execute", required=True),
-            ]
-        else:
-            # Has statement but no params → one-click tool
-            parameters = []
+        parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL query to execute")
         return ToolManifest(
             description=self.description,
             parameters=parameters,
@@ -184,42 +143,18 @@ class PgExecuteSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        if self._statement:
-            if self._template_parameters:
-                sql = render_template(self._statement, params)
-                rows = await source.execute_sql(sql)
-            elif self._parameters:
-                bind_values = [params.get(p["name"]) for p in self._parameters]
-                rows = await source.execute_sql(self._statement, bind_values)
-            else:
-                rows = await source.execute_sql(self._statement)
-        else:
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await _execute_sql_with_modes(
+                source, self._statement, self._template_parameters, self._parameters, params
+            )
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         param_defs = self._template_parameters or self._parameters
-        if param_defs:
-            parameters = [
-                ParameterManifest(
-                    name=p.get("name", ""),
-                    type=p.get("type", "string"),
-                    description=p.get("description", ""),
-                    required=p.get("required", False),
-                    default=p.get("default"),
-                )
-                for p in param_defs
-            ]
-        elif not self._statement:
-            parameters = [
-                ParameterManifest(name="sql", type="string", description="SQL statement to execute", required=True),
-            ]
-        else:
-            parameters = []
+        parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL statement to execute")
         return ToolManifest(
             description=self.description,
             parameters=parameters,
@@ -282,9 +217,12 @@ class PgListTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        rows = await source.execute_sql(self._sql, params if params else None)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await source.execute_sql(self._sql, params if params else None)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -447,21 +385,24 @@ class PgDatabaseOverviewTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        tables = await source.execute_sql("SELECT count(*) as table_count FROM pg_tables WHERE schemaname = 'public'")
-        views = await source.execute_sql("SELECT count(*) as view_count FROM pg_views WHERE schemaname = 'public'")
-        indexes = await source.execute_sql("SELECT count(*) as index_count FROM pg_indexes WHERE schemaname = 'public'")
-        schemas = await source.execute_sql("SELECT count(*) as schema_count FROM information_schema.schemata")
-        extensions = await source.execute_sql("SELECT count(*) as extension_count FROM pg_extension")
-        size = await source.execute_sql("SELECT pg_database_size(current_database()) as db_size")
-        return {
-            "tables": tables,
-            "views": views,
-            "indexes": indexes,
-            "schemas": schemas,
-            "extensions": extensions,
-            "database_size": size,
-        }
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            tables = await source.execute_sql("SELECT count(*) as table_count FROM pg_tables WHERE schemaname = 'public'")
+            views = await source.execute_sql("SELECT count(*) as view_count FROM pg_views WHERE schemaname = 'public'")
+            indexes = await source.execute_sql("SELECT count(*) as index_count FROM pg_indexes WHERE schemaname = 'public'")
+            schemas = await source.execute_sql("SELECT count(*) as schema_count FROM information_schema.schemata")
+            extensions = await source.execute_sql("SELECT count(*) as extension_count FROM pg_extension")
+            size = await source.execute_sql("SELECT pg_database_size(current_database()) as db_size")
+            return {
+                "tables": tables,
+                "views": views,
+                "indexes": indexes,
+                "schemas": schemas,
+                "extensions": extensions,
+                "database_size": size,
+            }
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(

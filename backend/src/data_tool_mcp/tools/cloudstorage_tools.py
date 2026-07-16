@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_gcs_source(
+async def _get_gcs_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> CloudStorageSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, CloudStorageSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Cloud Storage source")
     return source
 
@@ -51,53 +53,55 @@ class GCSGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_gcs_source(source_provider, self._source_name, self.name)
-
-        if self._tool_type == "cloud-storage-list-buckets":
-            buckets = await source.list_buckets()
-            return {"buckets": buckets}
-        elif self._tool_type == "cloud-storage-create-bucket":
-            name = await source.create_bucket(params["bucket_name"], params.get("location", "US"))
-            return {"bucket_name": name}
-        elif self._tool_type == "cloud-storage-delete-bucket":
-            await source.delete_bucket(params["bucket_name"])
-            return {"deleted": True}
-        elif self._tool_type == "cloud-storage-get-bucket-metadata":
-            metadata = await source.get_bucket_metadata(params["bucket_name"])
-            return {"metadata": metadata}
-        elif self._tool_type == "cloud-storage-get-bucket-iam-policy":
-            policy = await source.get_bucket_iam_policy(params["bucket_name"])
-            return {"policy": policy}
-        elif self._tool_type == "cloud-storage-list-objects":
-            objects = await source.list_objects(params["bucket_name"], params.get("prefix", ""))
-            return {"objects": objects}
-        elif self._tool_type == "cloud-storage-read-object":
-            data = await source.read_object(params["bucket_name"], params["object_name"])
-            return {"data": data.decode() if isinstance(data, bytes) else data}
-        elif self._tool_type == "cloud-storage-write-object":
-            data = params.get("data", "")
-            await source.write_object(params["bucket_name"], params["object_name"], data.encode() if isinstance(data, str) else data)
-            return {"written": True}
-        elif self._tool_type == "cloud-storage-upload-object":
-            await source.upload_object(params["bucket_name"], params["object_name"], params["source_path"])
-            return {"uploaded": True}
-        elif self._tool_type == "cloud-storage-download-object":
-            await source.download_object(params["bucket_name"], params["object_name"], params["dest_path"])
-            return {"downloaded": True}
-        elif self._tool_type == "cloud-storage-copy-object":
-            await source.copy_object(params["src_bucket"], params["src_obj"], params["dst_bucket"], params["dst_obj"])
-            return {"copied": True}
-        elif self._tool_type == "cloud-storage-move-object":
-            await source.move_object(params["src_bucket"], params["src_obj"], params["dst_bucket"], params["dst_obj"])
-            return {"moved": True}
-        elif self._tool_type == "cloud-storage-delete-object":
-            await source.delete_object(params["bucket_name"], params["object_name"])
-            return {"deleted": True}
-        elif self._tool_type == "cloud-storage-get-object-metadata":
-            metadata = await source.get_object_metadata(params["bucket_name"], params["object_name"])
-            return {"metadata": metadata}
-        else:
-            raise ValueError(f"unknown Cloud Storage tool type: {self._tool_type}")
+        source = await _get_gcs_source(source_provider, self._source_name, self.name)
+        try:
+            if self._tool_type == "cloud-storage-list-buckets":
+                buckets = await source.list_buckets()
+                return {"buckets": buckets}
+            elif self._tool_type == "cloud-storage-create-bucket":
+                name = await source.create_bucket(params["bucket_name"], params.get("location", "US"))
+                return {"bucket_name": name}
+            elif self._tool_type == "cloud-storage-delete-bucket":
+                await source.delete_bucket(params["bucket_name"])
+                return {"deleted": True}
+            elif self._tool_type == "cloud-storage-get-bucket-metadata":
+                metadata = await source.get_bucket_metadata(params["bucket_name"])
+                return {"metadata": metadata}
+            elif self._tool_type == "cloud-storage-get-bucket-iam-policy":
+                policy = await source.get_bucket_iam_policy(params["bucket_name"])
+                return {"policy": policy}
+            elif self._tool_type == "cloud-storage-list-objects":
+                objects = await source.list_objects(params["bucket_name"], params.get("prefix", ""))
+                return {"objects": objects}
+            elif self._tool_type == "cloud-storage-read-object":
+                data = await source.read_object(params["bucket_name"], params["object_name"])
+                return {"data": data.decode() if isinstance(data, bytes) else data}
+            elif self._tool_type == "cloud-storage-write-object":
+                data = params.get("data", "")
+                await source.write_object(params["bucket_name"], params["object_name"], data.encode() if isinstance(data, str) else data)
+                return {"written": True}
+            elif self._tool_type == "cloud-storage-upload-object":
+                await source.upload_object(params["bucket_name"], params["object_name"], params["source_path"])
+                return {"uploaded": True}
+            elif self._tool_type == "cloud-storage-download-object":
+                await source.download_object(params["bucket_name"], params["object_name"], params["dest_path"])
+                return {"downloaded": True}
+            elif self._tool_type == "cloud-storage-copy-object":
+                await source.copy_object(params["src_bucket"], params["src_obj"], params["dst_bucket"], params["dst_obj"])
+                return {"copied": True}
+            elif self._tool_type == "cloud-storage-move-object":
+                await source.move_object(params["src_bucket"], params["src_obj"], params["dst_bucket"], params["dst_obj"])
+                return {"moved": True}
+            elif self._tool_type == "cloud-storage-delete-object":
+                await source.delete_object(params["bucket_name"], params["object_name"])
+                return {"deleted": True}
+            elif self._tool_type == "cloud-storage-get-object-metadata":
+                metadata = await source.get_object_metadata(params["bucket_name"], params["object_name"])
+                return {"metadata": metadata}
+            else:
+                raise ValueError(f"unknown Cloud Storage tool type: {self._tool_type}")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

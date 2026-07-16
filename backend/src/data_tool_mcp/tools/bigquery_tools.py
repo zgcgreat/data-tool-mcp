@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_bq_source(
+async def _get_bq_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> BigQuerySource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, BigQuerySource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a BigQuery source")
     return source
 
@@ -84,43 +86,46 @@ class BigQueryGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_bq_source(source_provider, self._source_name, self.name)
-        if self._tool_type in ("bigquery-sql", "bigquery-execute-sql"):
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
-            return {"rows": rows, "rowCount": len(rows)}
-        elif self._tool_type == "bigquery-list-dataset-ids":
-            ids = await source.list_dataset_ids()
-            return {"dataset_ids": ids}
-        elif self._tool_type == "bigquery-list-table-ids":
-            dataset_id = params.get("dataset_id", "")
-            ids = await source.list_table_ids(dataset_id)
-            return {"table_ids": ids}
-        elif self._tool_type == "bigquery-get-dataset-info":
-            dataset_id = params.get("dataset_id", "")
-            info = await source.get_dataset_info(dataset_id)
-            return {"dataset_info": info}
-        elif self._tool_type == "bigquery-get-table-info":
-            dataset_id = params.get("dataset_id", "")
-            table_id = params.get("table_id", "")
-            info = await source.get_table_info(dataset_id, table_id)
-            return {"table_info": info}
-        elif self._tool_type in ("bigquery-forecast", "bigquery-analyze-contribution"):
-            sql = params.get("sql", "")
-            rows = await source.execute_sql(sql)
-            return {"rows": rows, "rowCount": len(rows)}
-        elif self._tool_type == "bigquery-conversational-analytics":
-            question = params.get("question", "")
-            rows = await source.execute_sql(question)
-            return {"rows": rows, "rowCount": len(rows)}
-        elif self._tool_type == "bigquery-search-catalog":
-            query = params.get("query", "")
-            rows = await source.search_catalog(query)
-            return {"rows": rows, "rowCount": len(rows)}
-        else:
-            raise ValueError(f"unknown BigQuery tool type: {self._tool_type}")
+        source = await _get_bq_source(source_provider, self._source_name, self.name)
+        try:
+            if self._tool_type in ("bigquery-sql", "bigquery-execute-sql"):
+                sql = params.get("sql", "")
+                if not sql:
+                    raise ValueError("missing 'sql' parameter")
+                rows = await source.execute_sql(sql)
+                return {"rows": rows, "rowCount": len(rows)}
+            elif self._tool_type == "bigquery-list-dataset-ids":
+                ids = await source.list_dataset_ids()
+                return {"dataset_ids": ids}
+            elif self._tool_type == "bigquery-list-table-ids":
+                dataset_id = params.get("dataset_id", "")
+                ids = await source.list_table_ids(dataset_id)
+                return {"table_ids": ids}
+            elif self._tool_type == "bigquery-get-dataset-info":
+                dataset_id = params.get("dataset_id", "")
+                info = await source.get_dataset_info(dataset_id)
+                return {"dataset_info": info}
+            elif self._tool_type == "bigquery-get-table-info":
+                dataset_id = params.get("dataset_id", "")
+                table_id = params.get("table_id", "")
+                info = await source.get_table_info(dataset_id, table_id)
+                return {"table_info": info}
+            elif self._tool_type in ("bigquery-forecast", "bigquery-analyze-contribution"):
+                sql = params.get("sql", "")
+                rows = await source.execute_sql(sql)
+                return {"rows": rows, "rowCount": len(rows)}
+            elif self._tool_type == "bigquery-conversational-analytics":
+                question = params.get("question", "")
+                rows = await source.execute_sql(question)
+                return {"rows": rows, "rowCount": len(rows)}
+            elif self._tool_type == "bigquery-search-catalog":
+                query = params.get("query", "")
+                rows = await source.search_catalog(query)
+                return {"rows": rows, "rowCount": len(rows)}
+            else:
+                raise ValueError(f"unknown BigQuery tool type: {self._tool_type}")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

@@ -12,10 +12,20 @@ from data_tool_mcp.admin.router import router
 def app():
     app = FastAPI()
     rm = MagicMock()
-    rm.get_sources_map.return_value = {}
+    # 同步方法: 返回空集合/False/None 以模拟"无数据"状态
+    rm.get_all_source_configs.return_value = {}
+    rm.get_source_config.return_value = None
+    rm.has_source.return_value = False
     rm.get_tools_map.return_value = {}
     rm.get_toolsets_map.return_value = {}
     rm.get_prompts_map.return_value = {}
+    rm.get_toolset.return_value = None
+    # async 方法: 使用 AsyncMock(方案 C 改造后 RM 接口为 async)
+    rm.get_source = AsyncMock(return_value=None)
+    rm.release_source = AsyncMock(return_value=None)
+    rm.add_source = AsyncMock(return_value=None)
+    rm.remove_source = AsyncMock(return_value=None)
+    rm.invalidate_source = AsyncMock(return_value=None)
     app.state.resource_manager = rm
     app.state.config = MagicMock()
     app.state.config.version = "0.1.0"

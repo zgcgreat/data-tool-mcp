@@ -142,6 +142,9 @@ class ServerConfig(BaseModel):
     # 数据库连接池大小（多实例部署时按 实例数×pool_size×数据源数 估算 MySQL max_connections）
     db_pool_size: int = 5
 
+    # DB 配置热重载轮询间隔（秒），方案 C: 可配以平衡一致性和 DB 负载
+    reload_interval: float = 5.0
+
     # Logging
     log_level: str = "INFO"
     logging_format: Literal["standard", "json"] = "standard"

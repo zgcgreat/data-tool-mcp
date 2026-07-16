@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_spark_source(
+async def _get_spark_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> ServerlessSparkSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, ServerlessSparkSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Serverless Spark source")
     return source
 
@@ -47,36 +49,39 @@ class SparkGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_spark_source(source_provider, self._source_name, self.name)
-        tt = self._tool_type
+        source = await _get_spark_source(source_provider, self._source_name, self.name)
+        try:
+            tt = self._tool_type
 
-        if tt == "serverless-spark-list-sessions":
-            sessions = await source.list_sessions()
-            return {"sessions": sessions}
-        elif tt == "serverless-spark-get-session":
-            session = await source.get_session(params["session_id"])
-            return {"session": session}
-        elif tt == "serverless-spark-list-batches":
-            batches = await source.list_batches()
-            return {"batches": batches}
-        elif tt == "serverless-spark-get-batch":
-            batch = await source.get_batch(params["batch_id"])
-            return {"batch": batch}
-        elif tt == "serverless-spark-create-spark-batch":
-            result = await source.create_spark_batch(params["batch_id"], params.get("batch", {}))
-            return {"result": result}
-        elif tt == "serverless-spark-create-pyspark-batch":
-            result = await source.create_pyspark_batch(
-                params["batch_id"], params["main_python_file_uri"], params.get("args"),
-            )
-            return {"result": result}
-        elif tt == "serverless-spark-cancel-batch":
-            result = await source.cancel_batch(params["batch_id"])
-            return {"result": result}
-        elif tt == "serverless-spark-get-session-template":
-            return {"tool_type": tt, "note": "Session template retrieval via Dataproc API"}
-        else:
-            raise ValueError(f"unknown Serverless Spark tool type: {tt}")
+            if tt == "serverless-spark-list-sessions":
+                sessions = await source.list_sessions()
+                return {"sessions": sessions}
+            elif tt == "serverless-spark-get-session":
+                session = await source.get_session(params["session_id"])
+                return {"session": session}
+            elif tt == "serverless-spark-list-batches":
+                batches = await source.list_batches()
+                return {"batches": batches}
+            elif tt == "serverless-spark-get-batch":
+                batch = await source.get_batch(params["batch_id"])
+                return {"batch": batch}
+            elif tt == "serverless-spark-create-spark-batch":
+                result = await source.create_spark_batch(params["batch_id"], params.get("batch", {}))
+                return {"result": result}
+            elif tt == "serverless-spark-create-pyspark-batch":
+                result = await source.create_pyspark_batch(
+                    params["batch_id"], params["main_python_file_uri"], params.get("args"),
+                )
+                return {"result": result}
+            elif tt == "serverless-spark-cancel-batch":
+                result = await source.cancel_batch(params["batch_id"])
+                return {"result": result}
+            elif tt == "serverless-spark-get-session-template":
+                return {"tool_type": tt, "note": "Session template retrieval via Dataproc API"}
+            else:
+                raise ValueError(f"unknown Serverless Spark tool type: {tt}")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

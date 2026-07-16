@@ -21,7 +21,7 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_redis_source(
+async def _get_redis_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
@@ -29,10 +29,12 @@ def _get_redis_source(
     """Resolve a RedisSource from the SourceProvider."""
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, RedisSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Redis source")
     return source
 
@@ -54,27 +56,30 @@ class RedisTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_redis_source(source_provider, self._source_name, self.name)
-        command = params.get("command", "").lower()
+        source = await _get_redis_source(source_provider, self._source_name, self.name)
+        try:
+            command = params.get("command", "").lower()
 
-        if command == "get":
-            key = params.get("key", "")
-            value = await source.get(key)
-            return {"key": key, "value": value}
-        elif command == "set":
-            key = params.get("key", "")
-            value = params.get("value", "")
-            ex = params.get("ex")
-            await source.set(key, value, ex=ex)
-            return {"key": key, "status": "OK"}
-        elif command == "delete":
-            keys = params.get("keys", [])
-            if isinstance(keys, str):
-                keys = [keys]
-            deleted = await source.delete(*keys)
-            return {"deleted": deleted}
-        else:
-            raise ValueError(f"unsupported redis command: {command!r}. Supported: get, set, delete")
+            if command == "get":
+                key = params.get("key", "")
+                value = await source.get(key)
+                return {"key": key, "value": value}
+            elif command == "set":
+                key = params.get("key", "")
+                value = params.get("value", "")
+                ex = params.get("ex")
+                await source.set(key, value, ex=ex)
+                return {"key": key, "status": "OK"}
+            elif command == "delete":
+                keys = params.get("keys", [])
+                if isinstance(keys, str):
+                    keys = [keys]
+                deleted = await source.delete(*keys)
+                return {"deleted": deleted}
+            else:
+                raise ValueError(f"unsupported redis command: {command!r}. Supported: get, set, delete")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(

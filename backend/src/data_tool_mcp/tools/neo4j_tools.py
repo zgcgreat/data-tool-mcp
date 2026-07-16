@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_neo4j_source(
+async def _get_neo4j_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> Neo4jSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, Neo4jSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Neo4j source")
     return source
 
@@ -48,13 +50,16 @@ class Neo4jCypherTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_neo4j_source(source_provider, self._source_name, self.name)
-        query = params.get("query", "")
-        if not query:
-            raise ValueError("missing 'query' parameter")
-        query_params = params.get("params")
-        rows = await source.execute_cypher(query, params=query_params)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_neo4j_source(source_provider, self._source_name, self.name)
+        try:
+            query = params.get("query", "")
+            if not query:
+                raise ValueError("missing 'query' parameter")
+            query_params = params.get("params")
+            rows = await source.execute_cypher(query, params=query_params)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -99,13 +104,16 @@ class Neo4jExecuteCypherTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_neo4j_source(source_provider, self._source_name, self.name)
-        query = params.get("query", "")
-        if not query:
-            raise ValueError("missing 'query' parameter")
-        query_params = params.get("params")
-        rows = await source.execute_cypher(query, params=query_params)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_neo4j_source(source_provider, self._source_name, self.name)
+        try:
+            query = params.get("query", "")
+            if not query:
+                raise ValueError("missing 'query' parameter")
+            query_params = params.get("params")
+            rows = await source.execute_cypher(query, params=query_params)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -150,9 +158,12 @@ class Neo4jSchemaTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_neo4j_source(source_provider, self._source_name, self.name)
-        schema = await source.get_schema()
-        return {"schema": schema}
+        source = await _get_neo4j_source(source_provider, self._source_name, self.name)
+        try:
+            schema = await source.get_schema()
+            return {"schema": schema}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)

@@ -22,23 +22,9 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
-
-
-def _get_sql_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> SQLSource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
-    if source is None:
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, SQLSource):
-        raise TypeError(f"source {source_name!r} is not a SQL source")
-    return source
 
 
 # ---------------------------------------------------------------------------
@@ -64,9 +50,12 @@ class TDSQLListTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name)
-        rows = await source.execute_sql(self._sql, params if params else None)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await source.execute_sql(self._sql, params if params else None)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(

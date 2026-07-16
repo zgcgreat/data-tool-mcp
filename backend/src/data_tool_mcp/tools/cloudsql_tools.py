@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_cloudsql_source(
+async def _get_cloudsql_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> CloudSQLAdminSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, CloudSQLAdminSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Cloud SQL Admin source")
     return source
 
@@ -51,42 +53,44 @@ class CloudSQLGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_cloudsql_source(source_provider, self._source_name, self.name)
-
-        if self._tool_type == "cloud-sql-list-instances":
-            instances = await source.list_instances()
-            return {"instances": instances}
-        elif self._tool_type == "cloud-sql-get-instance":
-            return {"instance": await source.get_instance(params["instance_id"])}
-        elif self._tool_type == "cloud-sql-create-database":
-            return {"result": await source.create_database(params["instance_id"], params["database"])}
-        elif self._tool_type == "cloud-sql-list-databases":
-            databases = await source.list_databases(params["instance_id"])
-            return {"databases": databases}
-        elif self._tool_type == "cloud-sql-create-users":
-            return {"result": await source.create_users(params["instance_id"], params["name"], params["password"])}
-        elif self._tool_type == "cloud-sql-clone-instance":
-            return {"result": await source.clone_instance(params["instance_id"], params.get("clone_body", {}))}
-        elif self._tool_type == "cloud-sql-create-backup":
-            return {"result": await source.create_backup(params["instance_id"], params.get("body", {}))}
-        elif self._tool_type == "cloud-sql-restore-backup":
-            return {"result": await source.restore_backup(params["instance_id"], params.get("body", {}))}
-        elif self._tool_type == "cloud-sql-wait-for-operation":
-            return {"result": await source.wait_for_operation(params["operation_id"])}
-        elif self._tool_type == "cloud-sql-admin-execute-many":
-            project = params["project"]
-            instance_id = params["instanceId"]
-            database = params["database"]
-            sql = params["sql"]
-            return {"result": await source.execute_sql(project, instance_id, database, sql, access_token)}
-        elif self._tool_type == "cloud-sql-admin-sql-many":
-            project = params["project"]
-            instance_id = params["instanceId"]
-            database = params["database"]
-            sql = params["sql"]
-            return {"result": await source.execute_sql(project, instance_id, database, sql, access_token)}
-        else:
-            raise ValueError(f"unknown Cloud SQL tool type: {self._tool_type}")
+        source = await _get_cloudsql_source(source_provider, self._source_name, self.name)
+        try:
+            if self._tool_type == "cloud-sql-list-instances":
+                instances = await source.list_instances()
+                return {"instances": instances}
+            elif self._tool_type == "cloud-sql-get-instance":
+                return {"instance": await source.get_instance(params["instance_id"])}
+            elif self._tool_type == "cloud-sql-create-database":
+                return {"result": await source.create_database(params["instance_id"], params["database"])}
+            elif self._tool_type == "cloud-sql-list-databases":
+                databases = await source.list_databases(params["instance_id"])
+                return {"databases": databases}
+            elif self._tool_type == "cloud-sql-create-users":
+                return {"result": await source.create_users(params["instance_id"], params["name"], params["password"])}
+            elif self._tool_type == "cloud-sql-clone-instance":
+                return {"result": await source.clone_instance(params["instance_id"], params.get("clone_body", {}))}
+            elif self._tool_type == "cloud-sql-create-backup":
+                return {"result": await source.create_backup(params["instance_id"], params.get("body", {}))}
+            elif self._tool_type == "cloud-sql-restore-backup":
+                return {"result": await source.restore_backup(params["instance_id"], params.get("body", {}))}
+            elif self._tool_type == "cloud-sql-wait-for-operation":
+                return {"result": await source.wait_for_operation(params["operation_id"])}
+            elif self._tool_type == "cloud-sql-admin-execute-many":
+                project = params["project"]
+                instance_id = params["instanceId"]
+                database = params["database"]
+                sql = params["sql"]
+                return {"result": await source.execute_sql(project, instance_id, database, sql, access_token)}
+            elif self._tool_type == "cloud-sql-admin-sql-many":
+                project = params["project"]
+                instance_id = params["instanceId"]
+                database = params["database"]
+                sql = params["sql"]
+                return {"result": await source.execute_sql(project, instance_id, database, sql, access_token)}
+            else:
+                raise ValueError(f"unknown Cloud SQL tool type: {self._tool_type}")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

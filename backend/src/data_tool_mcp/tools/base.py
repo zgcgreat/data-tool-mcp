@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from data_tool_mcp.sources import Source
+from data_tool_mcp.tools.template import render_sql_template
 
 
 # ---------------------------------------------------------------------------
@@ -47,16 +48,13 @@ class ToolAnnotations:
 
     def to_dict(self) -> dict[str, bool]:
         """Serialize non-None annotations for MCP responses."""
-        d: dict[str, bool] = {}
-        if self.destructive_hint is not None:
-            d["destructiveHint"] = self.destructive_hint
-        if self.idempotent_hint is not None:
-            d["idempotentHint"] = self.idempotent_hint
-        if self.open_world_hint is not None:
-            d["openWorldHint"] = self.open_world_hint
-        if self.read_only_hint is not None:
-            d["readOnlyHint"] = self.read_only_hint
-        return d
+        pairs = {
+            "destructiveHint": self.destructive_hint,
+            "idempotentHint": self.idempotent_hint,
+            "openWorldHint": self.open_world_hint,
+            "readOnlyHint": self.read_only_hint,
+        }
+        return {k: v for k, v in pairs.items() if v is not None}
 
 
 def read_only_annotations() -> ToolAnnotations:
@@ -364,8 +362,12 @@ class SourceProvider(Protocol):
     """Minimal view of ResourceManager that Tool package needs.
 
     Maps to Go SourceProvider interface.
+
+    方案 C: get_source 改为 async(cache-aside + 惰性初始化)。
+    调用方必须 try/finally release_source 释放引用计数。
     """
-    def get_source(self, source_name: str) -> Source | None: ...
+    async def get_source(self, source_name: str) -> Source | None: ...
+    async def release_source(self, source_name: str) -> None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -400,13 +402,8 @@ def register_tool(tool_type: str):
     return decorator
 
 
-def register_tool_alias(alias: str, canonical: str):
-    """Register an alias for an existing tool type.
-
-    This allows backward compatibility: old names still resolve to the
-    same ToolConfig class.  Raises ValueError if the alias is already
-    registered (as a primary name or another alias).
-    """
+def _check_tool_alias_conflict(alias: str) -> None:
+    """检查别名是否与已注册的工具类型或别名冲突。"""
     if alias in _tool_registry:
         raise ValueError(
             f"cannot register alias {alias!r}: already registered as a primary tool type"
@@ -416,6 +413,16 @@ def register_tool_alias(alias: str, canonical: str):
         raise ValueError(
             f"alias {alias!r} already registered -> {existing_target!r}"
         )
+
+
+def register_tool_alias(alias: str, canonical: str):
+    """Register an alias for an existing tool type.
+
+    This allows backward compatibility: old names still resolve to the
+    same ToolConfig class.  Raises ValueError if the alias is already
+    registered (as a primary name or another alias).
+    """
+    _check_tool_alias_conflict(alias)
     if canonical not in _tool_registry:
         raise ValueError(
             f"cannot register alias {alias!r} -> {canonical!r}: "
@@ -427,15 +434,11 @@ def register_tool_alias(alias: str, canonical: str):
 def get_tool_config_class(tool_type: str) -> type[ToolConfig]:
     """Look up a registered ToolConfig class by type, resolving aliases."""
     cls = _tool_registry.get(tool_type)
-    if cls is not None:
-        return cls
-    # Resolve alias
-    canonical = _tool_aliases.get(tool_type)
-    if canonical is not None:
-        cls = _tool_registry.get(canonical)
-        if cls is not None:
-            return cls
-    raise ValueError(f"unknown tool type: {tool_type!r}")
+    if cls is None:
+        cls = _tool_registry.get(_tool_aliases.get(tool_type, ""))
+    if cls is None:
+        raise ValueError(f"unknown tool type: {tool_type!r}")
+    return cls
 
 
 def list_tool_types() -> list[str]:
@@ -447,3 +450,106 @@ def decode_tool_config(tool_type: str, name: str, config_data: dict[str, Any]) -
     """Decode a tool config from raw dict data using the registered class."""
     cls = get_tool_config_class(tool_type)
     return cls.from_dict(name, config_data)  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# 共享辅助函数 — 供各 tool 模块复用,降低圈复杂度
+# ---------------------------------------------------------------------------
+
+def _source_resolution_error(source_name: str, tool_name: str, source: Any) -> Exception:
+    """根据 source 解析结果构造对应的异常对象。"""
+    if source is None:
+        return ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
+    return TypeError(f"source {source_name!r} is not the expected type")
+
+
+async def _release_and_raise(source_provider: "SourceProvider", source_name: str, exc: Exception) -> None:
+    """释放 source 引用并抛出指定异常。"""
+    await source_provider.release_source(source_name)
+    raise exc
+
+
+async def _get_typed_source_async(
+    source_provider: SourceProvider | None,
+    source_name: str,
+    tool_name: str,
+    expected_type: type,
+) -> Any:
+    """从 SourceProvider 解析指定类型的 source,失败时释放引用并抛错。"""
+    if source_provider is None:
+        raise ValueError(f"tool {tool_name!r} requires a source provider")
+    source = await source_provider.get_source(source_name)
+    if isinstance(source, expected_type):
+        return source
+    exc = _source_resolution_error(source_name, tool_name, source)
+    await _release_and_raise(source_provider, source_name, exc)
+
+
+def _param_manifest_from_dict(p: dict[str, Any]) -> ParameterManifest:
+    """从字典构造单个 ParameterManifest。"""
+    return ParameterManifest(
+        name=p.get("name", ""),
+        type=p.get("type", "string"),
+        description=p.get("description", ""),
+        required=p.get("required", False),
+        default=p.get("default"),
+    )
+
+
+def _manifests_from_dicts(param_defs: list[dict[str, Any]]) -> list[ParameterManifest]:
+    """将字典列表转为 ParameterManifest 列表。"""
+    return [_param_manifest_from_dict(p) for p in param_defs]
+
+
+def _build_sql_tool_parameters(
+    param_defs: list[dict[str, Any]],
+    statement: str,
+    sql_description: str,
+) -> list[ParameterManifest]:
+    """根据 param_defs/statement 构建参数清单。"""
+    if param_defs:
+        return _manifests_from_dicts(param_defs)
+    if not statement:
+        return [ParameterManifest(name="sql", type="string", description=sql_description, required=True)]
+    return []
+
+
+def _bind_param_values(parameters: list[dict[str, Any]], params: dict[str, Any]) -> list[Any]:
+    """根据 parameters 定义从 params 提取绑定值列表。"""
+    return [params.get(p["name"]) for p in parameters]
+
+
+async def _execute_user_sql(source: Any, params: dict[str, Any]) -> list[dict[str, Any]]:
+    """执行用户在 params['sql'] 中提供的 SQL。"""
+    sql = params.get("sql", "")
+    if not sql:
+        raise ValueError("missing 'sql' parameter")
+    return await source.execute_sql(sql)
+
+
+async def _execute_with_statement(
+    source: Any,
+    statement: str,
+    template_parameters: list[dict[str, Any]],
+    parameters: list[dict[str, Any]],
+    params: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """statement 已存在,根据参数模式选择执行方式。"""
+    if template_parameters:
+        return await source.execute_sql(render_sql_template(statement, params))
+    if parameters:
+        return await source.execute_sql(statement, _bind_param_values(parameters, params))
+    return await source.execute_sql(statement)
+
+
+async def _execute_sql_with_modes(
+    source: Any,
+    statement: str,
+    template_parameters: list[dict[str, Any]],
+    parameters: list[dict[str, Any]],
+    params: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """根据 statement/templateParameters/parameters 模式执行 SQL。"""
+    if not statement:
+        return await _execute_user_sql(source, params)
+    return await _execute_with_statement(source, statement, template_parameters, parameters, params)

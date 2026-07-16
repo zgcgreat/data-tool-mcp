@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_spanner_source(
+async def _get_spanner_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> SpannerSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, SpannerSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Spanner source")
     return source
 
@@ -47,27 +49,30 @@ class SpannerGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_spanner_source(source_provider, self._source_name, self.name)
-        tt = self._tool_type
+        source = await _get_spanner_source(source_provider, self._source_name, self.name)
+        try:
+            tt = self._tool_type
 
-        if tt in ("spanner-sql", "spanner-execute-sql"):
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
-            return {"rows": rows, "rowCount": len(rows)}
-        elif tt == "spanner-list-tables":
-            tables = await source.list_tables()
-            return {"tables": tables}
-        elif tt == "spanner-list-graphs":
-            graphs = await source.list_graphs()
-            return {"graphs": graphs}
-        elif tt == "spanner-search-catalog":
-            query = params.get("query", "")
-            rows = await source.search_catalog(query)
-            return {"rows": rows, "rowCount": len(rows)}
-        else:
-            raise ValueError(f"unknown Spanner tool type: {tt}")
+            if tt in ("spanner-sql", "spanner-execute-sql"):
+                sql = params.get("sql", "")
+                if not sql:
+                    raise ValueError("missing 'sql' parameter")
+                rows = await source.execute_sql(sql)
+                return {"rows": rows, "rowCount": len(rows)}
+            elif tt == "spanner-list-tables":
+                tables = await source.list_tables()
+                return {"tables": tables}
+            elif tt == "spanner-list-graphs":
+                graphs = await source.list_graphs()
+                return {"graphs": graphs}
+            elif tt == "spanner-search-catalog":
+                query = params.get("query", "")
+                rows = await source.search_catalog(query)
+                return {"rows": rows, "rowCount": len(rows)}
+            else:
+                raise ValueError(f"unknown Spanner tool type: {tt}")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

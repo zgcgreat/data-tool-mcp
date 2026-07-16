@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_hbase_source(
+async def _get_hbase_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> HBaseSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, HBaseSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not an HBase source")
     return source
 
@@ -48,9 +50,12 @@ class HBaseListTablesTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_hbase_source(source_provider, self._source_name, self.name)
-        tables = await source.list_tables()
-        return {"tables": tables, "count": len(tables)}
+        source = await _get_hbase_source(source_provider, self._source_name, self.name)
+        try:
+            tables = await source.list_tables()
+            return {"tables": tables, "count": len(tables)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)
@@ -88,12 +93,15 @@ class HBaseDescribeTableTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_hbase_source(source_provider, self._source_name, self.name)
-        table_name = params.get("table_name", "")
-        if not table_name:
-            raise ValueError("missing 'table_name' parameter")
-        families = await source.describe_table(table_name)
-        return {"table_name": table_name, "column_families": families}
+        source = await _get_hbase_source(source_provider, self._source_name, self.name)
+        try:
+            table_name = params.get("table_name", "")
+            if not table_name:
+                raise ValueError("missing 'table_name' parameter")
+            families = await source.describe_table(table_name)
+            return {"table_name": table_name, "column_families": families}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -135,17 +143,20 @@ class HBaseScanTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_hbase_source(source_provider, self._source_name, self.name)
-        table_name = params.get("table_name", "")
-        if not table_name:
-            raise ValueError("missing 'table_name' parameter")
-        prefix = params.get("prefix")
-        limit = int(params.get("limit", 100))
-        columns = params.get("columns")
-        if isinstance(columns, str):
-            columns = [c.strip() for c in columns.split(",") if c.strip()]
-        rows = await source.scan(table_name, prefix=prefix, limit=limit, columns=columns)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_hbase_source(source_provider, self._source_name, self.name)
+        try:
+            table_name = params.get("table_name", "")
+            if not table_name:
+                raise ValueError("missing 'table_name' parameter")
+            prefix = params.get("prefix")
+            limit = int(params.get("limit", 100))
+            columns = params.get("columns")
+            if isinstance(columns, str):
+                columns = [c.strip() for c in columns.split(",") if c.strip()]
+            rows = await source.scan(table_name, prefix=prefix, limit=limit, columns=columns)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -192,13 +203,16 @@ class HBaseGetRowTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_hbase_source(source_provider, self._source_name, self.name)
-        table_name = params.get("table_name", "")
-        row_key = params.get("row_key", "")
-        if not table_name or not row_key:
-            raise ValueError("missing 'table_name' or 'row_key' parameter")
-        row = await source.get_row(table_name, row_key)
-        return {"row": row}
+        source = await _get_hbase_source(source_provider, self._source_name, self.name)
+        try:
+            table_name = params.get("table_name", "")
+            row_key = params.get("row_key", "")
+            if not table_name or not row_key:
+                raise ValueError("missing 'table_name' or 'row_key' parameter")
+            row = await source.get_row(table_name, row_key)
+            return {"row": row}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -243,16 +257,19 @@ class HBasePutRowTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_hbase_source(source_provider, self._source_name, self.name)
-        table_name = params.get("table_name", "")
-        row_key = params.get("row_key", "")
-        data = params.get("data", {})
-        if not table_name or not row_key or not data:
-            raise ValueError("missing 'table_name', 'row_key' or 'data' parameter")
-        if not isinstance(data, dict):
-            raise ValueError("'data' must be an object mapping column_family:qualifier -> value")
-        await source.put_row(table_name, row_key, data)
-        return {"ok": True, "table_name": table_name, "row_key": row_key}
+        source = await _get_hbase_source(source_provider, self._source_name, self.name)
+        try:
+            table_name = params.get("table_name", "")
+            row_key = params.get("row_key", "")
+            data = params.get("data", {})
+            if not table_name or not row_key or not data:
+                raise ValueError("missing 'table_name', 'row_key' or 'data' parameter")
+            if not isinstance(data, dict):
+                raise ValueError("'data' must be an object mapping column_family:qualifier -> value")
+            await source.put_row(table_name, row_key, data)
+            return {"ok": True, "table_name": table_name, "row_key": row_key}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -298,16 +315,19 @@ class HBaseDeleteRowTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_hbase_source(source_provider, self._source_name, self.name)
-        table_name = params.get("table_name", "")
-        row_key = params.get("row_key", "")
-        columns = params.get("columns")
-        if not table_name or not row_key:
-            raise ValueError("missing 'table_name' or 'row_key' parameter")
-        if isinstance(columns, str):
-            columns = [c.strip() for c in columns.split(",") if c.strip()]
-        await source.delete_row(table_name, row_key, columns=columns)
-        return {"ok": True, "table_name": table_name, "row_key": row_key, "deleted_columns": columns}
+        source = await _get_hbase_source(source_provider, self._source_name, self.name)
+        try:
+            table_name = params.get("table_name", "")
+            row_key = params.get("row_key", "")
+            columns = params.get("columns")
+            if not table_name or not row_key:
+                raise ValueError("missing 'table_name' or 'row_key' parameter")
+            if isinstance(columns, str):
+                columns = [c.strip() for c in columns.split(",") if c.strip()]
+            await source.delete_row(table_name, row_key, columns=columns)
+            return {"ok": True, "table_name": table_name, "row_key": row_key, "deleted_columns": columns}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(

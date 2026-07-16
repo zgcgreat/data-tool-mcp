@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_firestore_source(
+async def _get_firestore_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> FirestoreSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, FirestoreSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Firestore source")
     return source
 
@@ -51,42 +53,44 @@ class FirestoreGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_firestore_source(source_provider, self._source_name, self.name)
-
-        if self._tool_type == "firestore-list-collections":
-            collections = await source.list_collections()
-            return {"collections": collections}
-        elif self._tool_type == "firestore-get-documents":
-            docs = await source.get_documents(params["collection"], params.get("limit", 100))
-            return {"documents": docs}
-        elif self._tool_type == "firestore-add-documents":
-            ids = await source.add_documents(params["collection"], params["documents"])
-            return {"document_ids": ids}
-        elif self._tool_type == "firestore-update-document":
-            await source.update_document(params["collection"], params["doc_id"], params["data"])
-            return {"updated": True}
-        elif self._tool_type == "firestore-delete-documents":
-            await source.delete_documents(params["collection"], params["doc_ids"])
-            return {"deleted": True}
-        elif self._tool_type == "firestore-query":
-            docs = await source.query(
-                params["collection"], params["field_path"],
-                params["op"], params["value"], params.get("limit", 100),
-            )
-            return {"documents": docs}
-        elif self._tool_type == "firestore-query-collection":
-            docs = await source.query_collection(
-                params["collection"], params["queries"], params.get("limit", 100),
-            )
-            return {"documents": docs}
-        elif self._tool_type == "firestore-get-rules":
-            rules = await source.get_rules()
-            return {"rules": rules}
-        elif self._tool_type == "firestore-validate-rules":
-            result = await source.validate_rules(params["rules_text"])
-            return {"validation": result}
-        else:
-            raise ValueError(f"unknown Firestore tool type: {self._tool_type}")
+        source = await _get_firestore_source(source_provider, self._source_name, self.name)
+        try:
+            if self._tool_type == "firestore-list-collections":
+                collections = await source.list_collections()
+                return {"collections": collections}
+            elif self._tool_type == "firestore-get-documents":
+                docs = await source.get_documents(params["collection"], params.get("limit", 100))
+                return {"documents": docs}
+            elif self._tool_type == "firestore-add-documents":
+                ids = await source.add_documents(params["collection"], params["documents"])
+                return {"document_ids": ids}
+            elif self._tool_type == "firestore-update-document":
+                await source.update_document(params["collection"], params["doc_id"], params["data"])
+                return {"updated": True}
+            elif self._tool_type == "firestore-delete-documents":
+                await source.delete_documents(params["collection"], params["doc_ids"])
+                return {"deleted": True}
+            elif self._tool_type == "firestore-query":
+                docs = await source.query(
+                    params["collection"], params["field_path"],
+                    params["op"], params["value"], params.get("limit", 100),
+                )
+                return {"documents": docs}
+            elif self._tool_type == "firestore-query-collection":
+                docs = await source.query_collection(
+                    params["collection"], params["queries"], params.get("limit", 100),
+                )
+                return {"documents": docs}
+            elif self._tool_type == "firestore-get-rules":
+                rules = await source.get_rules()
+                return {"rules": rules}
+            elif self._tool_type == "firestore-validate-rules":
+                result = await source.validate_rules(params["rules_text"])
+                return {"validation": result}
+            else:
+                raise ValueError(f"unknown Firestore tool type: {self._tool_type}")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

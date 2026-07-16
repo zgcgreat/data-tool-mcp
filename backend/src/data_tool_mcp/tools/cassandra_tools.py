@@ -34,14 +34,18 @@ class CassandraCQLTool(BaseTool):
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
         if source_provider is None:
             raise ValueError(f"tool {self.name!r} requires a source provider")
-        source = source_provider.get_source(self._source_name)
+        source = await source_provider.get_source(self._source_name)
         if source is None:
+            await source_provider.release_source(self._source_name)
             raise ValueError(f"source {self._source_name!r} not found")
-        cql = params.get("cql", "")
-        if not cql:
-            raise ValueError("missing 'cql' parameter")
-        rows = await source.execute_cql(cql)
-        return {"rows": rows, "rowCount": len(rows)}
+        try:
+            cql = params.get("cql", "")
+            if not cql:
+                raise ValueError("missing 'cql' parameter")
+            rows = await source.execute_cql(cql)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -85,14 +89,18 @@ class ScyllaDBCQLTool(BaseTool):
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
         if source_provider is None:
             raise ValueError(f"tool {self.name!r} requires a source provider")
-        source = source_provider.get_source(self._source_name)
+        source = await source_provider.get_source(self._source_name)
         if source is None:
+            await source_provider.release_source(self._source_name)
             raise ValueError(f"source {self._source_name!r} not found")
-        cql = params.get("cql", "")
-        if not cql:
-            raise ValueError("missing 'cql' parameter")
-        rows = await source.execute_cql(cql)
-        return {"rows": rows, "rowCount": len(rows)}
+        try:
+            cql = params.get("cql", "")
+            if not cql:
+                raise ValueError("missing 'cql' parameter")
+            rows = await source.execute_cql(cql)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -136,15 +144,19 @@ class DgraphDQLTool(BaseTool):
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
         if source_provider is None:
             raise ValueError(f"tool {self.name!r} requires a source provider")
-        source = source_provider.get_source(self._source_name)
+        source = await source_provider.get_source(self._source_name)
         if source is None:
+            await source_provider.release_source(self._source_name)
             raise ValueError(f"source {self._source_name!r} not found")
-        query = params.get("query", "")
-        if not query:
-            raise ValueError("missing 'query' parameter")
-        variables = params.get("variables")
-        rows = await source.execute_dql(query, variables=variables)
-        return {"rows": rows, "rowCount": len(rows)}
+        try:
+            query = params.get("query", "")
+            if not query:
+                raise ValueError("missing 'query' parameter")
+            variables = params.get("variables")
+            rows = await source.execute_dql(query, variables=variables)
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(

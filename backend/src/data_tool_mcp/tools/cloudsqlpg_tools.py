@@ -36,17 +36,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_cloudsqlpg_source(
+async def _get_cloudsqlpg_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> CloudSQLPGSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, CloudSQLPGSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Cloud SQL PG source")
     return source
 
@@ -87,13 +89,16 @@ class VectorAssistGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_cloudsqlpg_source(source_provider, self._source_name, self.name)
-        # Vector Assist operations are SQL-driven; dispatch to execute_sql
-        sql = params.get("sql", params.get("query", params.get("question", "")))
-        if sql:
-            rows = await source.execute_sql(sql)
-            return {"rows": rows, "rowCount": len(rows)}
-        return {"result": "ok"}
+        source = await _get_cloudsqlpg_source(source_provider, self._source_name, self.name)
+        try:
+            # Vector Assist operations are SQL-driven; dispatch to execute_sql
+            sql = params.get("sql", params.get("query", params.get("question", "")))
+            if sql:
+                rows = await source.execute_sql(sql)
+                return {"rows": rows, "rowCount": len(rows)}
+            return {"result": "ok"}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

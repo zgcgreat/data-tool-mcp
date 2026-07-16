@@ -25,31 +25,11 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _execute_sql_with_modes,
+    _get_typed_source_async,
+    _manifests_from_dicts,
     register_tool,
 )
-from data_tool_mcp.tools.template import render_sql_template as render_template
-
-
-def _get_sql_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-    tool_type: str,
-) -> SQLSource:
-    """Resolve a SQLSource from the SourceProvider.
-
-    Maps to Go: GetCompatibleSource[SQLSource](resourceMgr, sourceName, toolName, toolType)
-    """
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
-    if source is None:
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, SQLSource):
-        raise TypeError(
-            f"invalid source for {tool_type!r} tool: source {source_name!r} is not a SQL source"
-        )
-    return source
 
 
 # ---------------------------------------------------------------------------
@@ -78,40 +58,23 @@ class SQLiteSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name, "sqlite-sql")
-        if self._statement:
-            sql = render_template(self._statement, params)
-        else:
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-        rows = await source.execute_sql(sql)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await _execute_sql_with_modes(
+                source, self._statement, self._template_parameters, [], params
+            )
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         if self._template_parameters:
-            parameters = [
-                ParameterManifest(
-                    name=p.get("name", ""),
-                    type=p.get("type", "string"),
-                    description=p.get("description", ""),
-                    required=p.get("required", False),
-                    default=p.get("default"),
-                )
-                for p in self._template_parameters
-            ]
-            return ToolManifest(
-                description=self.description,
-                parameters=parameters,
-                auth_required=self.auth_required,
-            )
+            parameters = _manifests_from_dicts(self._template_parameters)
+        else:
+            parameters = [ParameterManifest(name="sql", type="string", description="SQL query to execute", required=True)]
         return ToolManifest(
             description=self.description,
-            parameters=[
-                ParameterManifest(
-                    name="sql", type="string", description="SQL query to execute", required=True
-                ),
-            ],
+            parameters=parameters,
             auth_required=self.auth_required,
         )
 
@@ -175,40 +138,23 @@ class SQLiteExecuteSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_sql_source(source_provider, self._source_name, self.name, "sqlite-execute-sql")
-        if self._statement:
-            sql = render_template(self._statement, params)
-        else:
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-        rows = await source.execute_sql(sql)
-        return {"rows": rows, "rowCount": len(rows)}
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        try:
+            rows = await _execute_sql_with_modes(
+                source, self._statement, self._template_parameters, [], params
+            )
+            return {"rows": rows, "rowCount": len(rows)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         if self._template_parameters:
-            parameters = [
-                ParameterManifest(
-                    name=p.get("name", ""),
-                    type=p.get("type", "string"),
-                    description=p.get("description", ""),
-                    required=p.get("required", False),
-                    default=p.get("default"),
-                )
-                for p in self._template_parameters
-            ]
-            return ToolManifest(
-                description=self.description,
-                parameters=parameters,
-                auth_required=self.auth_required,
-            )
+            parameters = _manifests_from_dicts(self._template_parameters)
+        else:
+            parameters = [ParameterManifest(name="sql", type="string", description="SQL statement to execute", required=True)]
         return ToolManifest(
             description=self.description,
-            parameters=[
-                ParameterManifest(
-                    name="sql", type="string", description="SQL statement to execute", required=True
-                ),
-            ],
+            parameters=parameters,
             auth_required=self.auth_required,
         )
 

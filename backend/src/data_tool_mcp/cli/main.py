@@ -20,10 +20,20 @@ def _load_dotenv() -> None:
     if not env_path.exists():
         return
     for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, val = line.split("=", 1)
-            os.environ.setdefault(key.strip(), val.strip())
+        _apply_env_line(line.strip())
+
+
+def _is_env_assignment(line: str) -> bool:
+    """判断是否为有效的环境变量赋值行。"""
+    return bool(line) and not line.startswith("#") and "=" in line
+
+
+def _apply_env_line(line: str) -> None:
+    """解析单行环境变量并写入 os.environ（跳过空行和注释）。"""
+    if not _is_env_assignment(line):
+        return
+    key, val = line.split("=", 1)
+    os.environ.setdefault(key.strip(), val.strip())
 
 
 def _resolve_store_password(raw: str) -> str:
@@ -74,6 +84,9 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="配置持久化存储 MySQL 密码（与 --store-url 分离）")
     serve.add_argument("--db-pool-size", type=int, default=int(os.environ.get("TOOLBOX_DB_POOL_SIZE", "5")),
                        help="数据库连接池大小（默认 5，多实例部署时按 实例数×pool_size×数据源数 估算 MySQL max_connections）")
+    serve.add_argument("--reload-interval", type=float,
+                       default=float(os.environ.get("TOOLBOX_RELOAD_INTERVAL", "5")),
+                       help="DB 配置热重载轮询间隔（秒，默认 5）。可设环境变量 TOOLBOX_RELOAD_INTERVAL")
 
     # Network
     serve.add_argument("--address", "-a", default="0.0.0.0", help="Listen address")
@@ -132,10 +145,32 @@ def main() -> None:
         sys.exit(1)
 
 
-def _cmd_serve(args: argparse.Namespace) -> None:
+def _or_default(value, default):
+    """返回 value 或 default（用于处理 None/空值参数）。"""
+    return value or default
+
+
+def _join_comma(values):
+    """将列表用逗号拼接为字符串，空列表返回空字符串。"""
+    return ",".join(values) if values else ""
+
+
+def _parse_csv_list(raw: str) -> list:
+    """逗号分隔字符串 → 去空白的列表。"""
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
+def _split_source_types(raw):
+    """逗号分隔字符串 → 去空白的列表。"""
+    if not raw:
+        return []
+    return _parse_csv_list(raw)
+
+
+def _build_server_config(args: argparse.Namespace):
     from data_tool_mcp.config.models import ServerConfig
 
-    server_config = ServerConfig(
+    return ServerConfig(
         address=args.address,
         port=args.port,
         stdio=args.stdio,
@@ -144,255 +179,285 @@ def _cmd_serve(args: argparse.Namespace) -> None:
         disable_reload=args.disable_reload,
         enable_api=args.enable_api,
         enable_draft_specs=args.enable_draft_specs,
-        cert_file=args.tls_cert or "",
-        key_file=args.tls_key or "",
-        config_file=args.config or "",
-        config_files=args.configs or [],
-        config_folder=args.config_folder or "",
-        prebuilt=",".join(args.prebuilt) if args.prebuilt else "",
-        config_db_url=args.config_db_url or "",
-        env_passwords=args.env_passwords or "",
-        telemetry_otlp=args.telemetry_otlp or "",
+        cert_file=_or_default(args.tls_cert, ""),
+        key_file=_or_default(args.tls_key, ""),
+        config_file=_or_default(args.config, ""),
+        config_files=_or_default(args.configs, []),
+        config_folder=_or_default(args.config_folder, ""),
+        prebuilt=_join_comma(args.prebuilt),
+        config_db_url=_or_default(args.config_db_url, ""),
+        env_passwords=_or_default(args.env_passwords, ""),
+        telemetry_otlp=_or_default(args.telemetry_otlp, ""),
         telemetry_gcp=args.telemetry_gcp,
-        telemetry_gcp_project=args.telemetry_gcp_project or "",
+        telemetry_gcp_project=_or_default(args.telemetry_gcp_project, ""),
         telemetry_service_name=args.telemetry_service_name,
         sql_commenter=args.sql_commenter,
-        allowed_origins=args.allowed_origins or ["*"],
+        allowed_origins=_or_default(args.allowed_origins, ["*"]),
         # Default to [] -> middleware treats empty list as None and allows all hosts
         # (development mode). Passing ["*"] would enable checking against a literal "*"
         # host and reject everything, so we never default to ["*"].
-        allowed_hosts=args.allowed_hosts or [],
+        allowed_hosts=_or_default(args.allowed_hosts, []),
         ignore_unknown_tools=args.ignore_unknown_tools,
-        user_agent_metadata=args.user_agent_metadata or [],
-        store_url=args.store_url or "",
-        store_username=args.store_username or "",
-        store_password=_resolve_store_password(args.store_password or ""),
+        user_agent_metadata=_or_default(args.user_agent_metadata, []),
+        store_url=_or_default(args.store_url, ""),
+        store_username=_or_default(args.store_username, ""),
+        store_password=_resolve_store_password(_or_default(args.store_password, "")),
         db_pool_size=args.db_pool_size,
-        # 数据源类型白名单: 逗号分隔字符串 → 去空白的列表
-        enabled_source_types=[
-            t.strip() for t in (args.enabled_source_types or "").split(",") if t.strip()
-        ],
+        reload_interval=args.reload_interval,
+        enabled_source_types=_split_source_types(args.enabled_source_types),
     )
 
+
+def _cmd_serve(args: argparse.Namespace) -> None:
+    server_config = _build_server_config(args)
     if args.stdio:
         asyncio.run(_run_stdio(server_config))
     else:
         asyncio.run(_run_http(server_config))
 
 
-async def _run_http(config: "ServerConfig") -> None:
-    """Start HTTP server (SSE + Streamable)."""
-    import uvicorn
+def _telemetry_gcp_project(config: "ServerConfig") -> str | None:
+    return config.telemetry_gcp_project if config.telemetry_gcp else None
 
+
+async def _setup_telemetry(config: "ServerConfig") -> None:
+    """配置启用时初始化 OpenTelemetry。"""
+    if not config.telemetry_otlp and not config.telemetry_gcp:
+        return
+    from data_tool_mcp.telemetry import setup_otel
+    setup_otel(
+        otlp_endpoint=config.telemetry_otlp,
+        gcp_project=_telemetry_gcp_project(config),
+        service_name=config.telemetry_service_name,
+    )
+
+
+async def _prepare_runtime(config: "ServerConfig"):
+    """校验加密密钥、设置遥测、加载配置、初始化资源与存储。返回 (config, rm, store)。"""
     from data_tool_mcp.config.loader import load_config
+    from data_tool_mcp.config.store import init_store
     from data_tool_mcp.resources import ResourceManager
-    from data_tool_mcp.server.app import create_app
     from data_tool_mcp.utils.crypto import validate_encryption_key
 
-    # 启动时校验加密密钥配置（仅警告，不阻塞启动）
     validate_encryption_key()
-
-    # Setup OpenTelemetry before anything else
-    if config.telemetry_otlp or config.telemetry_gcp:
-        from data_tool_mcp.telemetry import setup_otel
-        setup_otel(
-            otlp_endpoint=config.telemetry_otlp,
-            gcp_project=config.telemetry_gcp_project if config.telemetry_gcp else None,
-            service_name=config.telemetry_service_name,
-        )
-
-    # Load config
+    await _setup_telemetry(config)
     config = await load_config(config)
-
-    # Initialize resources
     rm = ResourceManager()
     await _initialize_resources(config, rm)
-
-    # 初始化配置持久化存储（默认在当前目录创建 SQLite 文件 toolbox_data.db）
-    from data_tool_mcp.config.store import init_store
     store = await init_store(config.store_url, config.store_username, config.store_password)
-    if store.is_sqlite and config.address not in ("127.0.0.1", "localhost"):
-        # 0.0.0.0 也警告，因为可能被外部访问
-        import logging
-        logging.getLogger(__name__).warning(
-            "当前使用 SQLite 存储且监听地址为 %s，多实例部署将导致数据不一致。"
-            "请配置 --store-url 指向共享 MySQL。",
-            config.address,
+    return config, rm, store
+
+
+def _warn_sqlite_remote(store, config: "ServerConfig") -> None:
+    """SQLite 存储且监听非本地地址时警告多实例部署风险。"""
+    if not store.is_sqlite:
+        return
+    if config.address in ("127.0.0.1", "localhost"):
+        return
+    import logging
+    logging.getLogger(__name__).warning(
+        "当前使用 SQLite 存储且监听地址为 %s，多实例部署将导致数据不一致。"
+        "请配置 --store-url 指向共享 MySQL。",
+        config.address,
+    )
+
+
+def _start_folder_hot_reload(config: "ServerConfig", rm: "ResourceManager") -> None:
+    """启用配置目录热重载（若启用且配置了目录）。"""
+    if config.disable_reload or not config.config_folder:
+        return
+    from data_tool_mcp.config.hotreload import start_hot_reload
+    asyncio.create_task(start_hot_reload(config.config_folder, config, rm))
+
+
+def _warn_hosts_disabled(config: "ServerConfig") -> None:
+    """未配置 allowed_hosts 时警告 Host 头校验缺失。"""
+    if config.allowed_hosts:
+        return
+    import logging
+    logging.getLogger(__name__).warning(
+        "Host header validation is disabled (no --allowed-hosts configured). "
+        "This is acceptable for local development but should be configured in "
+        "production to prevent DNS rebinding attacks."
+    )
+
+
+async def _close_source_quietly(src) -> None:
+    """静默关闭 source 连接（忽略异常）。"""
+    if not hasattr(src, "close"):
+        return
+    try:
+        await src.close()
+    except Exception:
+        pass
+
+
+async def _close_sources(sources_map: dict) -> None:
+    """批量关闭旧 source 连接。"""
+    for src in sources_map.values():
+        await _close_source_quietly(src)
+
+
+async def _start_db_reload_watcher(config: "ServerConfig", rm: "ResourceManager") -> None:
+    """启用 DB 配置热重载（MySQL 轮询模式，若启用且配置了 config_db_url）。"""
+    if config.disable_reload or not config.config_db_url:
+        return
+    from data_tool_mcp.config.db_reader import watch_config_changes
+    from data_tool_mcp.config.loader import load_config
+
+    async def _reload_from_db() -> None:
+        old_sources = rm.get_sources_map()
+        reloaded = await load_config(config)
+        await _initialize_resources(reloaded, rm)
+        await _close_sources(old_sources)
+
+    asyncio.create_task(
+        watch_config_changes(
+            config.config_db_url, _reload_from_db, config.env_passwords,
+            poll_interval=config.reload_interval,
         )
-    if store.is_persistent:
-        await _load_persisted_resources(config, rm, store)
+    )
+    import logging
+    logging.getLogger(__name__).info(
+        "DB config hot-reload enabled (MySQL 轮询模式, 间隔 %.1fs)", config.reload_interval
+    )
 
-    # Create app
-    app = create_app(config, rm)
 
-    # Start hot-reload watcher (if enabled)
-    if not config.disable_reload and config.config_folder:
-        from data_tool_mcp.config.hotreload import start_hot_reload
-        _reload_task = asyncio.create_task(start_hot_reload(config.config_folder, config, rm))
-
-    # Warn if Host header validation is disabled (security risk in production)
-    if not config.allowed_hosts:
-        import logging
-        logging.getLogger(__name__).warning(
-            "Host header validation is disabled (no --allowed-hosts configured). "
-            "This is acceptable for local development but should be configured in "
-            "production to prevent DNS rebinding attacks."
-        )
-
-    # Start DB-backed config hot-reload (MySQL 轮询模式)
-    if not config.disable_reload and config.config_db_url:
-        from data_tool_mcp.config.db_reader import watch_config_changes
-
-        async def _reload_from_db() -> None:
-            # Reload config from DB, rebuild resources, then close stale sources
-            old_sources = rm.get_sources_map()
-            reloaded = await load_config(config)
-            await _initialize_resources(reloaded, rm)
-            for src in old_sources.values():
-                try:
-                    if hasattr(src, "close"):
-                        await src.close()
-                except Exception:
-                    pass
-
-        _reload_task = asyncio.create_task(
-            watch_config_changes(config.config_db_url, _reload_from_db, config.env_passwords)
-        )
-        logger = __import__("logging").getLogger(__name__)
-        logger.info("DB config hot-reload enabled (MySQL 轮询模式)")
-
-    # Run uvicorn with optional TLS
-    uvicorn_config_kwargs = {
+async def _serve_uvicorn(app, config: "ServerConfig") -> None:
+    """启动 uvicorn HTTP 服务（支持可选 TLS）。"""
+    import uvicorn
+    kwargs = {
         "app": app,
         "host": config.address,
         "port": config.port,
         "log_level": config.log_level.lower(),
     }
     if config.cert_file and config.key_file:
-        uvicorn_config_kwargs["ssl_certfile"] = config.cert_file
-        uvicorn_config_kwargs["ssl_keyfile"] = config.key_file
-
-    uvicorn_config = uvicorn.Config(**uvicorn_config_kwargs)
-    server = uvicorn.Server(uvicorn_config)
+        kwargs["ssl_certfile"] = config.cert_file
+        kwargs["ssl_keyfile"] = config.key_file
+    server = uvicorn.Server(uvicorn.Config(**kwargs))
     await server.serve()
+
+
+async def _run_http(config: "ServerConfig") -> None:
+    """Start HTTP server (SSE + Streamable)."""
+    from data_tool_mcp.server.app import create_app
+
+    config, rm, store = await _prepare_runtime(config)
+    _warn_sqlite_remote(store, config)
+    if store.is_persistent:
+        await _load_persisted_resources(config, rm, store)
+    app = create_app(config, rm)
+    _start_folder_hot_reload(config, rm)
+    _warn_hosts_disabled(config)
+    await _start_db_reload_watcher(config, rm)
+    await _serve_uvicorn(app, config)
 
 
 async def _run_stdio(config: "ServerConfig") -> None:
     """Start STDIO server."""
-    from data_tool_mcp.config.loader import load_config
-    from data_tool_mcp.resources import ResourceManager
     from data_tool_mcp.server.mcp.protocol import MCPProtocol
     from data_tool_mcp.server.mcp.stdio import STDIOTransport
-    from data_tool_mcp.utils.crypto import validate_encryption_key
 
-    # 启动时校验加密密钥配置（仅警告，不阻塞启动）
-    validate_encryption_key()
-
-    if config.telemetry_otlp or config.telemetry_gcp:
-        from data_tool_mcp.telemetry import setup_otel
-        setup_otel(
-            otlp_endpoint=config.telemetry_otlp,
-            gcp_project=config.telemetry_gcp_project if config.telemetry_gcp else None,
-            service_name=config.telemetry_service_name,
-        )
-
-    config = await load_config(config)
-    rm = ResourceManager()
-    await _initialize_resources(config, rm)
-
-    # 初始化配置持久化存储（默认在当前目录创建 SQLite 文件 toolbox_data.db）
-    from data_tool_mcp.config.store import init_store
-    store = await init_store(config.store_url, config.store_username, config.store_password)
+    config, rm, store = await _prepare_runtime(config)
     if store.is_persistent:
         await _load_persisted_resources(config, rm, store)
-
     protocol = MCPProtocol(rm)
     transport = STDIOTransport(protocol)
     await transport.run()
+
+
+def _log_or_raise(exc: Exception, ignore: bool, message: str) -> None:
+    """根据 ignore 标志跳过异常(记日志)或重新抛出。"""
+    if ignore:
+        import logging
+        logging.getLogger(__name__).warning(message)
+        return
+    raise exc
+
+
+async def _decode_and_init(name, data, decode_fn, ignore, make_msg, default_type=""):
+    """解码并初始化单个资源。失败时根据 ignore 跳过或抛出。返回 (obj, type)。"""
+    item_type = data.get("type", default_type)
+    try:
+        cfg = decode_fn(item_type, name, data)
+        obj = await cfg.initialize()
+        return obj, item_type
+    except Exception as exc:
+        _log_or_raise(exc, ignore, make_msg(name, item_type, exc))
+        return None, item_type
+
+
+async def _init_decoded_items(items, decode_fn, ignore, make_msg, default_type=""):
+    """批量 decode + initialize，返回 (objs, types)。"""
+    objs = {}
+    types = {}
+    for name, data in items.items():
+        obj, item_type = await _decode_and_init(name, data, decode_fn, ignore, make_msg, default_type)
+        if obj is None:
+            continue
+        objs[name] = obj
+        types[name] = item_type
+    return objs, types
+
+
+def _extract_names(items: list) -> list:
+    """从配置项列表中提取 name 字段。"""
+    return [item["name"] for item in items if "name" in item]
+
+
+def _build_toolsets(toolset_configs):
+    """从配置构建 toolset 映射。"""
+    from data_tool_mcp.resources import Toolset
+    result = {}
+    for name, ts_data in toolset_configs.items():
+        result[name] = Toolset(name=name, tools=_extract_names(ts_data.get("tools", [])))
+    return result
+
+
+def _build_promptsets(promptset_configs):
+    """从配置构建 promptset 映射。"""
+    from data_tool_mcp.prompts.base import Promptset
+    result = {}
+    for name, ps_data in promptset_configs.items():
+        result[name] = Promptset(name=name, prompt_names=_extract_names(ps_data.get("prompts", [])))
+    return result
 
 
 async def _initialize_resources(config: "ServerConfig", rm: "ResourceManager") -> None:
     """Initialize all sources, tools, toolsets, prompts, and embedding models from config."""
     from data_tool_mcp.sources import decode_source_config
     from data_tool_mcp.tools import decode_tool_config
+    from data_tool_mcp.prompts import decode_prompt_config
+    from data_tool_mcp.embeddingmodels import decode_embedding_model_config
 
-    # Initialize sources
-    sources_map = {}
-    source_configs_map: dict[str, dict[str, Any]] = {}
-    for name, src_data in config.source_configs.items():
-        src_type = src_data.get("type", "")
-        try:
-            source_config = decode_source_config(src_type, name, src_data)
-            source = await source_config.initialize()
-            sources_map[name] = source
-            source_configs_map[name] = src_data
-        except Exception as exc:
-            if config.ignore_unknown_tools:
-                import logging
-                logging.getLogger(__name__).warning(f"Skipping unknown source type {src_type!r}: {exc}")
-            else:
-                raise
+    ignore = config.ignore_unknown_tools
 
-    # Initialize tools
-    tools_map = {}
-    tool_types_map = {}
-    for name, tool_data in config.tool_configs.items():
-        tool_type = tool_data.get("type", "")
-        try:
-            tool_config = decode_tool_config(tool_type, name, tool_data)
-            tool = await tool_config.initialize()
-            tools_map[name] = tool
-            tool_types_map[name] = tool_type
-        except Exception as exc:
-            if config.ignore_unknown_tools:
-                import logging
-                logging.getLogger(__name__).warning(f"Skipping unknown tool type {tool_type!r}: {exc}")
-            else:
-                raise
+    sources_map, _ = await _init_decoded_items(
+        config.source_configs, decode_source_config, ignore,
+        lambda n, t, e: f"Skipping unknown source type {t!r}: {e}",
+    )
+    source_configs_map = {name: config.source_configs[name] for name in sources_map}
 
-    # Initialize toolsets
-    toolsets_map = {}
-    for name, ts_data in config.toolset_configs.items():
-        from data_tool_mcp.resources import Toolset
-        tool_names = [t["name"] for t in ts_data.get("tools", []) if "name" in t]
-        toolsets_map[name] = Toolset(name=name, tools=tool_names)
+    tools_map, tool_types_map = await _init_decoded_items(
+        config.tool_configs, decode_tool_config, ignore,
+        lambda n, t, e: f"Skipping unknown tool type {t!r}: {e}",
+    )
 
-    # Initialize prompts
-    prompts_map = {}
-    for name, p_data in config.prompt_configs.items():
-        from data_tool_mcp.prompts import decode_prompt_config
-        try:
-            prompt_config = decode_prompt_config(p_data.get("type", "custom"), name, p_data)
-            prompt = await prompt_config.initialize()
-            prompts_map[name] = prompt
-        except Exception as exc:
-            if config.ignore_unknown_tools:
-                import logging
-                logging.getLogger(__name__).warning(f"Skipping prompt {name!r}: {exc}")
-            else:
-                raise
+    toolsets_map = _build_toolsets(config.toolset_configs)
 
-    # Initialize promptsets
-    promptsets_map = {}
-    for name, ps_data in config.promptset_configs.items():
-        from data_tool_mcp.prompts.base import Promptset
-        prompt_names = [p["name"] for p in ps_data.get("prompts", []) if "name" in p]
-        promptsets_map[name] = Promptset(name=name, prompt_names=prompt_names)
+    prompts_map, _ = await _init_decoded_items(
+        config.prompt_configs, decode_prompt_config, ignore,
+        lambda n, t, e: f"Skipping prompt {n!r}: {e}",
+        default_type="custom",
+    )
 
-    # Initialize embedding models
-    embedding_models_map = {}
-    for name, em_data in config.embedding_model_configs.items():
-        from data_tool_mcp.embeddingmodels import decode_embedding_model_config
-        try:
-            em_config = decode_embedding_model_config(em_data.get("type", ""), name, em_data)
-            em = await em_config.initialize()
-            embedding_models_map[name] = em
-        except Exception as exc:
-            if config.ignore_unknown_tools:
-                import logging
-                logging.getLogger(__name__).warning(f"Skipping embedding model {name!r}: {exc}")
-            else:
-                raise
+    promptsets_map = _build_promptsets(config.promptset_configs)
+
+    embedding_models_map, _ = await _init_decoded_items(
+        config.embedding_model_configs, decode_embedding_model_config, ignore,
+        lambda n, t, e: f"Skipping embedding model {n!r}: {e}",
+    )
 
     rm.set_resources(
         sources=sources_map,
@@ -406,50 +471,79 @@ async def _initialize_resources(config: "ServerConfig", rm: "ResourceManager") -
     )
 
 
+def _has_name_and_type(name, item_type):
+    """检查持久化项是否有有效的 name 和 type。"""
+    return bool(name and item_type)
+
+
+def _build_source_config_data(src_data, src_type):
+    """从持久化数据构建 source 配置（去除 name，保留 type）。"""
+    config_data = dict(src_data)
+    config_data.pop("name", None)
+    config_data.pop("type", None)
+    config_data["type"] = src_type
+    return config_data
+
+
+def _try_add_source_config(rm, name, src_type, src_data, logger):
+    """尝试添加持久化 source 配置，失败时记录警告。"""
+    try:
+        rm.add_source_config(name, _build_source_config_data(src_data, src_type))
+        logger.info("从存储加载数据源配置(惰性): %s (%s)", name, src_type)
+    except Exception as exc:
+        logger.warning("加载持久化数据源 %r 失败: %s", name, exc)
+
+
+def _load_one_source(rm, src_data, logger):
+    """加载单个持久化 source（仅存配置，惰性初始化）。"""
+    name = src_data.get("name", "")
+    src_type = src_data.get("type", "")
+    if not _has_name_and_type(name, src_type):
+        return
+    if rm.has_source(name):
+        return
+    _try_add_source_config(rm, name, src_type, src_data, logger)
+
+
+async def _try_add_tool(rm, name, tool_type, tool_data, decode_fn, logger):
+    """尝试解码、初始化并添加持久化工具，失败时记录警告。"""
+    try:
+        tool_config = decode_fn(tool_type, name, tool_data)
+        tool = await tool_config.initialize()
+        rm.add_tool(name, tool, tool_type)
+        logger.info("从存储加载工具: %s (%s)", name, tool_type)
+    except Exception as exc:
+        logger.warning("加载持久化工具 %r 失败: %s", name, exc)
+
+
+async def _load_one_tool(rm, tool_data, decode_fn, logger):
+    """加载单个持久化工具（全量初始化）。"""
+    name = tool_data.get("name", "")
+    tool_type = tool_data.get("type", "")
+    if not _has_name_and_type(name, tool_type):
+        return
+    if name in rm.get_tools_map():
+        return
+    await _try_add_tool(rm, name, tool_type, tool_data, decode_fn, logger)
+
+
 async def _load_persisted_resources(config, rm, store) -> None:
-    """从 ConfigStore 加载持久化的数据源和工具，补充到 ResourceManager。"""
+    """从 ConfigStore 加载持久化的数据源和工具，补充到 ResourceManager。
+
+    方案 C: 数据源仅加载配置(不 initialize),首次 MCP 调用时惰性初始化。
+    工具仍全量加载(无连接池开销)。
+    """
     import logging
     logger = logging.getLogger(__name__)
 
-    from data_tool_mcp.sources import decode_source_config
     from data_tool_mcp.tools import decode_tool_config
 
-    # 加载持久化的数据源
-    saved_sources = await store.load_sources()
-    for src_data in saved_sources:
-        name = src_data.get("name", "")
-        src_type = src_data.get("type", "")
-        if not name or not src_type:
-            continue
-        if name in rm.get_sources_map():
-            continue  # 已存在（来自 YAML 配置），跳过
-        try:
-            config_data = {k: v for k, v in src_data.items() if k not in ("name", "type")}
-            source_config = decode_source_config(src_type, name, config_data)
-            source = await source_config.initialize()
-            rm.add_source(name, source, config=config_data)
-            logger.info("从存储加载数据源: %s (%s)", name, src_type)
-        except Exception as exc:
-            logger.warning("加载持久化数据源 %r 失败: %s", name, exc)
+    for src_data in await store.load_sources():
+        _load_one_source(rm, src_data, logger)
 
-    # 加载持久化的工具
-    saved_tools = await store.load_tools()
-    for tool_data in saved_tools:
-        name = tool_data.get("name", "")
-        tool_type = tool_data.get("type", "")
-        if not name or not tool_type:
-            continue
-        if name in rm.get_tools_map():
-            continue  # 已存在，跳过
-        try:
-            tool_config = decode_tool_config(tool_type, name, tool_data)
-            tool = await tool_config.initialize()
-            rm.add_tool(name, tool, tool_type)
-            logger.info("从存储加载工具: %s (%s)", name, tool_type)
-        except Exception as exc:
-            logger.warning("加载持久化工具 %r 失败: %s", name, exc)
+    for tool_data in await store.load_tools():
+        await _load_one_tool(rm, tool_data, decode_tool_config, logger)
 
-    # 确保默认 toolset 存在（包含所有已加载的工具）
     rm.ensure_default_toolset()
 
 

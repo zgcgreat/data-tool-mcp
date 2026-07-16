@@ -21,7 +21,7 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_mongo_source(
+async def _get_mongo_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
@@ -29,10 +29,12 @@ def _get_mongo_source(
     """Resolve a MongoDBSource from the SourceProvider."""
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, MongoDBSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a MongoDB source")
     return source
 
@@ -54,12 +56,15 @@ class MongodbFindTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_mongo_source(source_provider, self._source_name, self.name)
-        collection = params.get("collection", "")
-        query = params.get("query")
-        limit = params.get("limit", 100)
-        results = await source.find(collection, query, limit=limit)
-        return {"documents": results, "count": len(results)}
+        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        try:
+            collection = params.get("collection", "")
+            query = params.get("query")
+            limit = params.get("limit", 100)
+            results = await source.find(collection, query, limit=limit)
+            return {"documents": results, "count": len(results)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -110,12 +115,15 @@ class MongodbFindOneTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_mongo_source(source_provider, self._source_name, self.name)
-        collection = params.get("collection", "")
-        query = params.get("query", {})
-        projection = params.get("projection")
-        doc = await source.find_one(collection, query, projection=projection)
-        return {"document": doc}
+        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        try:
+            collection = params.get("collection", "")
+            query = params.get("query", {})
+            projection = params.get("projection")
+            doc = await source.find_one(collection, query, projection=projection)
+            return {"document": doc}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -166,11 +174,14 @@ class MongodbAggregateTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_mongo_source(source_provider, self._source_name, self.name)
-        collection = params.get("collection", "")
-        pipeline = params.get("pipeline", [])
-        results = await source.aggregate(collection, pipeline)
-        return {"documents": results, "count": len(results)}
+        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        try:
+            collection = params.get("collection", "")
+            pipeline = params.get("pipeline", [])
+            results = await source.aggregate(collection, pipeline)
+            return {"documents": results, "count": len(results)}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -223,11 +234,14 @@ class MongodbInsertOneTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_mongo_source(source_provider, self._source_name, self.name)
-        collection = params.get("collection", "")
-        document = params.get("document", {})
-        result = await source.insert_one(collection, document)
-        return result
+        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        try:
+            collection = params.get("collection", "")
+            document = params.get("document", {})
+            result = await source.insert_one(collection, document)
+            return result
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -277,11 +291,14 @@ class MongodbInsertManyTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_mongo_source(source_provider, self._source_name, self.name)
-        collection = params.get("collection", "")
-        documents = params.get("documents", [])
-        result = await source.insert_many(collection, documents)
-        return result
+        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        try:
+            collection = params.get("collection", "")
+            documents = params.get("documents", [])
+            result = await source.insert_many(collection, documents)
+            return result
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -334,11 +351,14 @@ class MongodbDeleteOneTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_mongo_source(source_provider, self._source_name, self.name)
-        collection = params.get("collection", "")
-        query = params.get("query", {})
-        result = await source.delete_one(collection, query)
-        return result
+        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        try:
+            collection = params.get("collection", "")
+            query = params.get("query", {})
+            result = await source.delete_one(collection, query)
+            return result
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -388,11 +408,14 @@ class MongodbDeleteManyTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_mongo_source(source_provider, self._source_name, self.name)
-        collection = params.get("collection", "")
-        query = params.get("query", {})
-        result = await source.delete_many(collection, query)
-        return result
+        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        try:
+            collection = params.get("collection", "")
+            query = params.get("query", {})
+            result = await source.delete_many(collection, query)
+            return result
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -442,12 +465,15 @@ class MongodbUpdateOneTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_mongo_source(source_provider, self._source_name, self.name)
-        collection = params.get("collection", "")
-        query = params.get("query", {})
-        update = params.get("update", {})
-        result = await source.update_one(collection, query, update)
-        return result
+        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        try:
+            collection = params.get("collection", "")
+            query = params.get("query", {})
+            update = params.get("update", {})
+            result = await source.update_one(collection, query, update)
+            return result
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(
@@ -498,12 +524,15 @@ class MongodbUpdateManyTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = _get_mongo_source(source_provider, self._source_name, self.name)
-        collection = params.get("collection", "")
-        query = params.get("query", {})
-        update = params.get("update", {})
-        result = await source.update_many(collection, query, update)
-        return result
+        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        try:
+            collection = params.get("collection", "")
+            query = params.get("query", {})
+            update = params.get("update", {})
+            result = await source.update_many(collection, query, update)
+            return result
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(

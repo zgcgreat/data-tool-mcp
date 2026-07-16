@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_valkey_source(
+async def _get_valkey_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> ValkeySource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, ValkeySource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Valkey source")
     return source
 
@@ -48,31 +50,34 @@ class ValkeyTool(BaseTool):
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_valkey_source(source_provider, self._source_name, self.name)
-        command = params.get("command", "").lower()
+        source = await _get_valkey_source(source_provider, self._source_name, self.name)
+        try:
+            command = params.get("command", "").lower()
 
-        if command == "execute-command":
-            args = params.get("args", [])
-            result = await source.execute_command(*args)
-            return {"result": result}
-        elif command == "get":
-            value = await source.get(params["key"])
-            return {"value": value}
-        elif command == "set":
-            await source.set(params["key"], params["value"], params.get("ex"))
-            return {"set": True}
-        elif command == "delete":
-            keys = params.get("keys", [])
-            if isinstance(keys, str):
-                keys = [keys]
-            count = await source.delete(*keys)
-            return {"deleted": count}
-        elif command == "keys":
-            pattern = params.get("pattern", "*")
-            keys = await source.keys(pattern)
-            return {"keys": keys}
-        else:
-            raise ValueError(f"unsupported valkey command: {command!r}. Supported: execute-command, get, set, delete, keys")
+            if command == "execute-command":
+                args = params.get("args", [])
+                result = await source.execute_command(*args)
+                return {"result": result}
+            elif command == "get":
+                value = await source.get(params["key"])
+                return {"value": value}
+            elif command == "set":
+                await source.set(params["key"], params["value"], params.get("ex"))
+                return {"set": True}
+            elif command == "delete":
+                keys = params.get("keys", [])
+                if isinstance(keys, str):
+                    keys = [keys]
+                count = await source.delete(*keys)
+                return {"deleted": count}
+            elif command == "keys":
+                pattern = params.get("pattern", "*")
+                keys = await source.keys(pattern)
+                return {"keys": keys}
+            else:
+                raise ValueError(f"unsupported valkey command: {command!r}. Supported: execute-command, get, set, delete, keys")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(

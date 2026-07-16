@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_healthcare_source(
+async def _get_healthcare_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> CloudHealthcareSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, CloudHealthcareSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Cloud Healthcare source")
     return source
 
@@ -47,48 +49,51 @@ class HealthcareGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_healthcare_source(source_provider, self._source_name, self.name)
-        tt = self._tool_type
+        source = await _get_healthcare_source(source_provider, self._source_name, self.name)
+        try:
+            tt = self._tool_type
 
-        if tt == "cloud-healthcare-get-dataset":
-            return {"dataset": {"name": source._dataset_path}}
-        elif tt == "cloud-healthcare-list-fhir-stores":
-            return {"fhir_stores": []}
-        elif tt == "cloud-healthcare-get-fhir-store":
-            return {"fhir_store": {}}
-        elif tt == "cloud-healthcare-get-fhir-store-metrics":
-            return {"metrics": {}}
-        elif tt == "cloud-healthcare-get-fhir-resource":
-            result = await source.fhir_get_patient(params["fhir_store_id"], params["resource_id"])
-            return {"resource": result}
-        elif tt == "cloud-healthcare-fhir-patient-search":
-            entries = await source.fhir_search(params["fhir_store_id"], "Patient", params.get("params"))
-            return {"entries": entries}
-        elif tt == "cloud-healthcare-fhir-patient-everything":
-            entries = await source.fhir_search(params["fhir_store_id"], f"Patient/{params['patient_id']}", params.get("params"))
-            return {"entries": entries}
-        elif tt == "cloud-healthcare-fhir-fetch-page":
-            entries = await source.fhir_search(params["fhir_store_id"], params["resource_type"], params.get("params"))
-            return {"entries": entries}
-        elif tt == "cloud-healthcare-list-dicom-stores":
-            return {"dicom_stores": []}
-        elif tt == "cloud-healthcare-get-dicom-store":
-            return {"dicom_store": {}}
-        elif tt == "cloud-healthcare-get-dicom-store-metrics":
-            return {"metrics": {}}
-        elif tt == "cloud-healthcare-search-dicom-studies":
-            studies = await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))
-            return {"studies": studies}
-        elif tt == "cloud-healthcare-search-dicom-series":
-            studies = await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))
-            return {"series": studies}
-        elif tt == "cloud-healthcare-search-dicom-instances":
-            studies = await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))
-            return {"instances": studies}
-        elif tt == "cloud-healthcare-retrieve-rendered-dicom-instance":
-            return {"rendered": "not yet supported"}
-        else:
-            raise ValueError(f"unknown Healthcare tool type: {tt}")
+            if tt == "cloud-healthcare-get-dataset":
+                return {"dataset": {"name": source._dataset_path}}
+            elif tt == "cloud-healthcare-list-fhir-stores":
+                return {"fhir_stores": []}
+            elif tt == "cloud-healthcare-get-fhir-store":
+                return {"fhir_store": {}}
+            elif tt == "cloud-healthcare-get-fhir-store-metrics":
+                return {"metrics": {}}
+            elif tt == "cloud-healthcare-get-fhir-resource":
+                result = await source.fhir_get_patient(params["fhir_store_id"], params["resource_id"])
+                return {"resource": result}
+            elif tt == "cloud-healthcare-fhir-patient-search":
+                entries = await source.fhir_search(params["fhir_store_id"], "Patient", params.get("params"))
+                return {"entries": entries}
+            elif tt == "cloud-healthcare-fhir-patient-everything":
+                entries = await source.fhir_search(params["fhir_store_id"], f"Patient/{params['patient_id']}", params.get("params"))
+                return {"entries": entries}
+            elif tt == "cloud-healthcare-fhir-fetch-page":
+                entries = await source.fhir_search(params["fhir_store_id"], params["resource_type"], params.get("params"))
+                return {"entries": entries}
+            elif tt == "cloud-healthcare-list-dicom-stores":
+                return {"dicom_stores": []}
+            elif tt == "cloud-healthcare-get-dicom-store":
+                return {"dicom_store": {}}
+            elif tt == "cloud-healthcare-get-dicom-store-metrics":
+                return {"metrics": {}}
+            elif tt == "cloud-healthcare-search-dicom-studies":
+                studies = await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))
+                return {"studies": studies}
+            elif tt == "cloud-healthcare-search-dicom-series":
+                studies = await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))
+                return {"series": studies}
+            elif tt == "cloud-healthcare-search-dicom-instances":
+                studies = await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))
+                return {"instances": studies}
+            elif tt == "cloud-healthcare-retrieve-rendered-dicom-instance":
+                return {"rendered": "not yet supported"}
+            else:
+                raise ValueError(f"unknown Healthcare tool type: {tt}")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

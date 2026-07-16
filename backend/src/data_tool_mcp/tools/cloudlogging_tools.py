@@ -21,17 +21,19 @@ from data_tool_mcp.tools.base import (
 )
 
 
-def _get_logging_source(
+async def _get_logging_source(
     source_provider: SourceProvider | None,
     source_name: str,
     tool_name: str,
 ) -> CloudLoggingAdminSource:
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, CloudLoggingAdminSource):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not a Cloud Logging Admin source")
     return source
 
@@ -46,19 +48,21 @@ class CloudLoggingGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_logging_source(source_provider, self._source_name, self.name)
-
-        if self._tool_type == "cloud-logging-admin-query-logs":
-            entries = await source.query_logs(params.get("filter", ""), params.get("limit", 100))
-            return {"entries": entries}
-        elif self._tool_type == "cloud-logging-admin-list-log-names":
-            names = await source.list_log_names()
-            return {"log_names": names}
-        elif self._tool_type == "cloud-logging-admin-list-resource-types":
-            types = await source.list_resource_types()
-            return {"resource_types": types}
-        else:
-            raise ValueError(f"unknown Cloud Logging tool type: {self._tool_type}")
+        source = await _get_logging_source(source_provider, self._source_name, self.name)
+        try:
+            if self._tool_type == "cloud-logging-admin-query-logs":
+                entries = await source.query_logs(params.get("filter", ""), params.get("limit", 100))
+                return {"entries": entries}
+            elif self._tool_type == "cloud-logging-admin-list-log-names":
+                names = await source.list_log_names()
+                return {"log_names": names}
+            elif self._tool_type == "cloud-logging-admin-list-resource-types":
+                types = await source.list_resource_types()
+                return {"resource_types": types}
+            else:
+                raise ValueError(f"unknown Cloud Logging tool type: {self._tool_type}")
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)

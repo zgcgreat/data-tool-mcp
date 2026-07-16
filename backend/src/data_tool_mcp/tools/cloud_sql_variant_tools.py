@@ -28,13 +28,15 @@ from data_tool_mcp.tools.base import (
 # Helper: get typed source
 # ---------------------------------------------------------------------------
 
-def _get_typed_source(source_provider, source_name, tool_name, source_type):
+async def _get_typed_source(source_provider, source_name, tool_name, source_type):
     if source_provider is None:
         raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = source_provider.get_source(source_name)
+    source = await source_provider.get_source(source_name)
     if source is None:
+        await source_provider.release_source(source_name)
         raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
     if not isinstance(source, source_type):
+        await source_provider.release_source(source_name)
         raise TypeError(f"source {source_name!r} is not the expected source type")
     return source
 
@@ -54,17 +56,20 @@ class CloudSQLMySQLGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_typed_source(source_provider, self._source_name, self.name, CloudSQLMySQLSource)
-        if self._tool_type in ("cloud-sql-mysql-sql", "cloud-sql-mysql-execute-sql"):
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
-            return {"rows": rows, "rowCount": len(rows)}
-        elif self._tool_type == "cloud-sql-mysql-list-tables":
-            tables = await source.list_tables()
-            return {"tables": tables}
-        return {"result": "ok"}
+        source = await _get_typed_source(source_provider, self._source_name, self.name, CloudSQLMySQLSource)
+        try:
+            if self._tool_type in ("cloud-sql-mysql-sql", "cloud-sql-mysql-execute-sql"):
+                sql = params.get("sql", "")
+                if not sql:
+                    raise ValueError("missing 'sql' parameter")
+                rows = await source.execute_sql(sql)
+                return {"rows": rows, "rowCount": len(rows)}
+            elif self._tool_type == "cloud-sql-mysql-list-tables":
+                tables = await source.list_tables()
+                return {"tables": tables}
+            return {"result": "ok"}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
@@ -96,17 +101,20 @@ class CloudSQLMSSQLGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_typed_source(source_provider, self._source_name, self.name, CloudSQLMSSQLSource)
-        if self._tool_type in ("cloud-sql-mssql-sql", "cloud-sql-mssql-execute-sql"):
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
-            return {"rows": rows, "rowCount": len(rows)}
-        elif self._tool_type == "cloud-sql-mssql-list-tables":
-            tables = await source.list_tables()
-            return {"tables": tables}
-        return {"result": "ok"}
+        source = await _get_typed_source(source_provider, self._source_name, self.name, CloudSQLMSSQLSource)
+        try:
+            if self._tool_type in ("cloud-sql-mssql-sql", "cloud-sql-mssql-execute-sql"):
+                sql = params.get("sql", "")
+                if not sql:
+                    raise ValueError("missing 'sql' parameter")
+                rows = await source.execute_sql(sql)
+                return {"rows": rows, "rowCount": len(rows)}
+            elif self._tool_type == "cloud-sql-mssql-list-tables":
+                tables = await source.list_tables()
+                return {"tables": tables}
+            return {"result": "ok"}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
@@ -138,17 +146,20 @@ class AlloyDBPGGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_typed_source(source_provider, self._source_name, self.name, AlloyDBPGSource)
-        if self._tool_type in ("alloydb-pg-sql", "alloydb-pg-execute-sql"):
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
-            return {"rows": rows, "rowCount": len(rows)}
-        elif self._tool_type == "alloydb-pg-list-tables":
-            tables = await source.list_tables()
-            return {"tables": tables}
-        return {"result": "ok"}
+        source = await _get_typed_source(source_provider, self._source_name, self.name, AlloyDBPGSource)
+        try:
+            if self._tool_type in ("alloydb-pg-sql", "alloydb-pg-execute-sql"):
+                sql = params.get("sql", "")
+                if not sql:
+                    raise ValueError("missing 'sql' parameter")
+                rows = await source.execute_sql(sql)
+                return {"rows": rows, "rowCount": len(rows)}
+            elif self._tool_type == "alloydb-pg-list-tables":
+                tables = await source.list_tables()
+                return {"tables": tables}
+            return {"result": "ok"}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
@@ -231,12 +242,15 @@ class CloudSQLPGAdminGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = _get_typed_source(source_provider, self._source_name, self.name, CloudSQLPGSource)
-        if self._tool_type == "cloud-sql-postgres-create-instance":
-            return {"note": "Instance creation handled via Cloud SQL Admin API"}
-        elif self._tool_type == "postgres-upgrade-precheck":
-            return {"note": "Upgrade precheck handled via Cloud SQL Admin API"}
-        return {"result": "ok"}
+        source = await _get_typed_source(source_provider, self._source_name, self.name, CloudSQLPGSource)
+        try:
+            if self._tool_type == "cloud-sql-postgres-create-instance":
+                return {"note": "Instance creation handled via Cloud SQL Admin API"}
+            elif self._tool_type == "postgres-upgrade-precheck":
+                return {"note": "Upgrade precheck handled via Cloud SQL Admin API"}
+            return {"result": "ok"}
+        finally:
+            await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
