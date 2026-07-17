@@ -1018,6 +1018,27 @@ async def _clear_store_tools_for_source(store, rm, name: str, old_cfg: dict[str,
         logger.warning("清除数据源 %r 的旧工具失败: %s", name, exc)
 
 
+async def _delete_old_source_record(
+    store, name: str, old_cfg: dict[str, Any], new_config: dict[str, Any]
+) -> None:
+    """更新数据源时,若 system_id 或 environment 变更,删除旧的 store 记录。
+
+    save_source 以 (name, system_id, environment) 为复合键做 upsert,
+    当键值变更时会插入新记录而非更新,旧记录需手动清除。
+    """
+    if not _is_store_usable(store):
+        return
+    old_sid, old_env = _get_source_env_keys_from_cfg(old_cfg)
+    new_sid = str(new_config.get("systemId", "") or "").strip()
+    new_env = str(new_config.get("environment", "") or "").strip()
+    if old_sid == new_sid and old_env == new_env:
+        return
+    try:
+        await store.delete_source(name, old_sid, old_env)
+    except Exception as exc:
+        logger.warning("清除数据源 %r 的旧 store 记录失败: %s", name, exc)
+
+
 # ---------------------------------------------------------------------------
 # 系统聚合相关辅助函数
 # ---------------------------------------------------------------------------
@@ -1630,6 +1651,9 @@ async def update_source(request: Request, name: str) -> dict[str, Any]:
     # Remove old tools bound to this source before recreating
     old_tools = await _get_tools_for_source(rm, store, name)
     await _remove_tools_for_update(rm, store, name, old_cfg, old_tools)
+    # 若 system_id 或 environment 变更，需先删除旧 store 记录，否则 save_source
+    # 会按新 (system_id, environment) 插入新记录，旧记录成为孤儿数据。
+    await _delete_old_source_record(store, name, old_cfg, config_data)
     source = await _build_source_or_raise(src_type, name, config_data, "更新数据源失败")
     await rm.add_source(name, source, config=config_data)
     await _auto_create_tools(rm, src_type, name)
