@@ -38,6 +38,10 @@
    ========================================================================== */
 
 .qc-sidebar {
+  position: sticky;
+  top: var(--space-4);
+  /* 限制在可视区域内: 100vh - topbar(56) - content padding(48) - sticky top(16) */
+  max-height: calc(100vh - 120px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -597,6 +601,7 @@
   }
 
   .qc-sidebar {
+    position: static;
     max-height: 280px;
   }
 }
