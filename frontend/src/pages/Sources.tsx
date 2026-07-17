@@ -10,6 +10,7 @@ const TYPE_COLORS: Record<string, { color: string; bg: string; border: string; l
   postgresql: { color: '#1f4ea8', bg: 'rgba(47,111,219,0.10)', border: 'rgba(47,111,219,0.30)', label: 'PostgreSQL' },
   postgres:   { color: '#1f4ea8', bg: 'rgba(47,111,219,0.10)', border: 'rgba(47,111,219,0.30)', label: 'PostgreSQL' },
   mysql:      { color: '#a85a18', bg: 'rgba(232,135,58,0.12)', border: 'rgba(232,135,58,0.32)', label: 'MySQL' },
+  tdsql:      { color: '#0e8a7a', bg: 'rgba(14,138,122,0.12)', border: 'rgba(14,138,122,0.32)', label: 'TDSQL' },
   mssql:      { color: '#6b32b8', bg: 'rgba(124,58,237,0.10)', border: 'rgba(124,58,237,0.30)', label: 'SQL Server' },
   sqlite:     { color: '#0e7c8a', bg: 'rgba(14,124,138,0.10)', border: 'rgba(14,124,138,0.30)', label: 'SQLite' },
   oracle:     { color: '#a8341a', bg: 'rgba(220,80,40,0.10)', border: 'rgba(220,80,40,0.30)', label: 'Oracle' },
