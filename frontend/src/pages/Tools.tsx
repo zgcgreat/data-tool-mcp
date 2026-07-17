@@ -246,6 +246,9 @@ export default function Tools() {
               })}
             </select>
           )}
+          <button className="btn-secondary" onClick={loadTools} disabled={loading} title="刷新工具列表">
+            查询
+          </button>
         </div>
       </div>
 

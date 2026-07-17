@@ -139,6 +139,12 @@ def _add_server_name_middleware(app: FastAPI) -> None:
 
 def _register_routers(app: FastAPI, config: ServerConfig) -> None:
     """注册路由。"""
+    # Health check — 轻量级探针,不查数据库,直接返回
+    @app.get("/health")
+    async def health() -> dict:
+        """健康检查端点,返回服务状态。"""
+        return {"status": "ok"}
+
     # Register MCP routes
     mcp_routes.register_routes(app)
     # Register Legacy HTTP API routes (Go: --enable-api flag)

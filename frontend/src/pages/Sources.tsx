@@ -288,6 +288,9 @@ export default function Sources() {
             <option value="">全部环境</option>
             {environments.map(env => <option key={env} value={env}>{env}</option>)}
           </select>
+          <button className="btn-secondary" onClick={loadData} disabled={loading} title="刷新数据源列表">
+            查询
+          </button>
           <button className="btn-primary" onClick={() => setShowModal(true)}>
             <PlusIcon /> 添加数据源
           </button>
