@@ -17,25 +17,47 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
 
 
-async def _get_valkey_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> ValkeySource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = await source_provider.get_source(source_name)
-    if source is None:
-        await source_provider.release_source(source_name)
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, ValkeySource):
-        await source_provider.release_source(source_name)
-        raise TypeError(f"source {source_name!r} is not a Valkey source")
-    return source
+# ---------------------------------------------------------------------------
+# Valkey 命令分发表 — handler 签名 (source, params) -> dict
+# ---------------------------------------------------------------------------
+
+async def _vk_execute_command(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
+    """执行 Valkey 命令。"""
+    return {"result": await source.execute_command(*params.get("args", []))}
+
+async def _vk_get(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取 Valkey 键值。"""
+    return {"value": await source.get(params["key"])}
+
+async def _vk_set(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
+    """设置 Valkey 键值。"""
+    await source.set(params["key"], params["value"], params.get("ex"))
+    return {"set": True}
+
+async def _vk_delete(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
+    """删除 Valkey 键。"""
+    keys = params.get("keys", [])
+    if isinstance(keys, str):
+        keys = [keys]
+    return {"deleted": await source.delete(*keys)}
+
+async def _vk_keys(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取 Valkey 键列表。"""
+    return {"keys": await source.keys(params.get("pattern", "*"))}
+
+
+_VALKEY_DISPATCH: dict[str, Any] = {
+    "execute-command": _vk_execute_command,
+    "get": _vk_get,
+    "set": _vk_set,
+    "delete": _vk_delete,
+    "keys": _vk_keys,
+}
 
 
 class ValkeyTool(BaseTool):
@@ -46,40 +68,24 @@ class ValkeyTool(BaseTool):
     """
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, open_world_hint=True))
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = await _get_valkey_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, ValkeySource)
         try:
             command = params.get("command", "").lower()
-
-            if command == "execute-command":
-                args = params.get("args", [])
-                result = await source.execute_command(*args)
-                return {"result": result}
-            elif command == "get":
-                value = await source.get(params["key"])
-                return {"value": value}
-            elif command == "set":
-                await source.set(params["key"], params["value"], params.get("ex"))
-                return {"set": True}
-            elif command == "delete":
-                keys = params.get("keys", [])
-                if isinstance(keys, str):
-                    keys = [keys]
-                count = await source.delete(*keys)
-                return {"deleted": count}
-            elif command == "keys":
-                pattern = params.get("pattern", "*")
-                keys = await source.keys(pattern)
-                return {"keys": keys}
-            else:
+            handler = _VALKEY_DISPATCH.get(command)
+            if handler is None:
                 raise ValueError(f"unsupported valkey command: {command!r}. Supported: execute-command, get, set, delete, keys")
+            return await handler(source, params)
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -104,12 +110,15 @@ class ValkeyToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "valkey"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> ValkeyToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "执行 Valkey 操作"))
 
     async def initialize(self) -> ValkeyTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return ValkeyTool(cfg=cfg, source_name=self.source)

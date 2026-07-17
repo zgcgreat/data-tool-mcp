@@ -17,25 +17,110 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
 
 
-async def _get_looker_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> LookerSource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = await source_provider.get_source(source_name)
-    if source is None:
-        await source_provider.release_source(source_name)
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, LookerSource):
-        await source_provider.release_source(source_name)
-        raise TypeError(f"source {source_name!r} is not a Looker source")
-    return source
+# ---------------------------------------------------------------------------
+# Looker 操作分发表 — 每个 handler 为 async 函数,签名 (source, params) -> dict
+# ---------------------------------------------------------------------------
+
+async def _lk_get_models(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的模型列表。"""
+    return {"models": await source.get_lookml_models()}
+
+async def _lk_get_model(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的模型。"""
+    return {"model": await source.get_lookml_model(params["model_name"])}
+
+async def _lk_get_explores(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的探索列表。"""
+    model = await source.get_lookml_model(params["model_name"])
+    return {"explores": model.get("explores", [])}
+
+async def _lk_get_explore(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的探索。"""
+    return {"explore": await source.get_lookml_explore(params["model_name"], params["explore_name"])}
+
+async def _lk_create_query(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """创建Looker的查询。"""
+    return {"query": await source.create_query(params["body"])}
+
+async def _lk_run_query(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """运行Looker的查询。"""
+    return {"result": await source.run_query(params["query_id"], params.get("result_format", "json"))}
+
+async def _lk_run_inline_query(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """运行Looker的内联查询。"""
+    return {"result": await source.run_inline_query(params.get("result_format", "json"), params["body"])}
+
+async def _lk_get_looks(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的Look 列表。"""
+    if "look_id" in params:
+        return {"looks": await source.get_look(params.get("look_id", 0))}
+    return {"looks": []}
+
+async def _lk_get_look(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的Look。"""
+    return {"look": await source.get_look(params["look_id"])}
+
+async def _lk_run_look(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """运行Looker的Look。"""
+    return {"result": await source.run_look(params["look_id"], params.get("result_format", "json"))}
+
+async def _lk_get_dashboards(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的仪表板列表。"""
+    return {"dashboards": await source.get_all_dashboards()}
+
+async def _lk_get_dashboard(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的仪表板。"""
+    return {"dashboard": await source.get_dashboard(params["dashboard_id"])}
+
+async def _lk_run_dashboard(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """运行Looker的仪表板。"""
+    return {"dashboard": await source.get_dashboard(params["dashboard_id"])}
+
+async def _lk_get_connections(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的连接列表。"""
+    return {"connections": await source.get_all_connections()}
+
+async def _lk_get_users(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的用户列表。"""
+    return {"users": await source.get_all_users()}
+
+async def _lk_get_folders(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的文件夹列表。"""
+    return {"folders": await source.get_all_folders()}
+
+async def _lk_get_projects(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Looker的项目列表。"""
+    return {"projects": await source.get_all_projects()}
+
+async def _lk_fallback(source: LookerSource, params: dict[str, Any]) -> dict[str, Any]:
+    """Looker 工具兜底处理。"""
+    return {"tool_type": params.get("__tool_type", ""), "params": {k: v for k, v in params.items() if k != "__tool_type"}, "note": "SDK method not yet mapped in LookerSource"}
+
+
+_LOOKER_DISPATCH: dict[str, Any] = {
+    "looker-get-models": _lk_get_models,
+    "looker-get-model": _lk_get_model,
+    "looker-get-explores": _lk_get_explores,
+    "looker-get-explore": _lk_get_explore,
+    "looker-create-query": _lk_create_query,
+    "looker-run-query": _lk_run_query,
+    "looker-run-inline-query": _lk_run_inline_query,
+    "looker-get-looks": _lk_get_looks,
+    "looker-get-look": _lk_get_look,
+    "looker-run-look": _lk_run_look,
+    "looker-get-dashboards": _lk_get_dashboards,
+    "looker-get-dashboard": _lk_get_dashboard,
+    "looker-run-dashboard": _lk_run_dashboard,
+    "looker-get-connections": _lk_get_connections,
+    "looker-get-users": _lk_get_users,
+    "looker-get-folders": _lk_get_folders,
+    "looker-get-projects": _lk_get_projects,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +131,7 @@ class LookerGenericTool(BaseTool):
     """Generic Looker tool that dispatches based on tool type."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+        """初始化工具配置。"""
         ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
@@ -53,77 +139,18 @@ class LookerGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = await _get_looker_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, LookerSource)
         try:
-            tt = self._tool_type
-
-            # LookML
-            if tt == "looker-get-models":
-                models = await source.get_lookml_models()
-                return {"models": models}
-            elif tt == "looker-get-model":
-                return {"model": await source.get_lookml_model(params["model_name"])}
-            elif tt == "looker-get-explores":
-                model = await source.get_lookml_model(params["model_name"])
-                return {"explores": model.get("explores", [])}
-            elif tt == "looker-get-explore":
-                return {"explore": await source.get_lookml_explore(params["model_name"], params["explore_name"])}
-
-            # Query
-            elif tt == "looker-create-query":
-                return {"query": await source.create_query(params["body"])}
-            elif tt == "looker-run-query":
-                result = await source.run_query(params["query_id"], params.get("result_format", "json"))
-                return {"result": result}
-            elif tt == "looker-run-inline-query":
-                result = await source.run_inline_query(params.get("result_format", "json"), params["body"])
-                return {"result": result}
-
-            # Looks
-            elif tt == "looker-get-looks":
-                return {"looks": await source.get_look(params.get("look_id", 0))} if "look_id" in params else {"looks": []}
-            elif tt == "looker-get-look":
-                return {"look": await source.get_look(params["look_id"])}
-            elif tt == "looker-run-look":
-                result = await source.run_look(params["look_id"], params.get("result_format", "json"))
-                return {"result": result}
-
-            # Dashboards
-            elif tt == "looker-get-dashboards":
-                dashboards = await source.get_all_dashboards()
-                return {"dashboards": dashboards}
-            elif tt == "looker-get-dashboard":
-                return {"dashboard": await source.get_dashboard(params["dashboard_id"])}
-            elif tt == "looker-run-dashboard":
-                return {"dashboard": await source.get_dashboard(params["dashboard_id"])}
-
-            # Connections
-            elif tt == "looker-get-connections":
-                connections = await source.get_all_connections()
-                return {"connections": connections}
-
-            # Users
-            elif tt == "looker-get-users":
-                users = await source.get_all_users()
-                return {"users": users}
-
-            # Folders
-            elif tt == "looker-get-folders":
-                folders = await source.get_all_folders()
-                return {"folders": folders}
-
-            # Projects
-            elif tt == "looker-get-projects":
-                projects = await source.get_all_projects()
-                return {"projects": projects}
-
-            # Fallback for tools that need more SDK methods
-            else:
-                return {"tool_type": tt, "params": params, "note": "SDK method not yet mapped in LookerSource"}
+            handler = _LOOKER_DISPATCH.get(self._tool_type)
+            if handler is not None:
+                return await handler(source, params)
+            return await _lk_fallback(source, {"__tool_type": self._tool_type, **params})
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
 
 
@@ -299,6 +326,7 @@ _LOOKER_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
 # ---------------------------------------------------------------------------
 
 def _make_looker_tool_config(tool_type: str, description: str, param_defs: list[ParameterManifest], read_only: bool):
+    """构造Looker工具配置。"""
     @register_tool(tool_type)
     @dataclass
     class _LookerToolConfig(ToolConfig):
@@ -308,13 +336,16 @@ def _make_looker_tool_config(tool_type: str, description: str, param_defs: list[
 
         @property
         def tool_type(self) -> str:
+            """返回工具类型标识符。"""
             return tool_type
 
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _LookerToolConfig:
+            """从字典创建配置实例。"""
             return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
 
         async def initialize(self) -> LookerGenericTool:
+            """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return LookerGenericTool(cfg=cfg, source_name=self.source, tool_type=tool_type, param_defs=param_defs, read_only=read_only)
 

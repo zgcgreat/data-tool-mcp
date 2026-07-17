@@ -56,6 +56,7 @@ def _resolve_store_password(raw: str) -> str:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """构建 CLI argparse 解析器。"""
     parser = argparse.ArgumentParser(
         prog="toolbox",
         description="MCP Toolbox for Databases — Python edition",
@@ -129,6 +130,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """CLI 主入口。"""
     _load_dotenv()
 
     parser = _build_parser()
@@ -168,6 +170,7 @@ def _split_source_types(raw):
 
 
 def _build_server_config(args: argparse.Namespace):
+    """从 CLI 参数构造 ServerConfig。"""
     from data_tool_mcp.config.models import ServerConfig
 
     return ServerConfig(
@@ -209,6 +212,7 @@ def _build_server_config(args: argparse.Namespace):
 
 
 def _cmd_serve(args: argparse.Namespace) -> None:
+    """执行 serve 子命令,启动 HTTP/STDIO 服务。"""
     server_config = _build_server_config(args)
     if args.stdio:
         asyncio.run(_run_stdio(server_config))
@@ -217,6 +221,7 @@ def _cmd_serve(args: argparse.Namespace) -> None:
 
 
 def _telemetry_gcp_project(config: "ServerConfig") -> str | None:
+    """启用 GCP 遥测时返回 project id,否则返回 None。"""
     return config.telemetry_gcp_project if config.telemetry_gcp else None
 
 
@@ -306,6 +311,7 @@ async def _start_db_reload_watcher(config: "ServerConfig", rm: "ResourceManager"
     from data_tool_mcp.config.loader import load_config
 
     async def _reload_from_db() -> None:
+        """DB 热重载回调:重新加载配置并替换资源,关闭旧 source 连接。"""
         old_sources = rm.get_sources_map()
         reloaded = await load_config(config)
         await _initialize_resources(reloaded, rm)

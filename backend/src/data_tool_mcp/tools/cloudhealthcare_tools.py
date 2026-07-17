@@ -17,31 +17,100 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
 
 
-async def _get_healthcare_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> CloudHealthcareSource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = await source_provider.get_source(source_name)
-    if source is None:
-        await source_provider.release_source(source_name)
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, CloudHealthcareSource):
-        await source_provider.release_source(source_name)
-        raise TypeError(f"source {source_name!r} is not a Cloud Healthcare source")
-    return source
+# ---------------------------------------------------------------------------
+# Healthcare 操作分发表 — 每个 handler 为 async 函数,签名 (source, params) -> dict
+# ---------------------------------------------------------------------------
+
+async def _hc_get_dataset(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Cloud Healthcare的数据集。"""
+    return {"dataset": {"name": source._dataset_path}}
+
+async def _hc_list_fhir_stores(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """列出Cloud Healthcare的FHIR 存储列表。"""
+    return {"fhir_stores": []}
+
+async def _hc_get_fhir_store(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Cloud Healthcare的FHIR 存储。"""
+    return {"fhir_store": {}}
+
+async def _hc_get_fhir_store_metrics(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Cloud Healthcare的FHIR 存储指标。"""
+    return {"metrics": {}}
+
+async def _hc_get_fhir_resource(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Cloud Healthcare的FHIR 资源。"""
+    return {"resource": await source.fhir_get_patient(params["fhir_store_id"], params["resource_id"])}
+
+async def _hc_fhir_patient_search(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """搜索 FHIR 患者资源。"""
+    return {"entries": await source.fhir_search(params["fhir_store_id"], "Patient", params.get("params"))}
+
+async def _hc_fhir_patient_everything(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取 FHIR 患者所有资源。"""
+    return {"entries": await source.fhir_search(params["fhir_store_id"], f"Patient/{params['patient_id']}", params.get("params"))}
+
+async def _hc_fhir_fetch_page(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取 FHIR 分页数据。"""
+    return {"entries": await source.fhir_search(params["fhir_store_id"], params["resource_type"], params.get("params"))}
+
+async def _hc_list_dicom_stores(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """列出Cloud Healthcare的DICOM 存储列表。"""
+    return {"dicom_stores": []}
+
+async def _hc_get_dicom_store(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Cloud Healthcare的DICOM 存储。"""
+    return {"dicom_store": {}}
+
+async def _hc_get_dicom_store_metrics(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Cloud Healthcare的DICOM 存储指标。"""
+    return {"metrics": {}}
+
+async def _hc_search_dicom_studies(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """搜索Cloud Healthcare的DICOM 研究列表。"""
+    return {"studies": await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))}
+
+async def _hc_search_dicom_series(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """搜索Cloud Healthcare的DICOM 系列列表。"""
+    return {"series": await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))}
+
+async def _hc_search_dicom_instances(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """搜索Cloud Healthcare的DICOM 实例列表。"""
+    return {"instances": await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))}
+
+async def _hc_retrieve_rendered(source: CloudHealthcareSource, params: dict[str, Any]) -> dict[str, Any]:
+    """检索Cloud Healthcare的渲染结果。"""
+    return {"rendered": "not yet supported"}
+
+
+_HC_DISPATCH: dict[str, Any] = {
+    "cloud-healthcare-get-dataset": _hc_get_dataset,
+    "cloud-healthcare-list-fhir-stores": _hc_list_fhir_stores,
+    "cloud-healthcare-get-fhir-store": _hc_get_fhir_store,
+    "cloud-healthcare-get-fhir-store-metrics": _hc_get_fhir_store_metrics,
+    "cloud-healthcare-get-fhir-resource": _hc_get_fhir_resource,
+    "cloud-healthcare-fhir-patient-search": _hc_fhir_patient_search,
+    "cloud-healthcare-fhir-patient-everything": _hc_fhir_patient_everything,
+    "cloud-healthcare-fhir-fetch-page": _hc_fhir_fetch_page,
+    "cloud-healthcare-list-dicom-stores": _hc_list_dicom_stores,
+    "cloud-healthcare-get-dicom-store": _hc_get_dicom_store,
+    "cloud-healthcare-get-dicom-store-metrics": _hc_get_dicom_store_metrics,
+    "cloud-healthcare-search-dicom-studies": _hc_search_dicom_studies,
+    "cloud-healthcare-search-dicom-series": _hc_search_dicom_series,
+    "cloud-healthcare-search-dicom-instances": _hc_search_dicom_instances,
+    "cloud-healthcare-retrieve-rendered-dicom-instance": _hc_retrieve_rendered,
+}
 
 
 class HealthcareGenericTool(BaseTool):
     """Generic Cloud Healthcare tool that dispatches based on tool type."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+        """初始化工具配置。"""
         ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
@@ -49,53 +118,18 @@ class HealthcareGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = await _get_healthcare_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, CloudHealthcareSource)
         try:
-            tt = self._tool_type
-
-            if tt == "cloud-healthcare-get-dataset":
-                return {"dataset": {"name": source._dataset_path}}
-            elif tt == "cloud-healthcare-list-fhir-stores":
-                return {"fhir_stores": []}
-            elif tt == "cloud-healthcare-get-fhir-store":
-                return {"fhir_store": {}}
-            elif tt == "cloud-healthcare-get-fhir-store-metrics":
-                return {"metrics": {}}
-            elif tt == "cloud-healthcare-get-fhir-resource":
-                result = await source.fhir_get_patient(params["fhir_store_id"], params["resource_id"])
-                return {"resource": result}
-            elif tt == "cloud-healthcare-fhir-patient-search":
-                entries = await source.fhir_search(params["fhir_store_id"], "Patient", params.get("params"))
-                return {"entries": entries}
-            elif tt == "cloud-healthcare-fhir-patient-everything":
-                entries = await source.fhir_search(params["fhir_store_id"], f"Patient/{params['patient_id']}", params.get("params"))
-                return {"entries": entries}
-            elif tt == "cloud-healthcare-fhir-fetch-page":
-                entries = await source.fhir_search(params["fhir_store_id"], params["resource_type"], params.get("params"))
-                return {"entries": entries}
-            elif tt == "cloud-healthcare-list-dicom-stores":
-                return {"dicom_stores": []}
-            elif tt == "cloud-healthcare-get-dicom-store":
-                return {"dicom_store": {}}
-            elif tt == "cloud-healthcare-get-dicom-store-metrics":
-                return {"metrics": {}}
-            elif tt == "cloud-healthcare-search-dicom-studies":
-                studies = await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))
-                return {"studies": studies}
-            elif tt == "cloud-healthcare-search-dicom-series":
-                studies = await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))
-                return {"series": studies}
-            elif tt == "cloud-healthcare-search-dicom-instances":
-                studies = await source.dicom_search_studies(params["dicom_store_id"], params.get("params"))
-                return {"instances": studies}
-            elif tt == "cloud-healthcare-retrieve-rendered-dicom-instance":
-                return {"rendered": "not yet supported"}
-            else:
-                raise ValueError(f"unknown Healthcare tool type: {tt}")
+            handler = _HC_DISPATCH.get(self._tool_type)
+            if handler is None:
+                raise ValueError(f"unknown Healthcare tool type: {self._tool_type}")
+            return await handler(source, params)
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
 
 
@@ -144,6 +178,7 @@ _HC_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
 
 
 def _make_hc_tool_config(tool_type: str, description: str, param_defs: list[ParameterManifest], read_only: bool):
+    """构造Cloud Healthcare工具配置。"""
     @register_tool(tool_type)
     @dataclass
     class _HCToolConfig(ToolConfig):
@@ -153,13 +188,16 @@ def _make_hc_tool_config(tool_type: str, description: str, param_defs: list[Para
 
         @property
         def tool_type(self) -> str:
+            """返回工具类型标识符。"""
             return tool_type
 
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _HCToolConfig:
+            """从字典创建配置实例。"""
             return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
 
         async def initialize(self) -> HealthcareGenericTool:
+            """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return HealthcareGenericTool(cfg=cfg, source_name=self.source, tool_type=tool_type, param_defs=param_defs, read_only=read_only)
 

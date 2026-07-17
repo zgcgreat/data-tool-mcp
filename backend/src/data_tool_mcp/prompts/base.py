@@ -43,6 +43,7 @@ class Argument:
     required: bool = True
 
     def manifest(self) -> ArgumentManifest:
+        """生成参数的 manifest 描述。"""
         return ArgumentManifest(
             name=self.name,
             description=self.description,
@@ -118,11 +119,15 @@ class Prompt(ABC):
 
     @property
     @abstractmethod
-    def name(self) -> str: ...
+    def name(self) -> str:
+        """返回 prompt 名称。"""
+        ...
 
     @property
     @abstractmethod
-    def description(self) -> str: ...
+    def description(self) -> str:
+        """返回 prompt 描述。"""
+        ...
 
     @abstractmethod
     def get_arguments(self) -> list[Argument]:
@@ -179,6 +184,7 @@ class CustomPrompt(Prompt):
         messages: list[Message],
         arguments: list[Argument] | None = None,
     ):
+        """初始化实例。"""
         self._name = name
         self._description = description
         self._messages = messages
@@ -186,16 +192,20 @@ class CustomPrompt(Prompt):
 
     @property
     def name(self) -> str:
+        """返回 prompt 名称。"""
         return self._name
 
     @property
     def description(self) -> str:
+        """返回 prompt 描述。"""
         return self._description
 
     def get_arguments(self) -> list[Argument]:
+        """返回 prompt 的参数定义列表。"""
         return self._arguments
 
     def manifest(self) -> PromptManifest:
+        """生成 prompt 的 manifest 描述。"""
         return PromptManifest(
             description=self._description,
             arguments=[a.manifest() for a in self._arguments],
@@ -218,6 +228,7 @@ class CustomPrompt(Prompt):
         }
 
     def to_config(self) -> CustomPromptConfig:
+        """将 prompt 转换回配置对象。"""
         return CustomPromptConfig(
             name=self._name,
             description=self._description,
@@ -239,9 +250,11 @@ class CustomPromptConfig(PromptConfig):
 
     @property
     def prompt_type(self) -> str:
+        """返回 prompt 类型标识。"""
         return "custom"
 
     async def initialize(self) -> CustomPrompt:
+        """校验名称并创建 CustomPrompt 实例。"""
         if not validate_name(self.name):
             raise ValueError(f"invalid prompt name: {self.name}")
         return CustomPrompt(
@@ -273,6 +286,7 @@ class Promptset:
     """
 
     def __init__(self, name: str, prompt_names: list[str] | None = None):
+        """初始化实例。"""
         self.name = name
         self.prompt_names: list[str] = prompt_names or []
         self._prompts: dict[str, Prompt] = {}
@@ -284,6 +298,21 @@ class Promptset:
         Maps to Go: ContainsPrompt(name) bool
         """
         return name in self.prompt_names
+
+    def _build_prompts_and_manifest(
+        self,
+        prompts_map: dict[str, Prompt],
+    ) -> dict[str, PromptManifest]:
+        """构建 prompts 字典和 manifest 字典,缺少 prompt 时抛出 ValueError。"""
+        self._prompts = {}
+        prompts_manifest: dict[str, PromptManifest] = {}
+        for prompt_name in self.prompt_names:
+            prompt = prompts_map.get(prompt_name)
+            if prompt is None:
+                raise ValueError(f"prompt does not exist: {prompt_name}")
+            self._prompts[prompt_name] = prompt
+            prompts_manifest[prompt_name] = prompt.manifest()
+        return prompts_manifest
 
     def initialize(
         self,
@@ -297,15 +326,7 @@ class Promptset:
         if not validate_name(self.name):
             raise ValueError(f"invalid promptset name: {self.name}")
 
-        self._prompts = {}
-        prompts_manifest: dict[str, PromptManifest] = {}
-
-        for prompt_name in self.prompt_names:
-            prompt = prompts_map.get(prompt_name)
-            if prompt is None:
-                raise ValueError(f"prompt does not exist: {prompt_name}")
-            self._prompts[prompt_name] = prompt
-            prompts_manifest[prompt_name] = prompt.manifest()
+        prompts_manifest = self._build_prompts_and_manifest(prompts_map)
 
         self._manifest = PromptsetManifest(
             server_version=server_version,
@@ -342,6 +363,7 @@ def register_prompt(prompt_type: str):
             ...
     """
     def decorator(cls: type[PromptConfig]) -> type[PromptConfig]:
+        """将 PromptConfig 子类注册到全局 registry。"""
         if prompt_type in _prompt_registry:
             raise ValueError(f"prompt type {prompt_type!r} already registered")
         _prompt_registry[prompt_type] = cls

@@ -42,6 +42,7 @@ class SSETransport:
         sse_manager: SSEManager | None = None,
         session: SSESession | None = None,
     ):
+        """初始化实例。"""
         self.protocol = protocol
         self._base_url = base_url
         self._toolset_name = toolset_name
@@ -82,30 +83,36 @@ class SSETransport:
             "event": "endpoint",
             "data": self._message_endpoint,
         }
+        async for event in self._stream_messages():
+            yield event
 
-        # Main loop: consume messages from the session queue + send periodic pings
+    async def _stream_messages(self) -> AsyncGenerator[dict, None]:
+        """主循环:从队列消费消息,超时发送 ping。"""
         ping_interval = 30.0
         while True:
-            try:
-                # Wait for a message from the queue with a timeout for ping
-                message = await asyncio.wait_for(
-                    self.session.event_queue.get(), timeout=ping_interval
-                )
-                if message is None:
-                    # None is a sentinel signaling the session should close
-                    break
-                yield {
-                    "event": "message",
-                    "data": message,
-                }
-            except asyncio.TimeoutError:
-                # No message in ping_interval — send a keepalive ping
-                yield {
-                    "event": "ping",
-                    "data": "",
-                }
-            except asyncio.CancelledError:
+            event = await self._next_event(ping_interval)
+            if event is None:
                 break
+            yield event
+
+    async def _next_event(self, ping_interval: float):
+        """获取下一个事件。None 表示会话应关闭。"""
+        try:
+            message = await asyncio.wait_for(
+                self.session.event_queue.get(), timeout=ping_interval
+            )
+        except asyncio.TimeoutError:
+            # No message in ping_interval — send a keepalive ping
+            return {"event": "ping", "data": ""}
+        except asyncio.CancelledError:
+            return None
+        return self._message_to_event(message)
+
+    def _message_to_event(self, message):
+        """将队列消息转为事件。哨兵 None 返回 None 表示关闭。"""
+        if message is None:
+            return None
+        return {"event": "message", "data": message}
 
     async def handle_post(self, body: bytes) -> JSONRPCResponse | None:
         """Handle a POST request (client sends JSON-RPC over HTTP).
@@ -116,36 +123,48 @@ class SSETransport:
         stream delivers it as a ``message`` event.  Notifications (no id)
         return None and produce no SSE message (HTTP 202).
         """
-        # Check for batch requests (array format)
-        try:
-            data = json.loads(body)
-            if isinstance(data, list):
-                return JSONRPCResponse(
-                    error={"code": -32600, "message": "not supporting batch requests"},
-                    id=None,
-                )
-        except json.JSONDecodeError as exc:
-            return JSONRPCResponse(
-                error={"code": -32700, "message": f"parse error: {exc}"},
-                id=None,
-            )
+        data, error = self._parse_post_body(body)
+        if error is not None:
+            return error
         request = JSONRPCRequest.from_dict(data)
         response = await self.protocol.handle_request(request)
         if response is None:
             # Notification — no response needed
             return None
-        # Enqueue the JSON-RPC response onto the SSE stream
+        self._enqueue_response(response)
+        return response
+
+    def _parse_post_body(self, body: bytes):
+        """解析 POST body。成功返回 (data, None);失败返回 (None, error_response)。"""
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError as exc:
+            return None, JSONRPCResponse(
+                error={"code": -32700, "message": f"parse error: {exc}"},
+                id=None,
+            )
+        if isinstance(data, list):
+            return None, JSONRPCResponse(
+                error={"code": -32600, "message": "not supporting batch requests"},
+                id=None,
+            )
+        return data, None
+
+    def _enqueue_response(self, response: JSONRPCResponse) -> None:
+        """将响应入队到 SSE 流,队列满时丢弃最旧消息重试。"""
         message_json = json.dumps(response.to_dict())
         try:
             self.session.event_queue.put_nowait(message_json)
         except asyncio.QueueFull:
-            # Queue is full — drop oldest and retry
-            try:
-                self.session.event_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            self.session.event_queue.put_nowait(message_json)
-        return response
+            self._drop_oldest_and_enqueue(message_json)
+
+    def _drop_oldest_and_enqueue(self, message_json: str) -> None:
+        """队列满时丢弃最旧消息后重新入队。"""
+        try:
+            self.session.event_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        self.session.event_queue.put_nowait(message_json)
 
     def create_sse_response(self) -> StreamingResponse:
         """Create a Starlette SSE response for GET /sse.
@@ -154,6 +173,7 @@ class SSETransport:
         """
 
         async def format_events():
+            """生成 SSE 文本流,客户端断开时清理会话。"""
             try:
                 async for event in self.event_stream():
                     event_type = event.get("event", "message")

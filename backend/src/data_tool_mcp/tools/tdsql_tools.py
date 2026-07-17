@@ -39,6 +39,7 @@ class TDSQLListTool(BaseTool):
     """
 
     def __init__(self, cfg: ConfigBase, source_name: str, sql: str, param_defs: list[ParameterManifest] | None = None):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._sql = sql
@@ -50,6 +51,7 @@ class TDSQLListTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await source.execute_sql(self._sql, params if params else None)
@@ -58,6 +60,7 @@ class TDSQLListTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=self._param_defs,
@@ -112,6 +115,7 @@ _TDSQL_PARAM_TOOLS: list[tuple[str, str, str, list[ParameterManifest]]] = [
 
 
 def _make_tdsql_list_tool_config(tool_type: str, description: str, sql: str, param_defs: list[ParameterManifest]):
+    """构造TDSQL 列表工具配置。"""
     @register_tool(tool_type)
     @dataclass
     class _TDSQLListToolConfig(ToolConfig):
@@ -121,13 +125,16 @@ def _make_tdsql_list_tool_config(tool_type: str, description: str, sql: str, par
 
         @property
         def tool_type(self) -> str:
+            """返回工具类型标识符。"""
             return tool_type
 
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _TDSQLListToolConfig:
+            """从字典创建配置实例。"""
             return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
 
         async def initialize(self) -> TDSQLListTool:
+            """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return TDSQLListTool(cfg=cfg, source_name=self.source, sql=sql, param_defs=param_defs)
 

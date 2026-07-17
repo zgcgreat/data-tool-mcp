@@ -47,6 +47,7 @@ class SQLiteSQLTool(BaseTool):
         statement: str = "",
         template_parameters: list[dict[str, Any]] | None = None,
     ):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._statement = statement
@@ -58,6 +59,7 @@ class SQLiteSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await _execute_sql_with_modes(
@@ -68,6 +70,7 @@ class SQLiteSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         if self._template_parameters:
             parameters = _manifests_from_dicts(self._template_parameters)
         else:
@@ -90,10 +93,12 @@ class SQLiteSQLToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "sqlite-sql"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> SQLiteSQLToolConfig:
+        """从字典创建配置实例。"""
         return cls(
             _name=name,
             source=data.get("source", ""),
@@ -103,6 +108,7 @@ class SQLiteSQLToolConfig(ToolConfig):
         )
 
     async def initialize(self) -> SQLiteSQLTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return SQLiteSQLTool(
             cfg=cfg,
@@ -127,6 +133,7 @@ class SQLiteExecuteSQLTool(BaseTool):
         statement: str = "",
         template_parameters: list[dict[str, Any]] | None = None,
     ):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
         self._source_name = source_name
         self._statement = statement
@@ -138,6 +145,7 @@ class SQLiteExecuteSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await _execute_sql_with_modes(
@@ -148,6 +156,7 @@ class SQLiteExecuteSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         if self._template_parameters:
             parameters = _manifests_from_dicts(self._template_parameters)
         else:
@@ -170,10 +179,12 @@ class SQLiteExecuteSQLToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "sqlite-execute-sql"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> SQLiteExecuteSQLToolConfig:
+        """从字典创建配置实例。"""
         return cls(
             _name=name,
             source=data.get("source", ""),
@@ -183,6 +194,7 @@ class SQLiteExecuteSQLToolConfig(ToolConfig):
         )
 
     async def initialize(self) -> SQLiteExecuteSQLTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return SQLiteExecuteSQLTool(
             cfg=cfg,

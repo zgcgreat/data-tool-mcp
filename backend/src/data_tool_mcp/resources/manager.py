@@ -37,6 +37,7 @@ def _schedule_source_close(old: Any) -> None:
 
 
 def _strip_str(val: Any) -> str:
+    """将 val 转字符串并去除空白,None 视为空串。"""
     return str(val or "").strip()
 
 
@@ -61,10 +62,12 @@ class Toolset:
     """
 
     def __init__(self, name: str, tools: list[str] | None = None):
+        """初始化实例。"""
         self.name = name
         self.tool_names: list[str] = tools or []
 
     def add_tool(self, tool_name: str) -> None:
+        """将工具名添加到工具集(已存在则跳过)。"""
         if tool_name not in self.tool_names:
             self.tool_names.append(tool_name)
 
@@ -108,6 +111,7 @@ class ResourceManager:
     """
 
     def __init__(self, source_cache_maxsize: int = 128) -> None:
+        """初始化实例。"""
         # Source: LRU cache-aside(惰性加载 + 引用计数)
         self._source_cache = LRUCache(
             maxsize=source_cache_maxsize,
@@ -277,9 +281,11 @@ class ResourceManager:
     # -- Tools --
 
     def get_tool(self, tool_name: str) -> Tool | None:
+        """获取指定名称的工具实例。"""
         return self._tools.get(tool_name)
 
     def get_tools_map(self) -> dict[str, Tool]:
+        """返回所有工具的 dict 副本。"""
         return dict(self._tools)
 
     def add_tool(self, name: str, tool: Tool, tool_type: str = "") -> None:
@@ -294,6 +300,7 @@ class ResourceManager:
             self._add_tool_to_all_toolsets(name, tool)
 
     def _register_tool(self, name: str, tool: Tool, tool_type: str) -> None:
+        """将工具与类型注册到内部 dict。"""
         self._tools[name] = tool
         if tool_type:
             self._tool_types[name] = tool_type
@@ -369,6 +376,7 @@ class ResourceManager:
     def _add_to_system_env_group(
         self, src: str, tool_name: str, system_env_tool_map: dict[str, list[str]]
     ) -> None:
+        """将工具归入对应的 {system_id}-{environment} 分组。"""
         sid_env = _extract_system_env(self._source_configs.get(src) or {})
         if not sid_env:
             return
@@ -381,6 +389,7 @@ class ResourceManager:
             self._apply_one_toolset_group(ts_name, tool_names)
 
     def _apply_one_toolset_group(self, ts_name: str, tool_names: list[str]) -> None:
+        """应用单个 toolset 分组(已存在则合并,否则新建)。"""
         if ts_name in self._toolsets:
             self._merge_names_into_toolset(ts_name, tool_names)
             return
@@ -405,9 +414,11 @@ class ResourceManager:
     # -- Toolsets --
 
     def get_toolset(self, toolset_name: str) -> Toolset | None:
+        """获取指定名称的工具集。"""
         return self._toolsets.get(toolset_name)
 
     def get_toolsets_map(self) -> dict[str, Toolset]:
+        """返回所有 toolset 的 dict 副本。"""
         return dict(self._toolsets)
 
     def get_toolset_tools(self, toolset_name: str) -> list[Tool]:
@@ -427,17 +438,21 @@ class ResourceManager:
     # -- Prompts --
 
     def get_prompt(self, prompt_name: str) -> Any | None:
+        """获取指定名称的 prompt。"""
         return self._prompts.get(prompt_name)
 
     def get_prompts_map(self) -> dict[str, Any]:
+        """返回所有 prompt 的 dict 副本。"""
         return dict(self._prompts)
 
     # -- Promptsets --
 
     def get_promptset(self, promptset_name: str) -> Any | None:
+        """获取指定名称的 promptset。"""
         return self._promptsets.get(promptset_name)
 
     def get_promptsets_map(self) -> dict[str, Any]:
+        """返回所有 promptset 的 dict 副本。"""
         return dict(self._promptsets)
 
     def get_promptset_prompts(self, promptset_name: str) -> list[Any]:
@@ -450,9 +465,11 @@ class ResourceManager:
     # -- Embedding models --
 
     def get_embedding_model(self, embedding_model_name: str) -> Any | None:
+        """获取指定名称的 embedding model。"""
         return self._embedding_models.get(embedding_model_name)
 
     def get_embedding_models_map(self) -> dict[str, Any]:
+        """返回所有 embedding model 的 dict 副本。"""
         return dict(self._embedding_models)
 
     # -- Batch update (hot-reload) --

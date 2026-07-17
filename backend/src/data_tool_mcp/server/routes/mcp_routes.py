@@ -44,9 +44,14 @@ def _get_client_addr(request: Request) -> str:
     xff = request.headers.get("x-forwarded-for", "")
     if xff:
         return xff.split(",")[0].strip()
-    if request.client:
-        return request.client.host or ""
-    return ""
+    return _client_host(request)
+
+
+def _client_host(request: Request) -> str:
+    """从 request.client 获取 host,不可用时返回空串。"""
+    if not request.client:
+        return ""
+    return request.client.host or ""
 
 
 def register_routes(app: FastAPI) -> None:

@@ -17,25 +17,34 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
 
 
-async def _get_alloydb_pg_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> AlloyDBPGSource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = await source_provider.get_source(source_name)
-    if source is None:
-        await source_provider.release_source(source_name)
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, AlloyDBPGSource):
-        await source_provider.release_source(source_name)
-        raise TypeError(f"source {source_name!r} is not an AlloyDB PostgreSQL source")
-    return source
+def _build_param_literals(nl_config_parameters: dict[str, str]) -> tuple[str, str]:
+    """构造 param_names/param_values 的 SQL 字面量。"""
+    names = ", ".join(f"'{n}'" for n in nl_config_parameters.keys())
+    values = ", ".join(f"'{v}'" for v in nl_config_parameters.values())
+    return names, values
+
+
+def _build_alloydb_nl_sql(nl_config_parameters: dict[str, str] | None) -> str:
+    """构造 alloydb_ai_nl.execute_nl_query SQL 文本。"""
+    if not nl_config_parameters:
+        return (
+            "SELECT alloydb_ai_nl.execute_nl_query("
+            "nl_question => :question, "
+            "nl_config_id => :nl_config_id)"
+        )
+    names_literal, values_literal = _build_param_literals(nl_config_parameters)
+    return (
+        f"SELECT alloydb_ai_nl.execute_nl_query("
+        f"nl_question => :question, "
+        f"nl_config_id => :nl_config_id, "
+        f"param_names => ARRAY[{names_literal}], "
+        f"param_values => ARRAY[{values_literal}])"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +55,7 @@ class AlloyDBAINLTool(BaseTool):
     """Execute a natural language query on AlloyDB using the alloydb_ai_nl extension."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, nl_config: str, nl_config_parameters: dict[str, str] | None = None):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._nl_config = nl_config
@@ -57,37 +67,20 @@ class AlloyDBAINLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_alloydb_pg_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, AlloyDBPGSource)
         try:
             question = params.get("question", "")
             if not question:
                 raise ValueError("missing 'question' parameter")
-
-            if self._nl_config_parameters:
-                param_names = list(self._nl_config_parameters.keys())
-                param_values = list(self._nl_config_parameters.values())
-                names_literal = ", ".join(f"'{n}'" for n in param_names)
-                values_literal = ", ".join(f"'{v}'" for v in param_values)
-                sql = (
-                    f"SELECT alloydb_ai_nl.execute_nl_query("
-                    f"nl_question => :question, "
-                    f"nl_config_id => :nl_config_id, "
-                    f"param_names => ARRAY[{names_literal}], "
-                    f"param_values => ARRAY[{values_literal}])"
-                )
-            else:
-                sql = (
-                    "SELECT alloydb_ai_nl.execute_nl_query("
-                    "nl_question => :question, "
-                    "nl_config_id => :nl_config_id)"
-                )
-
+            sql = _build_alloydb_nl_sql(self._nl_config_parameters)
             rows = await source.execute_sql(sql, {"question": question, "nl_config_id": self._nl_config})
             return {"rows": rows, "rowCount": len(rows)}
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -112,10 +105,12 @@ class AlloyDBAINLToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "alloydb-ai-nl"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> AlloyDBAINLToolConfig:
+        """从字典创建配置实例。"""
         return cls(
             _name=name,
             source=data.get("source", ""),
@@ -125,6 +120,7 @@ class AlloyDBAINLToolConfig(ToolConfig):
         )
 
     async def initialize(self) -> AlloyDBAINLTool:
+        """创建并初始化工具实例。"""
         if not self.source:
             raise ValueError("alloydb-ai-nl tool requires a 'source' configuration")
         if not self.nlConfig:

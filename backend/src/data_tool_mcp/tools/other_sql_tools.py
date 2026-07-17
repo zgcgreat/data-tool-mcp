@@ -31,10 +31,12 @@ class GenericSQLTool(BaseTool):
     """Run a read-only SQL query."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             sql = params.get("sql", "")
@@ -46,6 +48,7 @@ class GenericSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[ParameterManifest(name="sql", type="string", description="SQL query to execute", required=True)],
@@ -57,10 +60,12 @@ class GenericExecuteSQLTool(BaseTool):
     """Execute a SQL statement (may modify data)."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             sql = params.get("sql", "")
@@ -72,6 +77,7 @@ class GenericExecuteSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[ParameterManifest(name="sql", type="string", description="SQL statement to execute", required=True)],
@@ -83,11 +89,13 @@ class GenericListTablesTool(BaseTool):
     """List all tables via a fixed SQL query."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, sql: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._sql = sql
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await source.execute_sql(self._sql)
@@ -96,6 +104,7 @@ class GenericListTablesTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)
 
 
@@ -103,11 +112,13 @@ class GenericListQueryTool(BaseTool):
     """Execute a fixed SQL listing query."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, sql: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._sql = sql
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await source.execute_sql(self._sql)
@@ -116,6 +127,7 @@ class GenericListQueryTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)
 
 
@@ -180,17 +192,18 @@ def _make_other_sql_tool_config(tool_type: str, description: str, kind: str, ext
     _default_desc = description
 
     def _build_tool(cfg: ConfigBase, source: str) -> BaseTool:
+        """构造工具实例。"""
+        sql = extra.get("sql", "")
         builders: dict[str, Callable[[ConfigBase, str], BaseTool]] = {
             "sql": lambda c, s: GenericSQLTool(cfg=c, source_name=s),
             "exec": lambda c, s: GenericExecuteSQLTool(cfg=c, source_name=s),
+            "list-tables": lambda c, s: GenericListTablesTool(cfg=c, source_name=s, sql=sql),
+            "list-query": lambda c, s: GenericListQueryTool(cfg=c, source_name=s, sql=sql),
         }
-        if kind in builders:
-            return builders[kind](cfg, source)
-        if kind == "list-tables":
-            return GenericListTablesTool(cfg=cfg, source_name=source, sql=extra["sql"])
-        if kind == "list-query":
-            return GenericListQueryTool(cfg=cfg, source_name=source, sql=extra["sql"])
-        raise ValueError(f"unknown kind: {kind}")
+        builder = builders.get(kind)
+        if builder is None:
+            raise ValueError(f"unknown kind: {kind}")
+        return builder(cfg, source)
 
     @register_tool(tool_type)
     @dataclass
@@ -201,13 +214,16 @@ def _make_other_sql_tool_config(tool_type: str, description: str, kind: str, ext
 
         @property
         def tool_type(self) -> str:
+            """返回工具类型标识符。"""
             return tool_type
 
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _OtherSQLToolConfig:
+            """从字典创建配置实例。"""
             return cls(_name=name, source=data.get("source", ""), description=data.get("description", _default_desc))
 
         async def initialize(self):
+            """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return _build_tool(cfg, self.source)
 

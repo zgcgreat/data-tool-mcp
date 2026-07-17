@@ -22,15 +22,19 @@ _VAR_RE = re.compile(r"\{\{\s*\.(\w+)\s*\}\}")
 _IF_RE = re.compile(r"\{\{if\s+\.(\w+)\s*\}\}(.*?)\{\{end\}\}", re.DOTALL)
 
 
+_TRUTHY_CHECKERS: list[tuple[tuple[type, ...], Any]] = [
+    ((type(None),), lambda v: False),
+    ((str,), lambda v: v.strip() != ""),
+    ((int, float, bool), lambda v: bool(v)),
+    ((list, dict, tuple, set), lambda v: len(v) > 0),
+]
+
+
 def _is_truthy(value: Any) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return value.strip() != ""
-    if isinstance(value, (int, float, bool)):
-        return bool(value)
-    if isinstance(value, (list, dict, tuple, set)):
-        return len(value) > 0
+    """判断值是否为真。"""
+    for types, checker in _TRUTHY_CHECKERS:
+        if isinstance(value, types):
+            return checker(value)
     return bool(value)
 
 
@@ -62,6 +66,7 @@ def render_template(template: str, params: dict[str, Any]) -> str:
     scope = params
 
     def _if_repl(match: re.Match) -> str:
+        """替换模板中的 if 块。"""
         name = match.group(1)
         body = match.group(2)
         return body if _is_truthy(scope.get(name)) else ""
@@ -78,6 +83,7 @@ def render_template(template: str, params: dict[str, Any]) -> str:
     # like 0, False, and empty list — Go's text/template renders these as
     # "0"/"false"/"" respectively, not as empty string.
     def _var_repl(m: re.Match) -> str:
+        """替换模板中的变量占位符。"""
         val = scope.get(m.group(1), "")
         return "" if val is None else str(val)
 
@@ -98,6 +104,7 @@ def render_sql_template(template: str, params: dict[str, Any]) -> str:
     scope = params
 
     def _if_repl(match: re.Match) -> str:
+        """替换模板中的 if 块。"""
         name = match.group(1)
         body = match.group(2)
         return body if _is_truthy(scope.get(name)) else ""
@@ -111,6 +118,7 @@ def render_sql_template(template: str, params: dict[str, Any]) -> str:
 
     # Then substitute variables with SQL escaping.
     def _var_repl(m: re.Match) -> str:
+        """替换模板中的变量占位符。"""
         val = scope.get(m.group(1), "")
         return _sql_escape(val)
 

@@ -152,15 +152,21 @@ class Tool(ABC):
 
     @property
     @abstractmethod
-    def name(self) -> str: ...
+    def name(self) -> str:
+        """返回工具名称。"""
+        ...
 
     @property
     @abstractmethod
-    def description(self) -> str: ...
+    def description(self) -> str:
+        """返回工具描述。"""
+        ...
 
     @property
     @abstractmethod
-    def auth_required(self) -> list[str]: ...
+    def auth_required(self) -> list[str]:
+        """返回工具所需的授权服务列表。"""
+        ...
 
     @abstractmethod
     async def invoke(
@@ -296,6 +302,7 @@ class BaseTool(Tool):
         metadata: ToolManifest | None = None,
         static_parameters: list[ParameterManifest] | None = None,
     ):
+        """初始化工具配置。"""
         self._cfg = cfg
         self._annotations = annotations
         self._metadata = metadata
@@ -303,10 +310,12 @@ class BaseTool(Tool):
 
     @property
     def name(self) -> str:
+        """返回工具名称。"""
         return self._cfg.name
 
     @property
     def description(self) -> str:
+        """返回工具描述。"""
         return self._cfg.description
 
     @property
@@ -316,13 +325,16 @@ class BaseTool(Tool):
 
     @property
     def auth_required(self) -> list[str]:
+        """返回工具所需的授权服务列表。"""
         return self._cfg.auth_required
 
     @property
     def scopes_required(self) -> list[str]:
+        """返回工具所需的 OAuth 作用域列表。"""
         return self._cfg.scopes_required
 
     def manifest(self, sources: dict[str, Source] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         if self._metadata:
             return self._metadata
         return ToolManifest(
@@ -366,8 +378,12 @@ class SourceProvider(Protocol):
     方案 C: get_source 改为 async(cache-aside + 惰性初始化)。
     调用方必须 try/finally release_source 释放引用计数。
     """
-    async def get_source(self, source_name: str) -> Source | None: ...
-    async def release_source(self, source_name: str) -> None: ...
+    async def get_source(self, source_name: str) -> Source | None:
+        """根据名称获取 source 实例。"""
+        ...
+    async def release_source(self, source_name: str) -> None:
+        """释放 source 的引用计数。"""
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +407,7 @@ def register_tool(tool_type: str):
             ...
     """
     def decorator(cls: type[ToolConfig]) -> type[ToolConfig]:
+        """将 ToolConfig 子类注册到全局注册表。"""
         if tool_type in _tool_registry:
             existing = _tool_registry[tool_type]
             raise ValueError(

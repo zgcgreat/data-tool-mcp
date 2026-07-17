@@ -19,22 +19,27 @@ class SQLiteSource(SQLSource):
     """SQLite database source."""
 
     def __init__(self, name: str, engine: Any, session_factory: Any):
+        """初始化数据源配置。"""
         self._name = name
         self._engine = engine
         self._session_factory = session_factory
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "sqlite"
 
     async def connect(self) -> None:
+        """建立数据库连接。"""
         async with self._engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
 
     async def close(self) -> None:
+        """关闭数据库连接。"""
         await self._engine.dispose()
 
     async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
                 session.execute(text(sql), params or {}),
@@ -44,6 +49,7 @@ class SQLiteSource(SQLSource):
             return [dict(row) for row in rows]
 
     async def list_tables(self) -> list[str]:
+        """列出数据库中所有表。"""
         async with self._session_factory() as session:
             result = await session.execute(text(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
@@ -51,6 +57,7 @@ class SQLiteSource(SQLSource):
             return [row[0] for row in result.fetchall()]
 
     async def describe_table(self, table_name: str) -> list[dict[str, Any]]:
+        """描述表结构,返回列信息列表。"""
         # Validate table name against SQL injection (PRAGMA does not support parameters)
         if not table_name.replace("_", "").replace("-", "").isalnum():
             raise ValueError(f"invalid table name: {table_name}")
@@ -76,14 +83,17 @@ class SQLiteSourceConfig(SourceConfig):
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "sqlite"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> SQLiteSourceConfig:
+        """从字典构造配置实例。"""
         path = data.get("path", data.get("database", "test.db"))
         return cls(_name=name, path=path)
 
     async def initialize(self, tracer=None) -> SQLiteSource:
+        """创建并初始化数据源实例。"""
         url = f"sqlite+aiosqlite:///{self.path}"
         engine = create_async_engine(url, echo=False)
         from sqlalchemy.ext.asyncio import async_sessionmaker

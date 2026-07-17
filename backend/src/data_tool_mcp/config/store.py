@@ -138,6 +138,493 @@ class McpRequestLogRecord(Base):
     created_at = Column(DateTime, server_default=func.now(), index=True)
 
 
+# --- 模块级辅助函数（无状态，纯函数）---
+
+
+def _parse_params_or_empty(params_str: str | None) -> dict[str, Any]:
+    """解析 params JSON 字符串；空/解析失败返回 {}。非 dict 时原样返回（保持 update 语义）。"""
+    if not params_str:
+        return {}
+    try:
+        return json.loads(params_str)
+    except json.JSONDecodeError:
+        return {}
+
+
+def _try_parse_json(value: str) -> Any:
+    """尝试解析 JSON 字符串，失败返回 None。"""
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _parse_params_dict_or_empty(params_str: str | None) -> dict[str, Any]:
+    """解析 params JSON 字符串；空/解析失败/非 dict 时均返回 {}。"""
+    if not params_str:
+        return {}
+    parsed = _try_parse_json(params_str)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _merge_params_setdefault(src: dict[str, Any], params_str: str | None) -> None:
+    """将 params JSON 合并到 src（setdefault 语义：结构化字段优先）。"""
+    for k, v in _parse_params_dict_or_empty(params_str).items():
+        src.setdefault(k, v)
+
+
+def _set_system_env_if_truthy(src: dict[str, Any], r: Any) -> None:
+    """如果 r.system_id / r.environment 非空，写入 src['systemId'] / src['environment']。"""
+    if r.system_id:
+        src["systemId"] = r.system_id
+    if r.environment:
+        src["environment"] = r.environment
+
+
+def _set_if_truthy(src: dict[str, Any], key: str, value: Any) -> None:
+    """value 非空时写入 src[key]。"""
+    if value:
+        src[key] = value
+
+
+def _set_source_database(src: dict[str, Any], database: Any, src_type: str) -> None:
+    """sqlite 类型用 path 字段，其它用 database 字段。"""
+    if not database:
+        return
+    if src_type == "sqlite":
+        src["path"] = database
+    else:
+        src["database"] = database
+
+
+def _set_password_decrypted(src: dict[str, Any], password: Any) -> None:
+    """将解密后的密码写入 src['password']。"""
+    if password:
+        src["password"] = decrypt_password(password)
+
+
+def _set_port_if_valid(src: dict[str, Any], port: Any) -> None:
+    """port 为正整数时写入 src['port']。"""
+    if port and port > 0:
+        src["port"] = port
+
+
+def _set_source_load_fields(src: dict[str, Any], r: SourceRecord) -> None:
+    """load_sources 专用：按需填充 host/port/database/user/password（密码解密）。"""
+    _set_if_truthy(src, "host", r.host)
+    _set_port_if_valid(src, r.port)
+    _set_source_database(src, r.database, r.type)
+    _set_if_truthy(src, "user", r.username)
+    _set_password_decrypted(src, r.password)
+
+
+def _row_to_source_dict(r: SourceRecord) -> dict[str, Any]:
+    """SourceRecord -> dict（密文密码，params 通过 update 合并：params 覆盖结构化字段）。"""
+    src: dict[str, Any] = {
+        "name": r.name,
+        "type": r.type,
+        "host": r.host,
+        "port": r.port,
+        "database": r.database,
+        "user": r.username,
+        "password": r.password,
+    }
+    src.update(_parse_params_or_empty(r.params))
+    _set_system_env_if_truthy(src, r)
+    return src
+
+
+def _source_row_to_load_dict(r: SourceRecord) -> dict[str, Any]:
+    """SourceRecord -> dict（load_sources 专用：条件字段、密码解密、params 通过 setdefault 合并）。"""
+    src: dict[str, Any] = {"name": r.name, "type": r.type}
+    _set_system_env_if_truthy(src, r)
+    _set_source_load_fields(src, r)
+    _merge_params_setdefault(src, r.params)
+    return src
+
+
+def _row_to_tool_dict(r: ToolRecord) -> dict[str, Any]:
+    """ToolRecord -> dict（params 通过 update 合并：params 覆盖结构化字段）。"""
+    tool: dict[str, Any] = {
+        "name": r.name,
+        "type": r.type,
+        "source": r.source_name,
+        "description": r.description,
+    }
+    tool.update(_parse_params_or_empty(r.params))
+    _set_system_env_if_truthy(tool, r)
+    return tool
+
+
+def _tool_row_to_load_dict(r: ToolRecord) -> dict[str, Any]:
+    """ToolRecord -> dict（load_tools 专用：空值强制为 ''，params 通过 setdefault 合并）。"""
+    tool: dict[str, Any] = {
+        "name": r.name,
+        "type": r.type,
+        "source": r.source_name or "",
+        "description": r.description or "",
+    }
+    _set_system_env_if_truthy(tool, r)
+    _merge_params_setdefault(tool, r.params)
+    return tool
+
+
+def _safe_split_commas(value: str | None) -> list[str]:
+    """按逗号分割字符串，None 视为空串。"""
+    return (value or "").split(",")
+
+
+def _parse_tool_names(tool_names_str: str | None) -> list[dict[str, str]]:
+    """逗号分隔字符串 -> [{name: ...}, ...]（过滤空值）。"""
+    result: list[dict[str, str]] = []
+    for tn in _safe_split_commas(tool_names_str):
+        stripped = tn.strip()
+        if stripped:
+            result.append({"name": stripped})
+    return result
+
+
+def _row_to_toolset_dict(r: ToolsetRecord) -> dict[str, Any]:
+    """ToolsetRecord -> dict。"""
+    ts: dict[str, Any] = {
+        "name": r.name,
+        "tools": _parse_tool_names(r.tool_names),
+    }
+    _set_system_env_if_truthy(ts, r)
+    return ts
+
+
+def _apply_system_env_filters(stmt: Any, model: Any, system_id: str, environment: str) -> Any:
+    """对 select 语句追加 system_id / environment 过滤（空值跳过）。"""
+    if system_id:
+        stmt = stmt.where(model.system_id == system_id)
+    if environment:
+        stmt = stmt.where(model.environment == environment)
+    return stmt
+
+
+def _get_str_field(config_data: dict[str, Any], key: str, default: str = "") -> str:
+    """从 config_data 取字符串字段，None 安全（None 视为 default）。"""
+    return str(config_data.get(key, default) or default)
+
+
+def _get_int_field(config_data: dict[str, Any], key: str, default: int = 0) -> int:
+    """从 config_data 取 int 字段，None 安全。"""
+    return int(config_data.get(key, default) or default)
+
+
+def _get_coalesced_str_field(
+    config_data: dict[str, Any], primary: str, fallback: str, default: str = ""
+) -> str:
+    """优先取 primary 键，缺失时取 fallback，再 None 安全。"""
+    value = config_data.get(primary, config_data.get(fallback, default))
+    return str(value or default)
+
+
+# SourceRecord 结构化字段集合 — 这些字段不进入 params JSON
+_SOURCE_STRUCTURED_KEYS = frozenset({
+    "systemId", "environment", "host", "port", "database", "path",
+    "user", "username", "password", "name", "type",
+})
+
+
+def _build_params_json(config_data: dict[str, Any], structured_keys: frozenset[str]) -> str:
+    """从 config_data 中过滤掉结构化字段，剩余字段序列化为 params JSON。"""
+    params = {k: v for k, v in config_data.items() if k not in structured_keys}
+    return json.dumps(params, ensure_ascii=False, default=str)
+
+
+def _source_to_row_params(name: str, src_type: str, config_data: dict[str, Any]) -> dict[str, Any]:
+    """从 config_data 提取 SourceRecord 列参数（含密码加密、params JSON 序列化）。"""
+    system_id = _get_str_field(config_data, "systemId").strip()
+    environment = _get_str_field(config_data, "environment").strip()
+    host = str(config_data.get("host", ""))
+    port = _get_int_field(config_data, "port", 0)
+    database = _get_coalesced_str_field(config_data, "database", "path")
+    username = _get_coalesced_str_field(config_data, "user", "username")
+    password = normalize_password_for_storage(_get_str_field(config_data, "password"))
+    params = _build_params_json(config_data, _SOURCE_STRUCTURED_KEYS)
+    return {
+        "system_id": system_id,
+        "environment": environment,
+        "name": name,
+        "type": src_type,
+        "host": host,
+        "port": port,
+        "database": database,
+        "username": username,
+        "password": password,
+        "params": params,
+    }
+
+
+def _apply_source_updates(existing: SourceRecord, row_params: dict[str, Any]) -> None:
+    """用 row_params 更新已存在的 SourceRecord（不含 system_id/environment/name 这几个主键维度）。"""
+    existing.type = row_params["type"]
+    existing.host = row_params["host"]
+    existing.port = row_params["port"]
+    existing.database = row_params["database"]
+    existing.username = row_params["username"]
+    existing.password = row_params["password"]
+    existing.params = row_params["params"]
+
+
+# ToolRecord 结构化字段集合 — 这些字段不进入 params JSON
+_TOOL_STRUCTURED_KEYS = frozenset({
+    "systemId", "environment", "name", "type", "source",
+    "source_name", "description", "kind",
+})
+
+
+def _tool_to_row_params(
+    name: str,
+    tool_type: str,
+    source: str | None,
+    description: str | None,
+    config_data: dict[str, Any],
+) -> dict[str, Any]:
+    """从 config_data 提取 ToolRecord 列参数。"""
+    system_id = _get_str_field(config_data, "systemId").strip()
+    environment = _get_str_field(config_data, "environment").strip()
+    params = _build_params_json(config_data, _TOOL_STRUCTURED_KEYS)
+    return {
+        "system_id": system_id,
+        "environment": environment,
+        "name": name,
+        "type": tool_type,
+        "source_name": source or "",
+        "description": description or "",
+        "params": params,
+    }
+
+
+def _apply_tool_updates(existing: ToolRecord, row_params: dict[str, Any]) -> None:
+    """用 row_params 更新已存在的 ToolRecord。"""
+    existing.type = row_params["type"]
+    existing.source_name = row_params["source_name"]
+    existing.description = row_params["description"]
+    existing.params = row_params["params"]
+    existing.system_id = row_params["system_id"]
+    existing.environment = row_params["environment"]
+
+
+def _toolset_to_row_params(
+    name: str,
+    tool_names: list[str],
+    config_data: dict[str, Any],
+) -> dict[str, Any]:
+    """从 config_data 提取 ToolsetRecord 列参数。"""
+    return {
+        "system_id": _get_str_field(config_data, "systemId").strip(),
+        "environment": _get_str_field(config_data, "environment").strip(),
+        "name": name,
+        "tool_names": ",".join(tool_names),
+    }
+
+
+def _extract_tool_names(ts_data: dict[str, Any]) -> list[str]:
+    """从 toolset 配置中提取工具名列表。"""
+    return [t["name"] for t in ts_data.get("tools", []) if "name" in t]
+
+
+def _build_userinfo_when_no_username(password: str, quote: Any) -> str:
+    """username 为空时构造 userinfo（仅密码或空串）。"""
+    if not password:
+        return ""
+    return f":{quote(password, safe='')}"
+
+
+def _build_userinfo(username: str, password: str, quote: Any) -> str:
+    """构造 URL userinfo（user:pass 形式），空值返回空字符串。"""
+    if not username:
+        return _build_userinfo_when_no_username(password, quote)
+    if not password:
+        return quote(username, safe="")
+    return f"{quote(username, safe='')}:{quote(password, safe='')}"
+
+
+def _safe_url_for(url: str) -> str:
+    """脱敏后的 URL（隐藏账号密码），用于日志。"""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme}://{host}{port}{parsed.path}"
+
+
+# MCP 日志查询过滤条件规约：(参数名, SQL 片段, 值转换函数)
+_LOG_FILTER_SPEC: list[tuple[str, str, Any]] = [
+    ("start_date", "created_at >= :start_date", lambda v: f"{v} 00:00:00"),
+    ("end_date", "created_at <= :end_date_exclusive", lambda v: f"{v} 23:59:59"),
+    ("system_id", "system_id = :system_id", lambda v: v),
+    ("environment", "environment = :environment", lambda v: v),
+    ("source_name", "source_name = :source_name", lambda v: v),
+]
+
+
+def _join_where_clause(conditions: list[str]) -> str:
+    """将条件列表拼接为 WHERE 子句；空列表返回空串。"""
+    if not conditions:
+        return ""
+    return " WHERE " + " AND ".join(conditions)
+
+
+def _build_log_filter_clause(
+    *,
+    start_date: str | None,
+    end_date: str | None,
+    system_id: str,
+    environment: str,
+    source_name: str,
+) -> tuple[str, dict[str, Any]]:
+    """构建 MCP 日志查询的 WHERE 子句和参数字典。"""
+    values = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "system_id": system_id,
+        "environment": environment,
+        "source_name": source_name,
+    }
+    conditions: list[str] = []
+    params: dict[str, Any] = {}
+    for key, sql, transform in _LOG_FILTER_SPEC:
+        value = values[key]
+        if not value:
+            continue
+        conditions.append(sql)
+        params[key] = transform(value)
+    return _join_where_clause(conditions), params
+
+
+def _append_method_filter(where_clause: str, method: str = "tools/call") -> str:
+    """在 where_clause 上追加 method 过滤；where_clause 为空时返回新的 WHERE 子句。"""
+    if where_clause:
+        return where_clause + f" AND method = '{method}'"
+    return f" WHERE method = '{method}'"
+
+
+def _row_to_summary_dict(row: Any) -> dict[str, Any]:
+    """汇总统计行转 dict；row 为空时返回零值。"""
+    if not row:
+        return {"total": 0, "success": 0, "fail": 0, "avg_latency_ms": 0}
+    return {
+        "total": row.total,
+        "success": row.success,
+        "fail": row.fail,
+        "avg_latency_ms": row.avg_latency_ms,
+    }
+
+
+def _row_to_grouped_dict(
+    row: Any,
+    column: str,
+    label: str,
+    empty_default: str = "(未指定)",
+) -> dict[str, Any]:
+    """分组统计行转 dict，空值用 empty_default 填充。"""
+    value = getattr(row, column) or empty_default
+    return {label: value, "total": row.total, "success": row.success, "fail": row.fail}
+
+
+def _row_to_timeline_dict(row: Any) -> dict[str, Any]:
+    """时间线统计行转 dict。"""
+    return {"date": str(row.date), "total": row.total, "success": row.success, "fail": row.fail}
+
+
+def _or_empty(value: Any) -> str:
+    """value 为假值时返回空串。"""
+    return value or ""
+
+
+def _format_log_time(value: Any) -> str:
+    """格式化日志时间，空值返回空串。"""
+    return str(value) if value else ""
+
+
+def _row_to_log_dict(row: Any) -> dict[str, Any]:
+    """MCP 日志行转 dict。"""
+    return {
+        "id": row.id,
+        "system_id": _or_empty(row.system_id),
+        "environment": _or_empty(row.environment),
+        "source_name": _or_empty(row.source_name),
+        "tool_name": _or_empty(row.tool_name),
+        "method": row.method,
+        "success": bool(row.success),
+        "latency_ms": row.latency_ms,
+        "client_addr": _or_empty(row.client_addr),
+        "error_msg": _or_empty(row.error_msg),
+        "created_at": _format_log_time(row.created_at),
+    }
+
+
+def _normalize_pagination(page: int, page_size: int) -> tuple[int, int, int]:
+    """规范化分页参数，返回 (page, page_size, offset)。"""
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
+    return page, page_size, (page - 1) * page_size
+
+
+def _build_logs_response(items: list[dict[str, Any]], total: int, page: int, page_size: int) -> dict[str, Any]:
+    """构建分页响应 dict。"""
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
+
+
+def _build_mcp_log_record(
+    *,
+    system_id: str,
+    environment: str,
+    source_name: str,
+    tool_name: str,
+    method: str,
+    success: bool,
+    latency_ms: int,
+    client_addr: str,
+    error_msg: str,
+) -> McpRequestLogRecord:
+    """根据参数构建 McpRequestLogRecord 实例（字段截断保护）。"""
+    return McpRequestLogRecord(
+        system_id=system_id[:10],
+        environment=environment[:16],
+        source_name=source_name[:128],
+        tool_name=tool_name[:128],
+        method=method[:32],
+        success=1 if success else 0,
+        latency_ms=latency_ms,
+        client_addr=client_addr[:64],
+        error_msg=error_msg[:2000] if error_msg else "",
+    )
+
+
+def _match_url_prefix(url: str, prefixes: tuple[tuple[str, Any], ...]) -> Any:
+    """在 prefixes 中查找 url 匹配的前缀，返回对应值；未匹配返回 None。"""
+    for prefix, value in prefixes:
+        if url.startswith(prefix):
+            return value
+    return None
+
+
+def _format_host_port(parsed: Any) -> tuple[str, str]:
+    """从 urlparse 结果提取 (host, port_str)，port_str 为 ':NN' 或 ''。"""
+    host = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    return host, port
+
+
+def _build_netloc(userinfo: str, host: str, port: str) -> str:
+    """拼接 netloc：有 userinfo 时加 'userinfo@' 前缀。"""
+    if not userinfo:
+        return f"{host}{port}"
+    return f"{userinfo}@{host}{port}"
+
+
 class ConfigStore:
     """配置存储层，封装所有持久化操作。
 
@@ -145,62 +632,76 @@ class ConfigStore:
     """
 
     def __init__(self, store_url: str = "", username: str = "", password: str = ""):
+        """初始化实例。"""
         # 若单独传入 username/password，则注入到 URL 的 netloc（覆盖 URL 中可能内联的凭据）
         url = store_url
         if username or password:
             url = self._inject_credentials(url, username, password)
-        self._url = url
+        self._url = self._resolve_url_scheme(url)
         self._engine = None
         self._session_factory = None
 
+    @staticmethod
+    def _resolve_url_scheme(url: str) -> str:
+        """根据 URL scheme 规范化 driver（注入 aiosqlite/aiomysql），未配置时回退默认 SQLite。"""
         if not url:
-            import os
-            db_path = os.path.join(os.getcwd(), "toolbox_data.db")
-            self._url = f"sqlite+aiosqlite:///{db_path}"
-            logger.warning(
-                "ConfigStore: 未配置 store_url，默认使用 SQLite 文件: %s。"
-                "多实例部署时必须配置 --store-url 指向共享 MySQL，"
-                "否则各实例数据隔离且不一致。",
-                db_path,
-            )
-        elif url.startswith("sqlite"):
-            if "aiosqlite" not in url:
-                self._url = url.replace("sqlite://", "sqlite+aiosqlite://")
-            logger.info("ConfigStore: 使用 SQLite 文件存储: %s", url)
-        elif url.startswith("mysql"):
-            if "aiomysql" not in url:
-                self._url = url.replace("mysql://", "mysql+aiomysql://")
-            logger.info("ConfigStore: 使用 MySQL 存储: %s", self._safe_url())
-        else:
+            return ConfigStore._default_sqlite_url()
+        normalizer = _match_url_prefix(url, (
+            ("sqlite", ConfigStore._normalize_sqlite_url),
+            ("mysql", ConfigStore._normalize_mysql_url),
+        ))
+        if normalizer is None:
             raise ValueError(
                 f"不支持的 store_url scheme: {url}"
                 "（仅支持 sqlite:// / mysql://）"
             )
+        return normalizer(url)
+
+    @staticmethod
+    def _default_sqlite_url() -> str:
+        """返回默认 SQLite 文件 URL，并记录警告日志。"""
+        import os
+        db_path = os.path.join(os.getcwd(), "toolbox_data.db")
+        logger.warning(
+            "ConfigStore: 未配置 store_url，默认使用 SQLite 文件: %s。"
+            "多实例部署时必须配置 --store-url 指向共享 MySQL，"
+            "否则各实例数据隔离且不一致。",
+            db_path,
+        )
+        return f"sqlite+aiosqlite:///{db_path}"
+
+    @staticmethod
+    def _normalize_sqlite_url(url: str) -> str:
+        """规范化 SQLite URL，注入 aiosqlite driver。"""
+        if "aiosqlite" not in url:
+            url = url.replace("sqlite://", "sqlite+aiosqlite://")
+        logger.info("ConfigStore: 使用 SQLite 文件存储: %s", url)
+        return url
+
+    @staticmethod
+    def _normalize_mysql_url(url: str) -> str:
+        """规范化 MySQL URL，注入 aiomysql driver。"""
+        if "aiomysql" not in url:
+            url = url.replace("mysql://", "mysql+aiomysql://")
+        logger.info("ConfigStore: 使用 MySQL 存储: %s", _safe_url_for(url))
+        return url
 
     @staticmethod
     def _inject_credentials(url: str, username: str, password: str) -> str:
         """将 username/password 注入 URL 的 netloc；若 URL 已内联凭据则覆盖。"""
         from urllib.parse import urlparse, urlunparse, quote
         parsed = urlparse(url)
-        host = parsed.hostname or ""
-        port = f":{parsed.port}" if parsed.port else ""
-        userinfo = ""
-        if username:
-            userinfo += quote(username, safe="")
-        if password:
-            userinfo += ":" + quote(password, safe="")
-        netloc = f"{userinfo}@{host}{port}" if userinfo else f"{host}{port}"
+        host, port = _format_host_port(parsed)
+        userinfo = _build_userinfo(username, password, quote)
+        netloc = _build_netloc(userinfo, host, port)
         return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
 
     def _safe_url(self) -> str:
-        """脱敏后的 URL（隐藏账号密码），用于日志。"""
-        from urllib.parse import urlparse
-        parsed = urlparse(self._url)
-        host = parsed.hostname or ""
-        port = f":{parsed.port}" if parsed.port else ""
-        return f"{parsed.scheme}://{host}{port}{parsed.path}"
+        """返回脱敏后的 store URL，用于日志输出。"""
+        return _safe_url_for(self._url)
 
     async def initialize(self) -> None:
+        """初始化数据库引擎和会话工厂，创建表结构。"""
         import os
         pool_size = int(os.environ.get("TOOLBOX_DB_POOL_SIZE", "5"))
         self._engine = create_async_engine(
@@ -219,6 +720,7 @@ class ConfigStore:
         logger.info("ConfigStore: 初始化完成，表已就绪")
 
     async def close(self) -> None:
+        """关闭并释放数据库引擎资源。"""
         if self._engine is not None:
             await self._engine.dispose()
             self._engine = None
@@ -231,7 +733,18 @@ class ConfigStore:
 
     @property
     def is_sqlite(self) -> bool:
+        """是否为 SQLite 后端。"""
         return "sqlite" in self._url
+
+    async def _commit_with_integrity_check(self, session: AsyncSession, error_msg: str) -> None:
+        """提交事务，捕获唯一键冲突转为 ValueError，其它异常重新抛出。"""
+        from sqlalchemy.exc import IntegrityError
+        try:
+            await session.commit()
+        except Exception as exc:
+            if isinstance(exc, IntegrityError):
+                raise ValueError(error_msg) from exc
+            raise
 
     # --- Source CRUD ---
 
@@ -244,60 +757,23 @@ class ConfigStore:
         幂等处理: 如果传入的 password 已经是有效密文(能被 decrypt_password 解密),
         说明是编辑时未修改的原密文, 直接保留不重复加密; 否则视为新密码加密后落库。
         """
-        system_id = str(config_data.get("systemId", "") or "").strip()
-        environment = str(config_data.get("environment", "") or "").strip()
-        host = str(config_data.get("host", ""))
-        port = int(config_data.get("port", 0) or 0)
-        database = str(config_data.get("database", config_data.get("path", "")) or "")
-        username = str(config_data.get("user", config_data.get("username", "")) or "")
-        # 密码幂等处理: 已是密文则保留, 否则视为新明文密码加密
-        raw_password = str(config_data.get("password", "") or "")
-        password = normalize_password_for_storage(raw_password)
-
-        # params 存储非结构化字段（systemId/environment 作为结构化字段提取到独立列）
-        structured_keys = {"systemId", "environment", "host", "port", "database", "path", "user", "username", "password", "name", "type"}
-        params = {k: v for k, v in config_data.items() if k not in structured_keys}
-        params_json = json.dumps(params, ensure_ascii=False, default=str)
-
+        row_params = _source_to_row_params(name, src_type, config_data)
         async with self._session_factory() as session:
             existing = await session.scalar(
                 select(SourceRecord).where(
                     SourceRecord.name == name,
-                    SourceRecord.system_id == system_id,
-                    SourceRecord.environment == environment,
+                    SourceRecord.system_id == row_params["system_id"],
+                    SourceRecord.environment == row_params["environment"],
                 )
             )
             if existing:
-                existing.type = src_type
-                existing.host = host
-                existing.port = port
-                existing.database = database
-                existing.username = username
-                existing.password = password
-                existing.params = params_json
+                _apply_source_updates(existing, row_params)
             else:
-                session.add(SourceRecord(
-                    system_id=system_id,
-                    environment=environment,
-                    name=name,
-                    type=src_type,
-                    host=host,
-                    port=port,
-                    database=database,
-                    username=username,
-                    password=password,
-                    params=params_json,
-                ))
-            try:
-                await session.commit()
-            except Exception as exc:
-                # 捕获唯一键约束冲突（并发创建同名数据源）
-                from sqlalchemy.exc import IntegrityError
-                if isinstance(exc, IntegrityError):
-                    raise ValueError(
-                        f"数据源 {name!r} 在系统 {system_id} 环境 {environment} 下已存在（并发冲突）"
-                    ) from exc
-                raise
+                session.add(SourceRecord(**row_params))
+            await self._commit_with_integrity_check(
+                session,
+                f"数据源 {name!r} 在系统 {row_params['system_id']} 环境 {row_params['environment']} 下已存在（并发冲突）",
+            )
 
     async def get_source_password(self, name: str, system_id: str = "", environment: str = "") -> str:
         """读取数据源在数据库中存储的密码密文。
@@ -310,10 +786,7 @@ class ConfigStore:
             return ""
         async with self._session_factory() as session:
             stmt = select(SourceRecord).where(SourceRecord.name == name)
-            if system_id:
-                stmt = stmt.where(SourceRecord.system_id == system_id)
-            if environment:
-                stmt = stmt.where(SourceRecord.environment == environment)
+            stmt = _apply_system_env_filters(stmt, SourceRecord, system_id, environment)
             record = await session.scalar(stmt)
             return record.password if record else ""
 
@@ -336,27 +809,20 @@ class ConfigStore:
         tool_names 用逗号分隔字符串存储。system_id / environment 从 config_data 提取。
         """
         config_data = config_data or {}
-        system_id = str(config_data.get("systemId", "") or "").strip()
-        environment = str(config_data.get("environment", "") or "").strip()
-        tool_names_str = ",".join(tool_names)
+        row_params = _toolset_to_row_params(name, tool_names, config_data)
 
         async with self._session_factory() as session:
             existing = await session.scalar(
                 select(ToolsetRecord).where(
                     ToolsetRecord.name == name,
-                    ToolsetRecord.system_id == system_id,
-                    ToolsetRecord.environment == environment,
+                    ToolsetRecord.system_id == row_params["system_id"],
+                    ToolsetRecord.environment == row_params["environment"],
                 )
             )
             if existing:
-                existing.tool_names = tool_names_str
+                existing.tool_names = row_params["tool_names"]
             else:
-                session.add(ToolsetRecord(
-                    system_id=system_id,
-                    environment=environment,
-                    name=name,
-                    tool_names=tool_names_str,
-                ))
+                session.add(ToolsetRecord(**row_params))
             await session.commit()
 
     async def count_toolsets(self) -> int:
@@ -382,32 +848,9 @@ class ConfigStore:
         """
         async with self._session_factory() as session:
             stmt = select(SourceRecord).where(SourceRecord.name == name)
-            if system_id:
-                stmt = stmt.where(SourceRecord.system_id == system_id)
-            if environment:
-                stmt = stmt.where(SourceRecord.environment == environment)
+            stmt = _apply_system_env_filters(stmt, SourceRecord, system_id, environment)
             r = await session.scalar(stmt)
-            if not r:
-                return None
-            src: dict[str, Any] = {
-                "name": r.name,
-                "type": r.type,
-                "host": r.host,
-                "port": r.port,
-                "database": r.database,
-                "user": r.username,
-                "password": r.password,
-            }
-            try:
-                params = json.loads(r.params or "{}")
-                src.update(params)
-            except json.JSONDecodeError:
-                pass
-            if r.system_id:
-                src["systemId"] = r.system_id
-            if r.environment:
-                src["environment"] = r.environment
-            return src
+            return _row_to_source_dict(r) if r else None
 
     async def get_tool(self, name: str, system_id: str = "", environment: str = "") -> dict[str, Any] | None:
         """按名查询单个工具配置，返回合并后的 dict。
@@ -415,29 +858,9 @@ class ConfigStore:
         """
         async with self._session_factory() as session:
             stmt = select(ToolRecord).where(ToolRecord.name == name)
-            if system_id:
-                stmt = stmt.where(ToolRecord.system_id == system_id)
-            if environment:
-                stmt = stmt.where(ToolRecord.environment == environment)
+            stmt = _apply_system_env_filters(stmt, ToolRecord, system_id, environment)
             r = await session.scalar(stmt)
-            if not r:
-                return None
-            tool: dict[str, Any] = {
-                "name": r.name,
-                "type": r.type,
-                "source": r.source_name,
-                "description": r.description,
-            }
-            try:
-                params = json.loads(r.params or "{}")
-                tool.update(params)
-            except json.JSONDecodeError:
-                pass
-            if r.system_id:
-                tool["systemId"] = r.system_id
-            if r.environment:
-                tool["environment"] = r.environment
-            return tool
+            return _row_to_tool_dict(r) if r else None
 
     async def load_tools_by_source(self, source_name: str) -> list[dict[str, Any]]:
         """按数据源名查询其所有工具配置。"""
@@ -445,25 +868,7 @@ class ConfigStore:
             result = await session.scalars(
                 select(ToolRecord).where(ToolRecord.source_name == source_name)
             )
-            tools = []
-            for r in result:
-                tool: dict[str, Any] = {
-                    "name": r.name,
-                    "type": r.type,
-                    "source": r.source_name,
-                    "description": r.description,
-                }
-                try:
-                    params = json.loads(r.params or "{}")
-                    tool.update(params)
-                except json.JSONDecodeError:
-                    pass
-                if r.system_id:
-                    tool["systemId"] = r.system_id
-                if r.environment:
-                    tool["environment"] = r.environment
-                tools.append(tool)
-            return tools
+            return [_row_to_tool_dict(r) for r in result]
 
     async def count_tools_by_source(self, source_name: str) -> int:
         """按数据源名统计工具数量。"""
@@ -481,23 +886,8 @@ class ConfigStore:
             )
             sources = []
             for r in result:
-                src: dict[str, Any] = {
-                    "name": r.name,
-                    "type": r.type,
-                    "host": r.host,
-                    "port": r.port,
-                    "database": r.database,
-                    "user": r.username,
-                    "password": r.password,
-                }
-                try:
-                    params = json.loads(r.params or "{}")
-                    src.update(params)
-                except json.JSONDecodeError:
-                    pass
+                src = _row_to_source_dict(r)
                 src["systemId"] = r.system_id
-                if r.environment:
-                    src["environment"] = r.environment
                 sources.append(src)
             return sources
 
@@ -505,26 +895,9 @@ class ConfigStore:
         """按名查询单个工具集配置。不存在时返回 None。"""
         async with self._session_factory() as session:
             stmt = select(ToolsetRecord).where(ToolsetRecord.name == name)
-            if system_id:
-                stmt = stmt.where(ToolsetRecord.system_id == system_id)
-            if environment:
-                stmt = stmt.where(ToolsetRecord.environment == environment)
+            stmt = _apply_system_env_filters(stmt, ToolsetRecord, system_id, environment)
             r = await session.scalar(stmt)
-            if not r:
-                return None
-            ts: dict[str, Any] = {
-                "name": r.name,
-                "tools": [
-                    {"name": tn.strip()}
-                    for tn in (r.tool_names or "").split(",")
-                    if tn.strip()
-                ],
-            }
-            if r.system_id:
-                ts["systemId"] = r.system_id
-            if r.environment:
-                ts["environment"] = r.environment
-            return ts
+            return _row_to_toolset_dict(r) if r else None
 
     async def load_toolsets(self) -> list[dict[str, Any]]:
         """加载所有工具集。"""
@@ -532,30 +905,13 @@ class ConfigStore:
             result = await session.scalars(
                 select(ToolsetRecord)
             )
-            toolsets = []
-            for r in result:
-                ts: dict[str, Any] = {
-                    "name": r.name,
-                    "tools": [
-                        {"name": tn.strip()}
-                        for tn in (r.tool_names or "").split(",")
-                        if tn.strip()
-                    ],
-                }
-                if r.system_id:
-                    ts["systemId"] = r.system_id
-                if r.environment:
-                    ts["environment"] = r.environment
-                toolsets.append(ts)
-            return toolsets
+            return [_row_to_toolset_dict(r) for r in result]
 
     async def delete_source(self, name: str, system_id: str = "", environment: str = "") -> None:
+        """删除指定数据源配置。"""
         async with self._session_factory() as session:
             stmt = select(SourceRecord).where(SourceRecord.name == name)
-            if system_id:
-                stmt = stmt.where(SourceRecord.system_id == system_id)
-            if environment:
-                stmt = stmt.where(SourceRecord.environment == environment)
+            stmt = _apply_system_env_filters(stmt, SourceRecord, system_id, environment)
             record = await session.scalar(stmt)
             if record:
                 await session.delete(record)
@@ -572,38 +928,47 @@ class ConfigStore:
         返回: {"sources": N, "tools": N, "toolsets": N} 导入计数。
         """
         counts = {"sources": 0, "tools": 0, "toolsets": 0}
-
-        # 导入数据源
-        for name, src_data in tf.sources.items():
-            src_type = src_data.get("type", "")
-            if not src_type:
-                continue
-            await self.save_source(name, src_type, src_data)
-            counts["sources"] += 1
-
-        # 导入工具
-        for name, tool_data in tf.tools.items():
-            tool_type = tool_data.get("type", "")
-            source = tool_data.get("source", "")
-            description = tool_data.get("description", "")
-            if not tool_type:
-                continue
-            await self.save_tool(name, tool_type, source, description, tool_data)
-            counts["tools"] += 1
-
-        # 导入工具集
-        for name, ts_data in tf.toolsets.items():
-            tool_names = [
-                t["name"] for t in ts_data.get("tools", []) if "name" in t
-            ]
-            await self.save_toolset(name, tool_names, ts_data)
-            counts["toolsets"] += 1
-
+        counts["sources"] = await self._import_sources(tf.sources)
+        counts["tools"] = await self._import_tools(tf.tools)
+        counts["toolsets"] = await self._import_toolsets(tf.toolsets)
         logger.info(
             "ToolboxFile 导入完成: %d sources, %d tools, %d toolsets",
             counts["sources"], counts["tools"], counts["toolsets"],
         )
         return counts
+
+    async def _import_sources(self, sources: dict[str, Any]) -> int:
+        """批量导入数据源配置。"""
+        count = 0
+        for name, src_data in sources.items():
+            src_type = src_data.get("type", "")
+            if not src_type:
+                continue
+            await self.save_source(name, src_type, src_data)
+            count += 1
+        return count
+
+    async def _import_tools(self, tools: dict[str, Any]) -> int:
+        """批量导入工具配置。"""
+        count = 0
+        for name, tool_data in tools.items():
+            tool_type = tool_data.get("type", "")
+            if not tool_type:
+                continue
+            source = tool_data.get("source", "")
+            description = tool_data.get("description", "")
+            await self.save_tool(name, tool_type, source, description, tool_data)
+            count += 1
+        return count
+
+    async def _import_toolsets(self, toolsets: dict[str, Any]) -> int:
+        """批量导入工具集配置。"""
+        count = 0
+        for name, ts_data in toolsets.items():
+            tool_names = _extract_tool_names(ts_data)
+            await self.save_toolset(name, tool_names, ts_data)
+            count += 1
+        return count
 
     async def load_sources(self) -> list[dict[str, Any]]:
         """加载所有数据源，合并结构化字段和 params。"""
@@ -611,41 +976,7 @@ class ConfigStore:
             result = await session.scalars(
                 select(SourceRecord)
             )
-            sources = []
-            for r in result:
-                src: dict[str, Any] = {
-                    "name": r.name,
-                    "type": r.type,
-                }
-                if r.system_id:
-                    src["systemId"] = r.system_id
-                if r.environment:
-                    src["environment"] = r.environment
-                if r.host:
-                    src["host"] = r.host
-                if r.port and r.port > 0:
-                    src["port"] = r.port
-                if r.database:
-                    # sqlite 类型用 path 字段
-                    if r.type == "sqlite":
-                        src["path"] = r.database
-                    else:
-                        src["database"] = r.database
-                if r.username:
-                    src["user"] = r.username
-                if r.password:
-                    src["password"] = decrypt_password(r.password)
-                # 合并 params JSON
-                if r.params:
-                    try:
-                        parsed = json.loads(r.params)
-                        if isinstance(parsed, dict):
-                            for k, v in parsed.items():
-                                src.setdefault(k, v)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                sources.append(src)
-            return sources
+            return [_source_row_to_load_dict(r) for r in result]
 
     # --- Tool CRUD ---
 
@@ -662,71 +993,40 @@ class ConfigStore:
         从 config_data 中提取结构化字段（含 systemId / environment），剩余存入 params JSON。
         systemId / environment 冗余存储到 tools 对应列，便于按系统编号+环境查询。
         """
-        source_name = source or ""
-        desc = description or ""
-        system_id = str(config_data.get("systemId", "") or "").strip()
-        environment = str(config_data.get("environment", "") or "").strip()
-
-        # params 存储非结构化字段
-        structured_keys = {"systemId", "environment", "name", "type", "source", "source_name", "description", "kind"}
-        params = {k: v for k, v in config_data.items() if k not in structured_keys}
-        params_json = json.dumps(params, ensure_ascii=False, default=str)
+        row_params = _tool_to_row_params(name, tool_type, source, description, config_data)
 
         async with self._session_factory() as session:
             existing = await session.scalar(
                 select(ToolRecord).where(
                     ToolRecord.name == name,
-                    ToolRecord.system_id == system_id,
-                    ToolRecord.environment == environment,
+                    ToolRecord.system_id == row_params["system_id"],
+                    ToolRecord.environment == row_params["environment"],
                 )
             )
             if existing:
-                existing.type = tool_type
-                existing.source_name = source_name
-                existing.description = desc
-                existing.params = params_json
-                existing.system_id = system_id
-                existing.environment = environment
+                _apply_tool_updates(existing, row_params)
             else:
-                session.add(ToolRecord(
-                    system_id=system_id,
-                    environment=environment,
-                    name=name,
-                    type=tool_type,
-                    source_name=source_name,
-                    description=desc,
-                    params=params_json,
-                ))
-            try:
-                await session.commit()
-            except Exception as exc:
-                # 捕获唯一键约束冲突（并发创建同名工具）
-                from sqlalchemy.exc import IntegrityError
-                if isinstance(exc, IntegrityError):
-                    raise ValueError(
-                        f"工具 {name!r} 在系统 {system_id} 环境 {environment} 下已存在（并发冲突）"
-                    ) from exc
-                raise
+                session.add(ToolRecord(**row_params))
+            await self._commit_with_integrity_check(
+                session,
+                f"工具 {name!r} 在系统 {row_params['system_id']} 环境 {row_params['environment']} 下已存在（并发冲突）",
+            )
 
     async def delete_tool(self, name: str, system_id: str = "", environment: str = "") -> None:
+        """删除指定工具配置。"""
         async with self._session_factory() as session:
             stmt = select(ToolRecord).where(ToolRecord.name == name)
-            if system_id:
-                stmt = stmt.where(ToolRecord.system_id == system_id)
-            if environment:
-                stmt = stmt.where(ToolRecord.environment == environment)
+            stmt = _apply_system_env_filters(stmt, ToolRecord, system_id, environment)
             record = await session.scalar(stmt)
             if record:
                 await session.delete(record)
                 await session.commit()
 
     async def delete_tools_by_source(self, source_name: str, system_id: str = "", environment: str = "") -> None:
+        """删除指定数据源下的所有工具配置。"""
         async with self._session_factory() as session:
             stmt = select(ToolRecord).where(ToolRecord.source_name == source_name)
-            if system_id:
-                stmt = stmt.where(ToolRecord.system_id == system_id)
-            if environment:
-                stmt = stmt.where(ToolRecord.environment == environment)
+            stmt = _apply_system_env_filters(stmt, ToolRecord, system_id, environment)
             result = await session.scalars(stmt)
             for record in result:
                 await session.delete(record)
@@ -738,29 +1038,7 @@ class ConfigStore:
             result = await session.scalars(
                 select(ToolRecord)
             )
-            tools = []
-            for r in result:
-                tool: dict[str, Any] = {
-                    "name": r.name,
-                    "type": r.type,
-                    "source": r.source_name or "",
-                    "description": r.description or "",
-                }
-                if r.system_id:
-                    tool["systemId"] = r.system_id
-                if r.environment:
-                    tool["environment"] = r.environment
-                # 合并 params JSON
-                if r.params:
-                    try:
-                        parsed = json.loads(r.params)
-                        if isinstance(parsed, dict):
-                            for k, v in parsed.items():
-                                tool.setdefault(k, v)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                tools.append(tool)
-            return tools
+            return [_tool_row_to_load_dict(r) for r in result]
 
     # --- MCP 请求日志 ---
 
@@ -779,18 +1057,19 @@ class ConfigStore:
     ) -> None:
         """异步写入一条 MCP 请求日志（失败时静默，不影响主流程）。"""
         try:
+            record = _build_mcp_log_record(
+                system_id=system_id,
+                environment=environment,
+                source_name=source_name,
+                tool_name=tool_name,
+                method=method,
+                success=success,
+                latency_ms=latency_ms,
+                client_addr=client_addr,
+                error_msg=error_msg,
+            )
             async with self._session_factory() as session:
-                session.add(McpRequestLogRecord(
-                    system_id=system_id[:10],
-                    environment=environment[:16],
-                    source_name=source_name[:128],
-                    tool_name=tool_name[:128],
-                    method=method[:32],
-                    success=1 if success else 0,
-                    latency_ms=latency_ms,
-                    client_addr=client_addr[:64],
-                    error_msg=error_msg[:2000] if error_msg else "",
-                ))
+                session.add(record)
                 await session.commit()
         except Exception as exc:
             logger.warning("写入 MCP 请求日志失败: %s", exc)
@@ -823,147 +1102,20 @@ class ConfigStore:
               "timeline":  [{"date": "YYYY-MM-DD", "total": N, "success": N, "fail": N}],
             }
         """
-        from sqlalchemy import text
-
-        # 构建 WHERE 条件（命名参数，防注入）
-        conditions: list[str] = []
-        params: dict[str, Any] = {}
-        if start_date:
-            conditions.append("created_at >= :start_date")
-            params["start_date"] = f"{start_date} 00:00:00"
-        if end_date:
-            conditions.append("created_at < :end_date_exclusive")
-            params["end_date_exclusive"] = f"{end_date} 23:59:59"
-            # 用 < 次日 00:00:00 更准确，但为兼容 SQLite/MySQL，这里用 <= 当天结束
-            conditions[-1] = "created_at <= :end_date_exclusive"
-        if system_id:
-            conditions.append("system_id = :system_id")
-            params["system_id"] = system_id
-        if environment:
-            conditions.append("environment = :environment")
-            params["environment"] = environment
-        if source_name:
-            conditions.append("source_name = :source_name")
-            params["source_name"] = source_name
-
-        where_clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
-
+        where_clause, params = _build_log_filter_clause(
+            start_date=start_date,
+            end_date=end_date,
+            system_id=system_id,
+            environment=environment,
+            source_name=source_name,
+        )
         async with self._session_factory() as session:
-            # 1. summary
-            summary_row = (await session.execute(
-                text(f"""
-                    SELECT
-                        COUNT(*) AS total,
-                        COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
-                        COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail,
-                        COALESCE(ROUND(AVG(latency_ms), 0), 0) AS avg_latency_ms
-                    FROM mcp_request_logs{where_clause}
-                """),
-                params,
-            )).fetchone()
-            summary = {
-                "total": summary_row.total if summary_row else 0,
-                "success": summary_row.success if summary_row else 0,
-                "fail": summary_row.fail if summary_row else 0,
-                "avg_latency_ms": summary_row.avg_latency_ms if summary_row else 0,
-            }
-
-            # 2. by_system（不受 system_id 过滤影响时才有意义；若已筛选 system_id 则只返回该系统）
-            system_rows = (await session.execute(
-                text(f"""
-                    SELECT system_id,
-                           COUNT(*) AS total,
-                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
-                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
-                    FROM mcp_request_logs{where_clause}
-                    GROUP BY system_id
-                    ORDER BY total DESC
-                """),
-                params,
-            )).fetchall()
-            by_system = [
-                {"system_id": r.system_id or "(未指定)", "total": r.total, "success": r.success, "fail": r.fail}
-                for r in system_rows
-            ]
-
-            # 3. by_environment（与 by_system 对称；若已筛选 environment 则只返回该环境）
-            environment_rows = (await session.execute(
-                text(f"""
-                    SELECT environment,
-                           COUNT(*) AS total,
-                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
-                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
-                    FROM mcp_request_logs{where_clause}
-                    GROUP BY environment
-                    ORDER BY total DESC
-                """),
-                params,
-            )).fetchall()
-            by_environment = [
-                {"environment": r.environment or "(未指定)", "total": r.total, "success": r.success, "fail": r.fail}
-                for r in environment_rows
-            ]
-
-            # 4. by_source
-            source_rows = (await session.execute(
-                text(f"""
-                    SELECT source_name,
-                           COUNT(*) AS total,
-                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
-                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
-                    FROM mcp_request_logs{where_clause}
-                    GROUP BY source_name
-                    ORDER BY total DESC
-                """),
-                params,
-            )).fetchall()
-            by_source = [
-                {"source_name": r.source_name or "(未指定)", "total": r.total, "success": r.success, "fail": r.fail}
-                for r in source_rows
-            ]
-
-            # 5. by_tool（只统计 tools/call，tools/list 不分工具）
-            tool_where = where_clause
-            tool_params = dict(params)
-            if "method" not in conditions:
-                tool_where = (where_clause + " AND " if where_clause else " WHERE ") + "method = 'tools/call'"
-            tool_rows = (await session.execute(
-                text(f"""
-                    SELECT tool_name,
-                           COUNT(*) AS total,
-                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
-                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
-                    FROM mcp_request_logs{tool_where}
-                    GROUP BY tool_name
-                    ORDER BY total DESC
-                    LIMIT 50
-                """),
-                tool_params,
-            )).fetchall()
-            by_tool = [
-                {"tool_name": r.tool_name or "(未知)", "total": r.total, "success": r.success, "fail": r.fail}
-                for r in tool_rows
-            ]
-
-            # 6. timeline（按天聚合）
-            # SQLite 用 DATE()，MySQL 用 DATE()，两者都支持
-            timeline_rows = (await session.execute(
-                text(f"""
-                    SELECT DATE(created_at) AS date,
-                           COUNT(*) AS total,
-                           COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
-                           COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
-                    FROM mcp_request_logs{where_clause}
-                    GROUP BY DATE(created_at)
-                    ORDER BY date ASC
-                """),
-                params,
-            )).fetchall()
-            timeline = [
-                {"date": str(r.date), "total": r.total, "success": r.success, "fail": r.fail}
-                for r in timeline_rows
-            ]
-
+            summary = await self._query_stats_summary(session, where_clause, params)
+            by_system = await self._query_stats_grouped(session, where_clause, params, "system_id", "system_id")
+            by_environment = await self._query_stats_grouped(session, where_clause, params, "environment", "environment")
+            by_source = await self._query_stats_grouped(session, where_clause, params, "source_name", "source_name")
+            by_tool = await self._query_stats_by_tool(session, where_clause, params)
+            timeline = await self._query_stats_timeline(session, where_clause, params)
             return {
                 "summary": summary,
                 "by_system": by_system,
@@ -972,6 +1124,84 @@ class ConfigStore:
                 "by_tool": by_tool,
                 "timeline": timeline,
             }
+
+    async def _query_stats_summary(self, session: AsyncSession, where_clause: str, params: dict[str, Any]) -> dict[str, Any]:
+        """查询统计汇总（总数/成功/失败/平均延迟）。"""
+        from sqlalchemy import text
+        row = (await session.execute(
+            text(f"""
+                SELECT
+                    COUNT(*) AS total,
+                    COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                    COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail,
+                    COALESCE(ROUND(AVG(latency_ms), 0), 0) AS avg_latency_ms
+                FROM mcp_request_logs{where_clause}
+            """),
+            params,
+        )).fetchone()
+        return _row_to_summary_dict(row)
+
+    async def _query_stats_grouped(
+        self,
+        session: AsyncSession,
+        where_clause: str,
+        params: dict[str, Any],
+        column: str,
+        label: str,
+    ) -> list[dict[str, Any]]:
+        """按指定列分组查询统计。"""
+        from sqlalchemy import text
+        rows = (await session.execute(
+            text(f"""
+                SELECT {column},
+                       COUNT(*) AS total,
+                       COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                       COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
+                FROM mcp_request_logs{where_clause}
+                GROUP BY {column}
+                ORDER BY total DESC
+            """),
+            params,
+        )).fetchall()
+        return [_row_to_grouped_dict(r, column, label) for r in rows]
+
+    async def _query_stats_by_tool(self, session: AsyncSession, where_clause: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """按工具名查询调用统计（仅 tools/call）。"""
+        # by_tool 只统计 tools/call，tools/list 不分工具
+        from sqlalchemy import text
+        tool_where = _append_method_filter(where_clause)
+        rows = (await session.execute(
+            text(f"""
+                SELECT tool_name,
+                       COUNT(*) AS total,
+                       COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                       COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
+                FROM mcp_request_logs{tool_where}
+                GROUP BY tool_name
+                ORDER BY total DESC
+                LIMIT 50
+            """),
+            params,
+        )).fetchall()
+        return [_row_to_grouped_dict(r, "tool_name", "tool_name", "(未知)") for r in rows]
+
+    async def _query_stats_timeline(self, session: AsyncSession, where_clause: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """按日期查询调用时间线统计。"""
+        # SQLite 用 DATE()，MySQL 用 DATE()，两者都支持
+        from sqlalchemy import text
+        rows = (await session.execute(
+            text(f"""
+                SELECT DATE(created_at) AS date,
+                       COUNT(*) AS total,
+                       COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS success,
+                       COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS fail
+                FROM mcp_request_logs{where_clause}
+                GROUP BY DATE(created_at)
+                ORDER BY date ASC
+            """),
+            params,
+        )).fetchall()
+        return [_row_to_timeline_dict(r) for r in rows]
 
     async def query_mcp_logs(
         self,
@@ -996,77 +1226,49 @@ class ConfigStore:
               "total_pages": N,
             }
         """
-        from sqlalchemy import text
-
-        conditions: list[str] = []
-        params: dict[str, Any] = {}
-        if start_date:
-            conditions.append("created_at >= :start_date")
-            params["start_date"] = f"{start_date} 00:00:00"
-        if end_date:
-            conditions.append("created_at <= :end_date_exclusive")
-            params["end_date_exclusive"] = f"{end_date} 23:59:59"
-        if system_id:
-            conditions.append("system_id = :system_id")
-            params["system_id"] = system_id
-        if environment:
-            conditions.append("environment = :environment")
-            params["environment"] = environment
-        if source_name:
-            conditions.append("source_name = :source_name")
-            params["source_name"] = source_name
-
-        where_clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
-
-        page = max(1, page)
-        page_size = max(1, min(page_size, 100))
-        offset = (page - 1) * page_size
-
+        where_clause, params = _build_log_filter_clause(
+            start_date=start_date,
+            end_date=end_date,
+            system_id=system_id,
+            environment=environment,
+            source_name=source_name,
+        )
+        page, page_size, offset = _normalize_pagination(page, page_size)
         async with self._session_factory() as session:
-            # 总数
-            total_row = (await session.execute(
-                text(f"SELECT COUNT(*) AS cnt FROM mcp_request_logs{where_clause}"),
-                params,
-            )).fetchone()
-            total = total_row.cnt if total_row else 0
-            total_pages = max(1, (total + page_size - 1) // page_size)
+            total = await self._query_logs_total(session, where_clause, params)
+            items = await self._query_logs_items(session, where_clause, params, page_size, offset)
+            return _build_logs_response(items, total, page, page_size)
 
-            # 分页明细（最新在前）
-            rows = (await session.execute(
-                text(f"""
-                    SELECT id, system_id, environment, source_name, tool_name, method,
-                           success, latency_ms, client_addr, error_msg, created_at
-                    FROM mcp_request_logs{where_clause}
-                    ORDER BY created_at DESC, id DESC
-                    LIMIT :limit OFFSET :offset
-                """),
-                {**params, "limit": page_size, "offset": offset},
-            )).fetchall()
+    async def _query_logs_total(self, session: AsyncSession, where_clause: str, params: dict[str, Any]) -> int:
+        """查询日志总数。"""
+        from sqlalchemy import text
+        row = (await session.execute(
+            text(f"SELECT COUNT(*) AS cnt FROM mcp_request_logs{where_clause}"),
+            params,
+        )).fetchone()
+        return row.cnt if row else 0
 
-            items = [
-                {
-                    "id": r.id,
-                    "system_id": r.system_id or "",
-                    "environment": r.environment or "",
-                    "source_name": r.source_name or "",
-                    "tool_name": r.tool_name or "",
-                    "method": r.method,
-                    "success": bool(r.success),
-                    "latency_ms": r.latency_ms,
-                    "client_addr": r.client_addr or "",
-                    "error_msg": r.error_msg or "",
-                    "created_at": str(r.created_at) if r.created_at else "",
-                }
-                for r in rows
-            ]
-
-            return {
-                "items": items,
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": total_pages,
-            }
+    async def _query_logs_items(
+        self,
+        session: AsyncSession,
+        where_clause: str,
+        params: dict[str, Any],
+        page_size: int,
+        offset: int,
+    ) -> list[dict[str, Any]]:
+        """查询日志明细列表（分页）。"""
+        from sqlalchemy import text
+        rows = (await session.execute(
+            text(f"""
+                SELECT id, system_id, environment, source_name, tool_name, method,
+                       success, latency_ms, client_addr, error_msg, created_at
+                FROM mcp_request_logs{where_clause}
+                ORDER BY created_at DESC, id DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            {**params, "limit": page_size, "offset": offset},
+        )).fetchall()
+        return [_row_to_log_dict(r) for r in rows]
 
 
 # 全局单例
@@ -1074,15 +1276,18 @@ _store: ConfigStore | None = None
 
 
 def get_store() -> ConfigStore | None:
+    """获取全局 ConfigStore 实例。"""
     return _store
 
 
 def set_store(store: ConfigStore) -> None:
+    """设置全局 ConfigStore 实例。"""
     global _store
     _store = store
 
 
 async def init_store(store_url: str = "", username: str = "", password: str = "") -> ConfigStore:
+    """创建并初始化 ConfigStore，注册为全局单例。"""
     store = ConfigStore(store_url, username, password)
     await store.initialize()
     set_store(store)

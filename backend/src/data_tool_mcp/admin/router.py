@@ -90,9 +90,19 @@ def _read_yaml_docs(path: str) -> list | None:
         return None
 
 
+def _is_tool_doc(doc: Any) -> bool:
+    """判断 yaml 文档是否为 tool 类型。"""
+    return isinstance(doc, dict) and doc.get("kind") == "tool"
+
+
+def _collect_tool_docs(docs: list) -> list[dict[str, Any]]:
+    """从 yaml 文档列表中筛选 kind==tool 的文档。"""
+    return [doc for doc in docs if _is_tool_doc(doc)]
+
+
 def _filter_tool_docs(docs: list) -> list[dict[str, Any]] | None:
     """从 yaml 文档列表中筛选 kind==tool 的文档,空则返回 None。"""
-    tools = [doc for doc in docs if isinstance(doc, dict) and doc.get("kind") == "tool"]
+    tools = _collect_tool_docs(docs)
     return tools or None
 
 
@@ -345,10 +355,12 @@ def _classify_tool(tool: Any, tool_type: str) -> str:
 
 
 def _get_rm(request: Request):
+    """从 request.app.state 获取 ResourceManager。"""
     return request.app.state.resource_manager
 
 
 def _get_config(request: Request):
+    """从 request.app.state 获取 ServerConfig。"""
     return request.app.state.config
 
 
@@ -376,7 +388,7 @@ def _build_persist_config(tool_data: dict[str, Any]) -> tuple[str, dict[str, Any
 async def _persist_tool(tool_name: str, tool_type: str, source: str, tool_data: dict[str, Any]) -> None:
     """将工具持久化到 ConfigStore（仅在持久化模式下生效）。"""
     store = get_store()
-    if store is None or not store.is_persistent:
+    if not _is_store_usable(store):
         return
     try:
         description, config_data = _build_persist_config(tool_data)
@@ -513,6 +525,24 @@ def _build_default_tool_data(
     return tool_data
 
 
+async def _try_create_default_tool(
+    rm,
+    name: str,
+    suffix: str,
+    tool_type: str,
+    system_id: str,
+    environment: str,
+) -> str | None:
+    """尝试创建单个 fallback 工具,返回工具名(或 None)。"""
+    tool_name = f"{name}-{suffix}"
+    if _tool_already_exists(tool_name, rm):
+        return None
+    tool_data = _build_default_tool_data(name, suffix, tool_type, system_id, environment)
+    if await _try_add_tool(rm, tool_name, tool_type, tool_data, name, persist=False):
+        return tool_name
+    return None
+
+
 async def _create_default_tools(
     rm,
     src_type: str,
@@ -523,11 +553,8 @@ async def _create_default_tools(
     """Fallback: 为无 prebuilt yaml 的数据源类型创建最小工具集。"""
     created: list[str] = []
     for suffix, tool_type in _SOURCE_DEFAULT_TOOLS.get(src_type, []):
-        tool_name = f"{name}-{suffix}"
-        if _tool_already_exists(tool_name, rm):
-            continue
-        tool_data = _build_default_tool_data(name, suffix, tool_type, system_id, environment)
-        if await _try_add_tool(rm, tool_name, tool_type, tool_data, name, persist=False):
+        tool_name = await _try_create_default_tool(rm, name, suffix, tool_type, system_id, environment)
+        if tool_name:
             created.append(tool_name)
     return created
 
@@ -616,13 +643,18 @@ def _get_tools_for_source_from_rm(rm, name: str) -> list[str]:
     ]
 
 
+def _extract_tool_names_from_list(tools_list: list[dict[str, Any]]) -> list[str]:
+    """从工具列表中提取非空工具名。"""
+    return [t["name"] for t in tools_list if t.get("name")]
+
+
 async def _get_tools_for_source(rm, store, name: str) -> list[str]:
     """获取数据源绑定的工具名列表,优先用 store,回退到 rm。"""
     if not _is_store_usable(store):
         return _get_tools_for_source_from_rm(rm, name)
     try:
         tools_list = await store.load_tools_by_source(name)
-        return [t["name"] for t in tools_list if t.get("name")]
+        return _extract_tool_names_from_list(tools_list)
     except Exception as exc:
         logger.warning("查询数据源 %r 的工具失败: %s", name, exc)
         return _get_tools_for_source_from_rm(rm, name)
@@ -636,10 +668,16 @@ def _compute_tool_count_from_rm(rm, name: str) -> int:
     )
 
 
+def _needs_sqlite_normalize(src_type: str, config_data: dict[str, Any]) -> bool:
+    """判断是否需要将 database 字段重命名为 path。"""
+    return src_type == "sqlite" and "database" in config_data and "path" not in config_data
+
+
 def _normalize_sqlite_config(src_type: str, config_data: dict[str, Any]) -> None:
     """sqlite 数据源: 将 frontend 传入的 database 字段重命名为 path。"""
-    if src_type == "sqlite" and "database" in config_data and "path" not in config_data:
-        config_data["path"] = config_data.pop("database")
+    if not _needs_sqlite_normalize(src_type, config_data):
+        return
+    config_data["path"] = config_data.pop("database")
 
 
 async def _build_source_or_raise(
@@ -686,38 +724,60 @@ async def _build_source_response(
     return result
 
 
-async def _load_source_config(rm, store, name: str) -> dict[str, Any] | None:
-    """加载数据源配置: 优先用 store,回退到 rm;不存在时返回 None。"""
-    if _is_store_usable(store):
-        try:
-            src_cfg = await store.get_source(name)
-            if src_cfg is not None:
-                return src_cfg
-        except Exception as exc:
-            logger.warning("查询数据源 %r 失败: %s", name, exc)
-    # 回退到 rm
+async def _load_source_config_from_store(store, name: str) -> dict[str, Any] | None:
+    """从 store 加载数据源配置,失败返回 None。"""
+    if not _is_store_usable(store):
+        return None
+    try:
+        return await store.get_source(name)
+    except Exception as exc:
+        logger.warning("查询数据源 %r 失败: %s", name, exc)
+        return None
+
+
+def _load_source_config_from_rm(rm, name: str) -> dict[str, Any] | None:
+    """从 rm 加载数据源配置,不存在时返回 None。"""
     if not rm.has_source(name):
         return None
     return rm.get_source_config(name) or {}
 
 
+async def _load_source_config(rm, store, name: str) -> dict[str, Any] | None:
+    """加载数据源配置: 优先用 store,回退到 rm;不存在时返回 None。"""
+    src_cfg = await _load_source_config_from_store(store, name)
+    if src_cfg is not None:
+        return src_cfg
+    return _load_source_config_from_rm(rm, name)
+
+
+def _get_password_from_cfg(src_cfg: dict[str, Any]) -> str:
+    """从数据源配置中读取明文密码。"""
+    return str(src_cfg.get("password", "") or "")
+
+
 async def _get_password_ciphertext(store, src_cfg: dict[str, Any], name: str) -> str:
     """获取数据源密码密文,持久化模式从 store 读取,回退到内存明文密码。"""
     if not _is_store_usable(store):
-        return str(src_cfg.get("password", "") or "")
+        return _get_password_from_cfg(src_cfg)
     try:
         sid, env = _get_source_env_keys_from_cfg(src_cfg)
         return await store.get_source_password(name, sid, env)
     except Exception as exc:
         logger.warning("读取数据源 %r 密文失败: %s", name, exc)
-        return str(src_cfg.get("password", "") or "")
+        return _get_password_from_cfg(src_cfg)
+
+
+def _filter_tool_names(existing: list[str], to_remove: list[str]) -> list[str]:
+    """从 existing 中排除 to_remove 中的工具名。"""
+    return [n for n in existing if n not in to_remove]
 
 
 def _remove_tools_from_default_toolset(rm, tool_names: list[str]) -> None:
     """从默认 toolset(name=="")中移除指定工具名。"""
     default_ts = rm.get_toolset("")
-    if default_ts is not None:
-        default_ts.tool_names = [n for n in default_ts.tool_names if n not in tool_names]
+    if default_ts is None:
+        return
+    default_ts.tool_names = _filter_tool_names(default_ts.tool_names, tool_names)
 
 
 # ---------------------------------------------------------------------------
@@ -781,14 +841,19 @@ async def _source_to_dict(
     return result
 
 
+async def _resolve_source_config_from_store(name: str, store) -> dict[str, Any]:
+    """从 store 读取数据源配置,失败返回空 dict。"""
+    try:
+        return await store.get_source(name) or {}
+    except Exception:
+        return {}
+
+
 async def _resolve_source_config(name: str, store) -> dict[str, Any]:
     """从 store 读取数据源配置,失败或无 store 时返回空 dict。"""
-    if store is not None:
-        try:
-            return await store.get_source(name) or {}
-        except Exception:
-            return {}
-    return {}
+    if store is None:
+        return {}
+    return await _resolve_source_config_from_store(name, store)
 
 
 def _apply_source_config_field(
@@ -846,14 +911,27 @@ def _validate_environment(environment: str) -> None:
         )
 
 
+def _get_enabled_source_types(config) -> list:
+    """从 config 中读取已启用的数据源类型列表。"""
+    return getattr(config, "enabled_source_types", []) or []
+
+
+def _is_whitelist_active(enabled: Any) -> bool:
+    """判断白名单是否生效: 非空 list 表示启用白名单。"""
+    return isinstance(enabled, list) and bool(enabled)
+
+
 def _validate_source_type_whitelist(config, src_type: str) -> None:
     """数据源类型白名单校验: 防止绕过 UI 直接调用 API 创建被禁用类型。"""
-    enabled = getattr(config, "enabled_source_types", []) or []
-    if isinstance(enabled, list) and enabled and src_type not in enabled:
-        raise HTTPException(
-            status_code=403,
-            detail=f"数据源类型 {src_type!r} 未启用,请联系管理员调整 --enabled-source-types",
-        )
+    enabled = _get_enabled_source_types(config)
+    if not _is_whitelist_active(enabled):
+        return
+    if src_type in enabled:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=f"数据源类型 {src_type!r} 未启用,请联系管理员调整 --enabled-source-types",
+    )
 
 
 def _validate_create_source_input(body: dict[str, Any], config) -> tuple[str, str, str, str]:
@@ -907,16 +985,21 @@ async def _check_source_uniqueness(rm, store, name: str, system_id: str, environ
         )
 
 
-async def _persist_new_source(store, name: str, src_type: str, config_data: dict[str, Any]) -> None:
-    """持久化新建数据源,ValueError 转为 409,其他异常仅告警。"""
-    if not _is_store_usable(store):
-        return
+async def _save_source_to_store(store, name: str, src_type: str, config_data: dict[str, Any]) -> None:
+    """保存数据源到 store,ValueError 转为 409,其他异常仅告警。"""
     try:
         await store.save_source(name, src_type, config_data)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         logger.warning("持久化数据源 %r 失败: %s", name, exc)
+
+
+async def _persist_new_source(store, name: str, src_type: str, config_data: dict[str, Any]) -> None:
+    """持久化新建数据源,ValueError 转为 409,其他异常仅告警。"""
+    if not _is_store_usable(store):
+        return
+    await _save_source_to_store(store, name, src_type, config_data)
 
 
 # ---------------------------------------------------------------------------
@@ -950,22 +1033,26 @@ def _init_system_entry(sid: str) -> dict[str, Any]:
     }
 
 
+def _append_env_to_system(system_entry: dict[str, Any], env: str) -> None:
+    """将环境编号追加到系统条目(去重)。"""
+    if env and env not in system_entry["environments"]:
+        system_entry["environments"].append(env)
+
+
 def _add_source_to_systems(
     systems: dict[str, dict[str, Any]],
     name: str,
     cfg: dict[str, Any],
 ) -> None:
     """将单个数据源聚合到 systems dict 中。"""
-    sid = str(cfg.get("systemId", "") or "").strip()
+    sid, env = _extract_env_keys(cfg)
     if not sid:
         return
     if sid not in systems:
         systems[sid] = _init_system_entry(sid)
     systems[sid]["sourceCount"] += 1
     systems[sid]["sources"].append(name)
-    env = str(cfg.get("environment", "") or "").strip()
-    if env and env not in systems[sid]["environments"]:
-        systems[sid]["environments"].append(env)
+    _append_env_to_system(systems[sid], env)
 
 
 def _aggregate_systems(configs: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -981,15 +1068,20 @@ def _aggregate_systems(configs: dict[str, dict[str, Any]]) -> list[dict[str, Any
 # ---------------------------------------------------------------------------
 
 
-def _classify_toolset_type(name: str, source_names: set[str], system_ids: set[str]) -> str:
-    """判断 toolset 类型: all / system / source / custom。"""
-    if not name:
-        return "all"
+def _classify_named_toolset_type(name: str, source_names: set[str], system_ids: set[str]) -> str:
+    """判断具名 toolset 类型: system / source / custom。"""
     if name in system_ids:
         return "system"
     if name in source_names:
         return "source"
     return "custom"
+
+
+def _classify_toolset_type(name: str, source_names: set[str], system_ids: set[str]) -> str:
+    """判断 toolset 类型: all / system / source / custom。"""
+    if not name:
+        return "all"
+    return _classify_named_toolset_type(name, source_names, system_ids)
 
 
 def _build_toolset_item(name: str, tool_count: int, ts_type: str) -> dict[str, Any]:
@@ -1011,26 +1103,33 @@ def _sort_toolsets(result: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+def _extract_source_names(items) -> list[str]:
+    """从 items 中提取非空 name 列表。"""
+    return [s["name"] for s in items if s.get("name")]
+
+
+def _extract_system_ids(items) -> set[str]:
+    """从 items 中提取非空 systemId 集合。"""
+    result: set[str] = set()
+    for item in items:
+        sid, _ = _extract_env_keys(item)
+        if sid:
+            result.add(sid)
+    return result
+
+
 def _extract_source_and_system_names(sources_list: list[dict[str, Any]]) -> tuple[set[str], set[str]]:
     """从 sources_list 中提取 (source_names, system_ids) 集合。"""
-    source_names = {s["name"] for s in sources_list if s.get("name")}
-    system_ids = {
-        str(s.get("systemId", "") or "").strip()
-        for s in sources_list
-        if str(s.get("systemId", "") or "").strip()
-    }
+    source_names = set(_extract_source_names(sources_list))
+    system_ids = _extract_system_ids(sources_list)
     return source_names, system_ids
 
 
 def _extract_source_and_system_names_from_rm(rm) -> tuple[set[str], set[str]]:
     """从 rm 中提取 (source_names, system_ids) 集合。"""
-    source_names = set(rm.get_all_source_configs().keys())
     configs = rm.get_all_source_configs()
-    system_ids = {
-        str(cfg.get("systemId", "") or "").strip()
-        for cfg in configs.values()
-        if str(cfg.get("systemId", "") or "").strip()
-    }
+    source_names = set(configs.keys())
+    system_ids = _extract_system_ids(configs.values())
     return source_names, system_ids
 
 
@@ -1064,16 +1163,21 @@ async def _query_dashboard_counts(store, rm) -> tuple[int, int]:
         return len(rm.get_all_source_configs()), len(rm.get_tools_map())
 
 
+def _get_rm_source_names(rm) -> list[str]:
+    """从 rm 内存中获取数据源名列表。"""
+    return list(rm.get_all_source_configs().keys())
+
+
 async def _load_source_names(rm, store) -> list[str]:
     """加载数据源名列表,优先用 store,回退到 rm。"""
     if not _is_store_usable(store):
-        return list(rm.get_all_source_configs().keys())
+        return _get_rm_source_names(rm)
     try:
         sources_list = await store.load_sources()
-        return [s.get("name", "") for s in sources_list if s.get("name")]
+        return _extract_source_names(sources_list)
     except Exception as exc:
         logger.warning("查询 health 数据源列表失败: %s", exc)
-        return list(rm.get_all_source_configs().keys())
+        return _get_rm_source_names(rm)
 
 
 def _build_source_health_item(name: str) -> dict[str, Any]:
@@ -1091,12 +1195,21 @@ def _build_source_health_item(name: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _build_all_schemas_response() -> dict[str, dict[str, Any]]:
+    """构造全部数据源类型 schema 响应。"""
+    return {k: {"fields": v} for k, v in SOURCE_TYPE_SCHEMAS.items()}
+
+
+def _build_filtered_schemas_response(enabled_set: set[str]) -> dict[str, dict[str, Any]]:
+    """按白名单集合过滤 SOURCE_TYPE_SCHEMAS 响应。"""
+    return {k: {"fields": v} for k, v in SOURCE_TYPE_SCHEMAS.items() if k in enabled_set}
+
+
 def _filter_schemas_by_whitelist(enabled: list) -> dict[str, dict[str, Any]]:
     """按白名单过滤 SOURCE_TYPE_SCHEMAS,空列表表示全部启用。"""
-    if isinstance(enabled, list) and enabled:
-        enabled_set = set(enabled)
-        return {k: {"fields": v} for k, v in SOURCE_TYPE_SCHEMAS.items() if k in enabled_set}
-    return {k: {"fields": v} for k, v in SOURCE_TYPE_SCHEMAS.items()}
+    if not _is_whitelist_active(enabled):
+        return _build_all_schemas_response()
+    return _build_filtered_schemas_response(set(enabled))
 
 
 def _get_tool_env_keys(rm, source_name: str | None) -> tuple[str, str]:
@@ -1142,16 +1255,27 @@ def _build_param_property(param) -> dict[str, Any]:
     return prop
 
 
-def _build_input_schema(manifest) -> dict[str, Any] | None:
-    """将 manifest.parameters 转为前端使用的 JSON Schema 格式。"""
-    if not manifest or not manifest.parameters:
-        return None
+def _has_manifest_params(manifest) -> bool:
+    """判断 manifest 是否有参数。"""
+    return bool(manifest and manifest.parameters)
+
+
+def _collect_param_props(parameters: list) -> tuple[dict[str, Any], list[str]]:
+    """收集参数的 properties 和 required 列表。"""
     properties: dict[str, Any] = {}
     required: list[str] = []
-    for param in manifest.parameters:
+    for param in parameters:
         properties[param.name] = _build_param_property(param)
         if param.required:
             required.append(param.name)
+    return properties, required
+
+
+def _build_input_schema(manifest) -> dict[str, Any] | None:
+    """将 manifest.parameters 转为前端使用的 JSON Schema 格式。"""
+    if not _has_manifest_params(manifest):
+        return None
+    properties, required = _collect_param_props(manifest.parameters)
     return {"properties": properties, "required": required}
 
 
@@ -1186,10 +1310,20 @@ def _get_dialect_tables_sql(src_type: str) -> str:
     return _DIALECT_TABLES_SQL.get(src_type, _DEFAULT_TABLES_SQL)
 
 
+def _extract_single_table_name(row: dict[str, Any]) -> Any:
+    """从单行查询结果中提取表名。"""
+    return row.get("name") or row.get("tablename") or list(row.values())[0]
+
+
+def _filter_non_empty(items: list) -> list:
+    """过滤掉列表中的 falsy 值。"""
+    return [t for t in items if t]
+
+
 def _extract_table_names(rows: list[dict[str, Any]]) -> list[str]:
     """从查询结果中提取表名列表。"""
-    tables = [r.get("name") or r.get("tablename") or list(r.values())[0] for r in rows]
-    return [t for t in tables if t]
+    tables = [_extract_single_table_name(r) for r in rows]
+    return _filter_non_empty(tables)
 
 
 # ---------------------------------------------------------------------------
@@ -1197,13 +1331,18 @@ def _extract_table_names(rows: list[dict[str, Any]]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_toolset_from_env(system_id: str, environment: str) -> str:
+    """根据系统编号和环境推导 toolset 名称。"""
+    if system_id and environment:
+        return f"{system_id}-{environment}"
+    return system_id
+
+
 def _resolve_effective_toolset(toolset_name: str, system_id: str, environment: str) -> str:
     """确定最终用于过滤的 toolset 名称。"""
     if toolset_name:
         return toolset_name
-    if system_id and environment:
-        return f"{system_id}-{environment}"
-    return system_id
+    return _resolve_toolset_from_env(system_id, environment)
 
 
 def _validate_toolset_exists(rm, effective_toolset: str) -> None:
@@ -1229,12 +1368,17 @@ def _get_default_date_range() -> tuple[str, str]:
     return start_date, end_date
 
 
+def _fill_default_dates(start_date: str | None, end_date: str | None) -> tuple[str, str]:
+    """用默认值填充缺失的日期。"""
+    default_start, default_end = _get_default_date_range()
+    return start_date or default_start, end_date or default_end
+
+
 def _resolve_date_range(start_date: str | None, end_date: str | None) -> tuple[str, str]:
     """解析日期范围,缺省时使用默认值。"""
     if start_date and end_date:
         return start_date, end_date
-    default_start, default_end = _get_default_date_range()
-    return start_date or default_start, end_date or default_end
+    return _fill_default_dates(start_date, end_date)
 
 
 def _build_no_persistence_stats_response() -> dict[str, Any]:
@@ -1268,6 +1412,7 @@ def _build_no_persistence_logs_response(page: int, page_size: int) -> dict[str, 
 
 @router.get("/dashboard")
 async def dashboard(request: Request) -> dict[str, Any]:
+    """返回 dashboard 概览数据(版本、计数、今日请求数等)。"""
     rm = _get_rm(request)
     config = _get_config(request)
     store = get_store()
@@ -1296,6 +1441,7 @@ async def dashboard(request: Request) -> dict[str, Any]:
 
 @router.get("/health")
 async def health(request: Request) -> dict[str, Any]:
+    """返回数据源健康状态和服务运行状态。"""
     rm = _get_rm(request)
     store = get_store()
     # 数据源名列表 — 优先从数据库查询（多实例一致性），回退到 rm 内存
@@ -1362,6 +1508,14 @@ async def _build_sources_response_from_store_list(
     return result
 
 
+async def _build_rm_source_item(rm, name: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    """从 rm 内存构造单个数据源响应项,手动计算 tool_count。"""
+    src_cfg = cfg or {}
+    item = await _source_to_dict(name, src_cfg)
+    item["toolCount"] = _compute_tool_count_from_rm(rm, name)
+    return item
+
+
 async def _build_sources_response_from_rm_filtered(
     rm,
     system_id: str,
@@ -1370,19 +1524,16 @@ async def _build_sources_response_from_rm_filtered(
     configs = rm.get_all_source_configs()
     result: list[dict[str, Any]] = []
     for name, cfg in configs.items():
-        sid = str(cfg.get("systemId", "") or "").strip()
+        sid, _ = _extract_env_keys(cfg)
         if sid != system_id:
             continue
-        src_cfg = cfg or {}
-        item = await _source_to_dict(name, src_cfg)
-        # 回退场景下手动计算 tool_count（_source_to_dict 在无 store 时返回 0）
-        item["toolCount"] = _compute_tool_count_from_rm(rm, name)
-        result.append(item)
+        result.append(await _build_rm_source_item(rm, name, cfg))
     return result
 
 
 @router.get("/sources")
 async def list_sources(request: Request) -> list[dict[str, Any]]:
+    """列出所有数据源(优先从 store,回退到 rm 内存)。"""
     rm = _get_rm(request)
     store = get_store()
     if _is_store_usable(store):
@@ -1410,6 +1561,7 @@ async def _build_sources_response_from_rm(rm) -> list[dict[str, Any]]:
 
 @router.post("/sources")
 async def create_source(request: Request) -> dict[str, Any]:
+    """创建数据源并自动生成默认工具,持久化到 ConfigStore。"""
     body = await request.json()
     config = _get_config(request)
     name, src_type, system_id, environment = _validate_create_source_input(body, config)
@@ -1434,6 +1586,7 @@ async def create_source(request: Request) -> dict[str, Any]:
 
 @router.get("/sources/{name}")
 async def get_source(request: Request, name: str) -> dict[str, Any]:
+    """获取指定数据源详情,支持编辑场景回填密文密码。"""
     rm = _get_rm(request)
     store = get_store()
     # 存在性检查 + 配置读取: 优先用 store, 回退到 rm
@@ -1449,8 +1602,19 @@ async def get_source(request: Request, name: str) -> dict[str, Any]:
     )
 
 
+def _get_source_config_or_empty(rm, name: str) -> dict[str, Any]:
+    """从 rm 获取数据源配置,不存在时返回空 dict。"""
+    return rm.get_source_config(name) or {}
+
+
+def _build_config_data(body: dict[str, Any]) -> dict[str, Any]:
+    """从请求 body 中提取 config_data(排除 name/type)。"""
+    return {k: v for k, v in body.items() if k not in ("name", "type")}
+
+
 @router.put("/sources/{name}")
 async def update_source(request: Request, name: str) -> dict[str, Any]:
+    """更新数据源,清理旧工具后重新生成并持久化。"""
     body = await request.json()
     rm = _get_rm(request)
     store = get_store()
@@ -1458,10 +1622,10 @@ async def update_source(request: Request, name: str) -> dict[str, Any]:
     if not await _check_source_exists(rm, store, name):
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
     # 失效旧 source 缓存(关闭旧连接池)
-    old_cfg = rm.get_source_config(name) or {}
+    old_cfg = _get_source_config_or_empty(rm, name)
     await rm.invalidate_source(name)
     src_type = body.get("type", old_cfg.get("type", "unknown"))
-    config_data = {k: v for k, v in body.items() if k not in ("name", "type")}
+    config_data = _build_config_data(body)
     _normalize_sqlite_config(src_type, config_data)
     # Remove old tools bound to this source before recreating
     old_tools = await _get_tools_for_source(rm, store, name)
@@ -1491,24 +1655,30 @@ async def _remove_tools_for_update(
     await _clear_store_tools_for_source(store, rm, name, old_cfg)
 
 
+async def _remove_source_tools(rm, store, name: str) -> None:
+    """移除数据源绑定的所有工具:从 rm 内存 + 默认 toolset 中删除。"""
+    removed = await _get_tools_for_source(rm, store, name)
+    for tname in removed:
+        rm.remove_tool(tname)
+    _remove_tools_from_default_toolset(rm, removed)
+
+
 @router.delete("/sources/{name}", status_code=204)
 async def delete_source(request: Request, name: str):
+    """删除数据源及其绑定工具,并从默认 toolset 移除。"""
     rm = _get_rm(request)
     store = get_store()
     # 存在性检查: 优先用 store, 回退到 rm
     if not await _check_source_exists(rm, store, name):
         return
     # 持久化删除前先取出 system_id + environment，用于精确删除 store 中记录
-    old_cfg = rm.get_source_config(name) or {}
+    old_cfg = _get_source_config_or_empty(rm, name)
     sid, env = _get_source_env_keys_from_cfg(old_cfg)
     await rm.remove_source(name)
     # Remove tools bound to this source (auto-generated or manual) and
     # drop them from the default toolset so no orphan tools remain.
     # 优先从 store 查询（多实例一致性），回退到 rm 内存
-    removed = await _get_tools_for_source(rm, store, name)
-    for tname in removed:
-        rm.remove_tool(tname)
-    _remove_tools_from_default_toolset(rm, removed)
+    await _remove_source_tools(rm, store, name)
     # 持久化删除到 ConfigStore
     await _persist_delete_source(store, name, sid, env)
 
@@ -1526,6 +1696,7 @@ async def _persist_delete_source(store, name: str, sid: str, env: str) -> None:
 
 @router.post("/sources/{name}/test")
 async def test_source(request: Request, name: str) -> dict[str, Any]:
+    """测试数据源连通性,返回 ok/latency/error。"""
     rm = _get_rm(request)
     if not rm.has_source(name):
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
@@ -1554,17 +1725,14 @@ async def _measure_source_connect_latency(source) -> dict[str, Any]:
 
 @router.get("/tools")
 async def list_tools(request: Request) -> list[dict[str, Any]]:
+    """列出所有工具及其分类信息。"""
     rm = _get_rm(request)
     tools = rm.get_tools_map()
     return [_build_tool_list_item(rm, name, tool) for name, tool in tools.items()]
 
 
-@router.get("/tools/{name}")
-async def get_tool(request: Request, name: str) -> dict[str, Any]:
-    rm = _get_rm(request)
-    tool = rm.get_tool(name)
-    if not tool:
-        raise HTTPException(status_code=404, detail=f"tool {name!r} not found")
+def _build_tool_detail(rm, name: str, tool) -> dict[str, Any]:
+    """构造 get_tool 接口的工具详情响应。"""
     manifest = tool.manifest() if hasattr(tool, "manifest") else None
     tool_type = rm.get_tool_type(name)
     return {
@@ -1577,14 +1745,18 @@ async def get_tool(request: Request, name: str) -> dict[str, Any]:
     }
 
 
-@router.post("/tools/{name}/invoke")
-async def invoke_tool(request: Request, name: str) -> dict[str, Any]:
+@router.get("/tools/{name}")
+async def get_tool(request: Request, name: str) -> dict[str, Any]:
+    """获取指定工具详情(含 inputSchema)。"""
     rm = _get_rm(request)
     tool = rm.get_tool(name)
     if not tool:
         raise HTTPException(status_code=404, detail=f"tool {name!r} not found")
-    body = await request.json()
-    params = body.get("params", {})
+    return _build_tool_detail(rm, name, tool)
+
+
+async def _invoke_tool_safe(tool, params: dict[str, Any], rm) -> dict[str, Any]:
+    """调用工具并处理异常:ValueError 转 400,其他转 500。"""
     try:
         result = await tool.invoke(params, source_provider=rm)
         return {"result": result}
@@ -1594,8 +1766,21 @@ async def invoke_tool(request: Request, name: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.post("/tools/{name}/invoke")
+async def invoke_tool(request: Request, name: str) -> dict[str, Any]:
+    """调用指定工具并返回结果。"""
+    rm = _get_rm(request)
+    tool = rm.get_tool(name)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"tool {name!r} not found")
+    body = await request.json()
+    params = body.get("params", {})
+    return await _invoke_tool_safe(tool, params, rm)
+
+
 @router.delete("/tools/{name}", status_code=204)
 async def delete_tool(request: Request, name: str):
+    """删除指定工具,并持久化到 ConfigStore。"""
     rm = _get_rm(request)
     rm.remove_tool(name)
     # 持久化删除到 ConfigStore
@@ -1610,6 +1795,7 @@ async def delete_tool(request: Request, name: str):
 
 @router.get("/config")
 async def get_config(request: Request) -> dict[str, Any]:
+    """返回服务端配置概览(YAML + parsed)。"""
     config = _get_config(request)
     prebuilt = config.prebuilt.split(",") if config.prebuilt else []
     parsed = {
@@ -1638,26 +1824,49 @@ async def get_config(request: Request) -> dict[str, Any]:
 
 @router.post("/config/reload")
 async def reload_config(request: Request) -> dict[str, Any]:
+    """触发配置重载(占位实现)。"""
     return {"ok": True, "errors": None}
+
+
+def _validate_query_input(source_name: str, statement: str) -> None:
+    """校验查询接口入参:sourceName 和 statement 均必填。"""
+    if not source_name or not statement:
+        raise HTTPException(status_code=400, detail="sourceName and statement are required")
+
+
+def _validate_source_sql_support(source, source_name: str) -> None:
+    """校验数据源是否支持 SQL 查询。"""
+    if not hasattr(source, "execute_sql"):
+        raise HTTPException(status_code=400, detail=f"source {source_name!r} does not support SQL queries")
 
 
 @router.post("/query")
 async def execute_query(request: Request) -> dict[str, Any]:
+    """在指定数据源上执行 SQL 查询并返回结果。"""
     body = await request.json()
     source_name = body.get("sourceName", "")
     statement = body.get("statement", "")
-    if not source_name or not statement:
-        raise HTTPException(status_code=400, detail="sourceName and statement are required")
+    _validate_query_input(source_name, statement)
     rm = _get_rm(request)
     source = await rm.get_source(source_name)
     if source is None:
         raise HTTPException(status_code=404, detail=f"source {source_name!r} not found")
     try:
-        if not hasattr(source, "execute_sql"):
-            raise HTTPException(status_code=400, detail=f"source {source_name!r} does not support SQL queries")
+        _validate_source_sql_support(source, source_name)
         return await _run_sql_query(source, statement)
     finally:
         await rm.release_source(source_name)
+
+
+def _build_sql_query_response(rows: list[dict[str, Any]], duration_ms: int) -> dict[str, Any]:
+    """构造 SQL 查询响应 dict。"""
+    columns = list(rows[0].keys()) if rows else []
+    return {
+        "columns": columns,
+        "rows": [list(r.values()) for r in rows],
+        "rowCount": len(rows),
+        "durationMs": duration_ms,
+    }
 
 
 async def _run_sql_query(source, statement: str) -> dict[str, Any]:
@@ -1666,13 +1875,7 @@ async def _run_sql_query(source, statement: str) -> dict[str, Any]:
         rows, duration_ms = await _execute_sql_with_timing(source, statement)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    columns = list(rows[0].keys()) if rows else []
-    return {
-        "columns": columns,
-        "rows": [list(r.values()) for r in rows],
-        "rowCount": len(rows),
-        "durationMs": duration_ms,
-    }
+    return _build_sql_query_response(rows, duration_ms)
 
 
 @router.get("/sources/{name}/tables")
@@ -1702,6 +1905,23 @@ async def _query_source_tables(source) -> dict[str, Any]:
     return {"tables": _extract_table_names(rows)}
 
 
+def _parse_mcp_test_input(body: dict[str, Any]) -> tuple[str, str, str]:
+    """从 mcp_test 请求 body 中解析 (toolset_name, system_id, environment)。"""
+    toolset_name = body.get("toolset", "") or ""
+    system_id, environment = _extract_env_keys(body)
+    return toolset_name, system_id, environment
+
+
+def _build_mcp_test_response(result: dict[str, Any]) -> dict[str, Any]:
+    """构造 mcp_test 接口响应。"""
+    tools = result.get("tools", [])
+    return {
+        "ok": True,
+        "count": len(tools),
+        "tools": [{"name": t["name"], "description": t.get("description", "")} for t in tools],
+    }
+
+
 @router.post("/mcp-test")
 async def mcp_test(request: Request) -> dict[str, Any]:
     """模拟 MCP 客户端调用 tools/list，验证端点配置是否可用。
@@ -1715,9 +1935,7 @@ async def mcp_test(request: Request) -> dict[str, Any]:
       - 都未选 → 返回全部工具
     """
     body = await request.json()
-    toolset_name = body.get("toolset", "") or ""
-    system_id = str(body.get("systemId", "") or "").strip()
-    environment = str(body.get("environment", "") or "").strip()
+    toolset_name, system_id, environment = _parse_mcp_test_input(body)
     rm = _get_rm(request)
 
     # 确定最终用于过滤的 toolset 名称:
@@ -1729,12 +1947,7 @@ async def mcp_test(request: Request) -> dict[str, Any]:
     from data_tool_mcp.server.mcp.protocol import MCPProtocol
     protocol = MCPProtocol(rm, toolset_name=effective_toolset)
     result = await protocol.handle_tools_list({})
-    tools = result.get("tools", [])
-    return {
-        "ok": True,
-        "count": len(tools),
-        "tools": [{"name": t["name"], "description": t.get("description", "")} for t in tools],
-    }
+    return _build_mcp_test_response(result)
 
 
 @router.get("/toolsets")
@@ -1754,6 +1967,18 @@ async def list_toolsets(request: Request) -> list[dict[str, Any]]:
     return _build_toolsets_from_rm(rm)
 
 
+def _build_toolset_entry(
+    item: dict[str, Any],
+    source_names: set[str],
+    system_ids: set[str],
+) -> dict[str, Any]:
+    """从 store 返回的单个 toolset 项构造响应项。"""
+    name = item.get("name", "")
+    tools = item.get("tools", []) or []
+    ts_type = _classify_toolset_type(name, source_names, system_ids)
+    return _build_toolset_item(name, len(tools), ts_type)
+
+
 async def _build_toolsets_from_store(store) -> list[dict[str, Any]] | None:
     """从 store 构造 toolset 响应列表,失败时返回 None 触发回退。"""
     try:
@@ -1763,12 +1988,7 @@ async def _build_toolsets_from_store(store) -> list[dict[str, Any]] | None:
         logger.warning("查询 toolset 列表失败: %s", exc)
         return None
     source_names, system_ids = _extract_source_and_system_names(sources_list)
-    result: list[dict[str, Any]] = []
-    for item in toolsets_list:
-        name = item.get("name", "")
-        tools = item.get("tools", []) or []
-        ts_type = _classify_toolset_type(name, source_names, system_ids)
-        result.append(_build_toolset_item(name, len(tools), ts_type))
+    result = [_build_toolset_entry(item, source_names, system_ids) for item in toolsets_list]
     return _sort_toolsets(result)
 
 

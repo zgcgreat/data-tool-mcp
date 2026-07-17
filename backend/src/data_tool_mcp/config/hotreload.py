@@ -9,6 +9,7 @@ import asyncio
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 from watchdog.events import FileSystemEventHandler, FileModifiedEvent
 from watchdog.observers import Observer
@@ -31,6 +32,7 @@ class ConfigChangeHandler(FileSystemEventHandler):
 
     def __init__(self, config: ServerConfig, resource_manager: ResourceManager,
                  debounce_seconds: float = 1.0, loop: asyncio.AbstractEventLoop | None = None):
+        """初始化实例。"""
         self.config = config
         self.resource_manager = resource_manager
         self.debounce_seconds = debounce_seconds
@@ -40,6 +42,7 @@ class ConfigChangeHandler(FileSystemEventHandler):
         self._lock = threading.Lock()
 
     def on_modified(self, event: FileModifiedEvent) -> None:
+        """YAML 文件修改事件回调，触发去抖重载。"""
         if not event.src_path.endswith((".yaml", ".yml")):
             return
         logger.info("config file changed: %s", event.src_path)
@@ -70,6 +73,22 @@ class ConfigChangeHandler(FileSystemEventHandler):
         self._reload_task = self._loop.create_task(self._do_reload())
 
 
+async def _close_source(src: Any) -> None:
+    """关闭单个数据源连接池，失败时仅记录日志。"""
+    if not hasattr(src, "close"):
+        return
+    try:
+        await src.close()
+    except Exception as exc:
+        logger.warning("error closing old source during reload: %s", exc)
+
+
+async def _close_old_sources(old_sources: dict[str, Any]) -> None:
+    """关闭旧数据源连接池以避免连接泄漏。"""
+    for src in old_sources.values():
+        await _close_source(src)
+
+
 async def _reload_resources(config: ServerConfig, rm: ResourceManager) -> None:
     """Reload all resources from config files.
 
@@ -84,13 +103,16 @@ async def _reload_resources(config: ServerConfig, rm: ResourceManager) -> None:
     config = await load_config(config)
     await _initialize_resources(config, rm)
 
-    # Close old source connection pools that were replaced
-    for src in old_sources.values():
-        try:
-            if hasattr(src, "close"):
-                await src.close()
-        except Exception as exc:
-            logger.warning("error closing old source during reload: %s", exc)
+    await _close_old_sources(old_sources)
+
+
+async def _run_observer_keepalive(observer: Observer) -> None:
+    """保持 watchdog observer 活动直到被取消。"""
+    try:
+        while True:
+            await asyncio.sleep(3600)  # Keep alive
+    except asyncio.CancelledError:
+        observer.stop()
 
 
 async def start_hot_reload(config_folder: str, config: ServerConfig, rm: ResourceManager) -> None:
@@ -110,9 +132,5 @@ async def start_hot_reload(config_folder: str, config: ServerConfig, rm: Resourc
     observer.start()
     logger.info("watching config folder: %s", config_folder)
 
-    try:
-        while True:
-            await asyncio.sleep(3600)  # Keep alive
-    except asyncio.CancelledError:
-        observer.stop()
+    await _run_observer_keepalive(observer)
     observer.join()

@@ -14,6 +14,7 @@ class ToolboxError(Exception):
     Maps to Go: ToolboxError interface.
     """
     def __init__(self, message: str, code: int = 0):
+        """初始化实例。"""
         super().__init__(message)
         self.message = message
         self.code = code
@@ -34,6 +35,7 @@ class AgentError(ToolboxError):
     The client should adjust its behavior and retry.
     """
     def __init__(self, message: str):
+        """初始化实例。"""
         super().__init__(message, code=200)
 
 
@@ -47,6 +49,7 @@ class ClientServerError(ToolboxError):
       429 → rate limited
     """
     def __init__(self, message: str, http_status: int, details: Any = None):
+        """初始化实例。"""
         self.http_status = http_status
         self.details = details
         # Map HTTP status to JSON-RPC error code
@@ -54,6 +57,7 @@ class ClientServerError(ToolboxError):
         super().__init__(message, code=code)
 
     def to_jsonrpc_error(self) -> dict:
+        """转换为 JSON-RPC 错误对象,带 details 时附加 data 字段。"""
         error = super().to_jsonrpc_error()
         if self.details:
             error["data"] = self.details

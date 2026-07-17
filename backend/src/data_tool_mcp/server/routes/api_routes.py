@@ -67,27 +67,8 @@ async def get_tool(request: Request, tool_name: str) -> dict[str, Any]:
     Maps to Go: toolGetHandler (GET /api/tool/{toolName})
     """
     rm = request.app.state.resource_manager
-    tool = rm.get_tool(tool_name)
-    if not tool:
-        raise HTTPException(status_code=404, detail=f"tool not found: {tool_name}")
-
-    manifest = tool.manifest()
-    annotations = tool.get_annotations()
-    result = {
-        "name": tool.name,
-        "description": manifest.description,
-        "source": tool.source_name,
-        "annotations": annotations.to_dict() if annotations else {},
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                p.name: {"type": p.type, "description": p.description}
-                for p in manifest.parameters
-            },
-            "required": [p.name for p in manifest.parameters if p.required],
-        },
-    }
-    return result
+    tool = _get_tool_or_404(rm, tool_name)
+    return _build_tool_manifest(tool)
 
 
 @router.post("/tool/{tool_name}/invoke")
@@ -97,28 +78,85 @@ async def invoke_tool(request: Request, tool_name: str) -> dict[str, Any]:
     Maps to Go: toolInvokeHandler (POST /api/tool/{toolName}/invoke)
     """
     rm = request.app.state.resource_manager
-    tool = rm.get_tool(tool_name)
-    if not tool:
-        raise HTTPException(status_code=404, detail=f"tool not found: {tool_name}")
+    tool = _get_tool_or_404(rm, tool_name)
 
     # Extract access token for tools that require client authorization
     access_token = extract_access_token(request)
-    
     # Check if tool requires client authorization
     # Maps to Go: tool.RequiresClientAuthorization(s.ResourceMgr)
-    if tool.requires_client_authorization(rm):
-        if not access_token:
-            raise HTTPException(
-                status_code=401,
-                detail="tool requires client authorization but access token is missing from the request header"
-            )
+    _check_tool_authorization(tool, rm, access_token)
 
     body = await request.json()
     params = body.get("params", {})
+    return await _invoke_tool(tool, params, rm, access_token)
 
+
+def _get_tool_or_404(rm, tool_name: str):
+    """获取工具,不存在则抛 404。"""
+    tool = rm.get_tool(tool_name)
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"tool not found: {tool_name}")
+    return tool
+
+
+def _build_tool_manifest(tool) -> dict[str, Any]:
+    """构建工具 manifest 响应。"""
+    manifest = tool.manifest()
+    annotations = tool.get_annotations()
+    return {
+        "name": tool.name,
+        "description": manifest.description,
+        "source": tool.source_name,
+        "annotations": _annotations_to_dict(annotations),
+        "inputSchema": _build_input_schema_dict(manifest),
+    }
+
+
+def _annotations_to_dict(annotations) -> dict[str, Any]:
+    """将 annotations 转为 dict,空时返回 {}。"""
+    if not annotations:
+        return {}
+    return annotations.to_dict()
+
+
+def _build_input_schema_dict(manifest) -> dict[str, Any]:
+    """构建 inputSchema。"""
+    return {
+        "type": "object",
+        "properties": _build_param_properties(manifest),
+        "required": _build_required_params(manifest),
+    }
+
+
+def _build_param_properties(manifest) -> dict[str, Any]:
+    """构建参数 properties 映射。"""
+    return {
+        p.name: {"type": p.type, "description": p.description}
+        for p in manifest.parameters
+    }
+
+
+def _build_required_params(manifest) -> list[str]:
+    """构建必填参数名列表。"""
+    return [p.name for p in manifest.parameters if p.required]
+
+
+def _check_tool_authorization(tool, rm, access_token: str) -> None:
+    """检查工具是否需要 client authorization,需要但缺失时抛 401。"""
+    if not tool.requires_client_authorization(rm):
+        return
+    if not access_token:
+        raise HTTPException(
+            status_code=401,
+            detail="tool requires client authorization but access token is missing from the request header"
+        )
+
+
+async def _invoke_tool(tool, params, rm, access_token: str) -> dict[str, Any]:
+    """调用工具并处理异常,返回 {"result": ...}。"""
     try:
         result = await tool.invoke(
-            params, 
+            params,
             source_provider=rm,
             access_token=access_token
         )

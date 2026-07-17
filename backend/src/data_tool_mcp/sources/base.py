@@ -115,6 +115,7 @@ def register_source(source_type: str):
             ...
     """
     def decorator(cls: type[SourceConfig]) -> type[SourceConfig]:
+        """将 SourceConfig 子类注册到全局注册表。"""
         if source_type in _source_registry:
             raise ValueError(f"source type {source_type!r} already registered")
         _source_registry[source_type] = cls
@@ -122,36 +123,36 @@ def register_source(source_type: str):
     return decorator
 
 
+def _check_alias_conflict(alias: str, canonical: str) -> str | None:
+    """检查别名注册冲突,返回错误消息;无冲突返回 None。"""
+    checks: list[tuple[bool, str]] = [
+        (alias in _source_registry, f"cannot register source alias {alias!r}: already registered as a primary"),
+        (alias in _source_aliases, f"alias {alias!r} already registered"),
+        (canonical not in _source_registry, f"cannot register alias {alias!r} -> {canonical!r}: canonical {canonical!r} not registered"),
+    ]
+    for condition, message in checks:
+        if condition:
+            return message
+    return None
+
+
 def register_source_alias(alias: str, canonical: str):
     """Register an alias for an existing source type.
 
     Allows backward compatibility when renaming a source type.
     """
-    if alias in _source_registry:
-        raise ValueError(
-            f"cannot register source alias {alias!r}: already registered as a primary"
-        )
-    if alias in _source_aliases:
-        raise ValueError(f"alias {alias!r} already registered")
-    if canonical not in _source_registry:
-        raise ValueError(
-            f"cannot register alias {alias!r} -> {canonical!r}: "
-            f"canonical {canonical!r} not registered"
-        )
+    error = _check_alias_conflict(alias, canonical)
+    if error:
+        raise ValueError(error)
     _source_aliases[alias] = canonical
 
 
 def get_source_config_class(source_type: str) -> type[SourceConfig]:
     """Look up a registered SourceConfig class by type, resolving aliases."""
-    cls = _source_registry.get(source_type)
-    if cls is not None:
-        return cls
-    canonical = _source_aliases.get(source_type)
-    if canonical is not None:
-        cls = _source_registry.get(canonical)
-        if cls is not None:
-            return cls
-    raise ValueError(f"unknown source type: {source_type!r}")
+    cls = _source_registry.get(source_type) or _source_registry.get(_source_aliases.get(source_type, ""))
+    if cls is None:
+        raise ValueError(f"unknown source type: {source_type!r}")
+    return cls
 
 
 def list_source_types() -> list[str]:

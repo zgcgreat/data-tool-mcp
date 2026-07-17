@@ -16,6 +16,7 @@ class RequestCounter:
     """线程安全的按天请求计数器。"""
 
     def __init__(self) -> None:
+        """初始化实例。"""
         self._lock = threading.Lock()
         self._date: date = date.today()
         self._count: int = 0

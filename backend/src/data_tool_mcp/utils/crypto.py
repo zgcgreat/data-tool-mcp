@@ -68,7 +68,50 @@ _DEFAULT_KEY_FALLBACK = "dev-only-key-do-not-use-in-production-0123456789"
 _fernet = None
 
 
-def _get_fernet():
+def _derive_dev_key() -> bytes:
+    """从固定字符串派生开发回退密钥(仅限本地开发)。"""
+    import hashlib
+    return base64.urlsafe_b64encode(
+        hashlib.sha256(_DEFAULT_KEY_FALLBACK.encode()).digest()
+    )
+
+
+def _import_fernet() -> Any:
+    """导入 cryptography.Fernet,不可用时返回 None 并记录警告。"""
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet
+    except ImportError:
+        logger.warning("cryptography not available — passwords stored in plaintext")
+        return None
+
+
+def _resolve_encryption_key() -> bytes:
+    """解析加密密钥:优先环境变量,回退到开发密钥。"""
+    key_env = os.environ.get(_ENCRYPTION_KEY_ENV, "")
+    if isinstance(key_env, str) and key_env:
+        return key_env.encode()
+    return _derive_dev_key()
+
+
+def _try_create_fernet(Fernet: Any) -> Any:
+    """尝试创建 Fernet 实例,失败返回 False 哨兵。"""
+    try:
+        return Fernet(_resolve_encryption_key())
+    except Exception as exc:
+        logger.warning("Fernet init failed (%s) — passwords stored in plaintext", exc)
+        return False
+
+
+def _create_fernet_from_env() -> Any:
+    """根据环境变量创建 Fernet 实例,失败返回 False 哨兵。"""
+    Fernet = _import_fernet()
+    if Fernet is None:
+        return False
+    return _try_create_fernet(Fernet)
+
+
+def _get_fernet() -> Any:
     """Lazy-initialize Fernet cipher for password encryption.
 
     企业替换为 SM4/KMS 时，此函数可删除，改为在 encrypt/decrypt 中直接使用
@@ -77,25 +120,7 @@ def _get_fernet():
     global _fernet
     if _fernet is not None:
         return _fernet
-    try:
-        from cryptography.fernet import Fernet
-        key_env = os.environ.get(_ENCRYPTION_KEY_ENV, "")
-        if key_env:
-            # 用户提供的密钥（必须是 urlsafe-base64 编码的 32 字节）
-            _fernet = Fernet(key_env.encode() if isinstance(key_env, str) else key_env)
-        else:
-            # 开发回退：从固定字符串派生稳定密钥（仅限本地开发）
-            import hashlib
-            key = base64.urlsafe_b64encode(
-                hashlib.sha256(_DEFAULT_KEY_FALLBACK.encode()).digest()
-            )
-            _fernet = Fernet(key)
-    except ImportError:
-        logger.warning("cryptography not available — passwords stored in plaintext")
-        _fernet = False  # 哨兵：加密不可用
-    except Exception as exc:
-        logger.warning("Fernet init failed (%s) — passwords stored in plaintext", exc)
-        _fernet = False
+    _fernet = _create_fernet_from_env()
     return _fernet
 
 
@@ -121,6 +146,36 @@ def validate_encryption_key() -> bool:
 # 公开 API — 企业替换时只需修改这三个函数的实现
 # ---------------------------------------------------------------------------
 
+def _do_encrypt(f: Any, plaintext: str, fallback: str) -> str:
+    """执行实际加密,失败时返回 fallback。"""
+    try:
+        return f.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+    except Exception as exc:
+        logger.warning("password encryption failed: %s", exc)
+        return fallback
+
+
+def _do_decrypt(f: Any, ciphertext: str, fallback: str) -> str:
+    """执行实际解密,失败时返回 fallback。"""
+    try:
+        return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+    except Exception as exc:
+        logger.warning(
+            "解密失败（密钥不匹配或数据损坏）: %s。原样返回，可能导致数据源连接失败。",
+            exc,
+        )
+        return fallback
+
+
+def _try_decrypt(f: Any, value: str) -> bool:
+    """尝试解密以判断是否为有效密文,成功返回 True。"""
+    try:
+        f.decrypt(value.encode("utf-8"))
+        return True
+    except Exception:
+        return False
+
+
 def encrypt(plaintext: str) -> str:
     """加密明文字符串，返回密文。
 
@@ -131,11 +186,7 @@ def encrypt(plaintext: str) -> str:
     f = _get_fernet()
     if not f:
         return plaintext
-    try:
-        return f.encrypt(plaintext.encode("utf-8")).decode("utf-8")
-    except Exception as exc:
-        logger.warning("password encryption failed: %s", exc)
-        return plaintext
+    return _do_encrypt(f, plaintext, plaintext)
 
 
 def decrypt(ciphertext: str) -> str:
@@ -148,15 +199,7 @@ def decrypt(ciphertext: str) -> str:
     f = _get_fernet()
     if not f:
         return ciphertext
-    try:
-        return f.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
-    except Exception as exc:
-        # 不是密文（旧明文数据）或密钥不匹配 — 记录 WARNING 后原样返回
-        logger.warning(
-            "解密失败（密钥不匹配或数据损坏）: %s。原样返回，可能导致数据源连接失败。",
-            exc,
-        )
-        return ciphertext
+    return _do_decrypt(f, ciphertext, ciphertext)
 
 
 def is_encrypted(value: str) -> bool:
@@ -169,11 +212,7 @@ def is_encrypted(value: str) -> bool:
     f = _get_fernet()
     if not f:
         return False
-    try:
-        f.decrypt(value.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+    return _try_decrypt(f, value)
 
 
 def normalize_password_for_storage(raw: str) -> str:

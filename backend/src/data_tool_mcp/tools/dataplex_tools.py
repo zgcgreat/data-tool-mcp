@@ -17,31 +17,127 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
 
 
-async def _get_dataplex_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> DataplexSource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = await source_provider.get_source(source_name)
-    if source is None:
-        await source_provider.release_source(source_name)
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, DataplexSource):
-        await source_provider.release_source(source_name)
-        raise TypeError(f"source {source_name!r} is not a Dataplex source")
-    return source
+# ---------------------------------------------------------------------------
+# Dataplex 操作分发表 — 每个 handler 为 async 函数,签名 (source, params) -> dict
+# ---------------------------------------------------------------------------
+
+async def _dp_list_lakes(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """列出Dataplex的湖列表。"""
+    return {"lakes": await source.list_lakes()}
+
+async def _dp_get_lake(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Dataplex的湖。"""
+    return {"lake": await source.get_lake(params["lake_id"])}
+
+async def _dp_create_lake(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """创建Dataplex的湖。"""
+    return {"result": await source.create_lake(params["lake_id"], params.get("lake", {}))}
+
+async def _dp_delete_lake(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """删除Dataplex的湖。"""
+    return {"result": await source.delete_lake(params["lake_id"])}
+
+async def _dp_list_zones(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """列出Dataplex的区域列表。"""
+    return {"zones": await source.list_zones(params["lake_id"])}
+
+async def _dp_get_zone(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Dataplex的区域。"""
+    return {"zone": await source.get_zone(params["lake_id"], params["zone_id"])}
+
+async def _dp_create_zone(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """创建Dataplex的区域。"""
+    return {"result": await source.create_zone(params["lake_id"], params["zone_id"], params.get("zone", {}))}
+
+async def _dp_delete_zone(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """删除Dataplex的区域。"""
+    return {"result": await source.delete_zone(params["lake_id"], params["zone_id"])}
+
+async def _dp_list_assets(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """列出Dataplex的资产列表。"""
+    return {"assets": await source.list_assets(params["lake_id"], params["zone_id"])}
+
+async def _dp_get_asset(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Dataplex的资产。"""
+    return {"asset": await source.get_asset(params["lake_id"], params["zone_id"], params["asset_id"])}
+
+async def _dp_create_asset(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """创建Dataplex的资产。"""
+    return {"result": await source.create_asset(params["lake_id"], params["zone_id"], params["asset_id"], params.get("asset", {}))}
+
+async def _dp_delete_asset(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """删除Dataplex的资产。"""
+    return {"result": await source.delete_asset(params["lake_id"], params["zone_id"], params["asset_id"])}
+
+async def _dp_list_tasks(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """列出Dataplex的任务列表。"""
+    return {"tasks": await source.list_task(params["lake_id"])}
+
+async def _dp_get_task(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """获取Dataplex的任务。"""
+    return {"task": await source.get_task(params["lake_id"], params["task_id"])}
+
+async def _dp_create_task(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """创建Dataplex的任务。"""
+    return {"result": await source.create_task(params["lake_id"], params["task_id"], params.get("task", {}))}
+
+async def _dp_delete_task(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+    """删除Dataplex的任务。"""
+    return {"result": await source.delete_task(params["lake_id"], params["task_id"])}
+
+
+def _dp_pending(tool_type: str):
+    """检查 Dataplex 任务挂起状态。"""
+    async def _handler(source: DataplexSource, params: dict[str, Any]) -> dict[str, Any]:
+        """处理任务状态回调。"""
+        return {"tool_type": tool_type, "note": "Full SDK integration pending"}
+    return _handler
+
+
+_DATAPLEX_DISPATCH: dict[str, Any] = {
+    "dataplex-list-lakes": _dp_list_lakes,
+    "dataplex-get-lake": _dp_get_lake,
+    "dataplex-create-lake": _dp_create_lake,
+    "dataplex-delete-lake": _dp_delete_lake,
+    "dataplex-list-zones": _dp_list_zones,
+    "dataplex-get-zone": _dp_get_zone,
+    "dataplex-create-zone": _dp_create_zone,
+    "dataplex-delete-zone": _dp_delete_zone,
+    "dataplex-list-assets": _dp_list_assets,
+    "dataplex-get-asset": _dp_get_asset,
+    "dataplex-create-asset": _dp_create_asset,
+    "dataplex-delete-asset": _dp_delete_asset,
+    "dataplex-list-tasks": _dp_list_tasks,
+    "dataplex-get-task": _dp_get_task,
+    "dataplex-create-task": _dp_create_task,
+    "dataplex-delete-task": _dp_delete_task,
+}
+
+for _tt in (
+    "dataplex-discover-metadata", "dataplex-get-discovery-results",
+    "dataplex-check-data-quality", "dataplex-get-data-quality-results",
+    "dataplex-search-dq-scans",
+    "dataplex-generate-data-profile", "dataplex-get-data-profile",
+    "dataplex-generate-data-insights", "dataplex-get-data-insights",
+    "dataplex-get-data-product", "dataplex-list-data-products",
+    "dataplex-list-data-assets",
+    "dataplex-lookup-entry", "dataplex-lookup-context",
+    "dataplex-search-entries", "dataplex-search-aspect-types",
+    "dataplex-get-operation", "dataplex-get-run-status",
+):
+    _DATAPLEX_DISPATCH[_tt] = _dp_pending(_tt)
 
 
 class DataplexGenericTool(BaseTool):
     """Generic Dataplex tool that dispatches based on tool type."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+        """初始化工具配置。"""
         ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
@@ -49,69 +145,18 @@ class DataplexGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = await _get_dataplex_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, DataplexSource)
         try:
-            tt = self._tool_type
-
-            # Lakes
-            if tt == "dataplex-list-lakes":
-                return {"lakes": await source.list_lakes()}
-            elif tt == "dataplex-get-lake":
-                return {"lake": await source.get_lake(params["lake_id"])}
-            elif tt == "dataplex-create-lake":
-                return {"result": await source.create_lake(params["lake_id"], params.get("lake", {}))}
-            elif tt == "dataplex-delete-lake":
-                return {"result": await source.delete_lake(params["lake_id"])}
-
-            # Zones
-            elif tt == "dataplex-list-zones":
-                return {"zones": await source.list_zones(params["lake_id"])}
-            elif tt == "dataplex-get-zone":
-                return {"zone": await source.get_zone(params["lake_id"], params["zone_id"])}
-            elif tt == "dataplex-create-zone":
-                return {"result": await source.create_zone(params["lake_id"], params["zone_id"], params.get("zone", {}))}
-            elif tt == "dataplex-delete-zone":
-                return {"result": await source.delete_zone(params["lake_id"], params["zone_id"])}
-
-            # Assets
-            elif tt == "dataplex-list-assets":
-                return {"assets": await source.list_assets(params["lake_id"], params["zone_id"])}
-            elif tt == "dataplex-get-asset":
-                return {"asset": await source.get_asset(params["lake_id"], params["zone_id"], params["asset_id"])}
-            elif tt == "dataplex-create-asset":
-                return {"result": await source.create_asset(params["lake_id"], params["zone_id"], params["asset_id"], params.get("asset", {}))}
-            elif tt == "dataplex-delete-asset":
-                return {"result": await source.delete_asset(params["lake_id"], params["zone_id"], params["asset_id"])}
-
-            # Tasks
-            elif tt == "dataplex-list-tasks":
-                return {"tasks": await source.list_task(params["lake_id"])}
-            elif tt == "dataplex-get-task":
-                return {"task": await source.get_task(params["lake_id"], params["task_id"])}
-            elif tt == "dataplex-create-task":
-                return {"result": await source.create_task(params["lake_id"], params["task_id"], params.get("task", {}))}
-            elif tt == "dataplex-delete-task":
-                return {"result": await source.delete_task(params["lake_id"], params["task_id"])}
-
-            # Discovery / quality / insights (placeholder — SDK methods not yet in source)
-            elif tt in ("dataplex-discover-metadata", "dataplex-get-discovery-results",
-                         "dataplex-check-data-quality", "dataplex-get-data-quality-results",
-                         "dataplex-search-dq-scans",
-                         "dataplex-generate-data-profile", "dataplex-get-data-profile",
-                         "dataplex-generate-data-insights", "dataplex-get-data-insights",
-                         "dataplex-get-data-product", "dataplex-list-data-products",
-                         "dataplex-list-data-assets",
-                         "dataplex-lookup-entry", "dataplex-lookup-context",
-                         "dataplex-search-entries", "dataplex-search-aspect-types",
-                         "dataplex-get-operation", "dataplex-get-run-status"):
-                return {"tool_type": tt, "note": "Full SDK integration pending"}
-
-            else:
-                raise ValueError(f"unknown Dataplex tool type: {tt}")
+            handler = _DATAPLEX_DISPATCH.get(self._tool_type)
+            if handler is None:
+                raise ValueError(f"unknown Dataplex tool type: {self._tool_type}")
+            return await handler(source, params)
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
 
 
@@ -217,6 +262,7 @@ _DATAPLEX_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
 
 
 def _make_dataplex_tool_config(tool_type: str, description: str, param_defs: list[ParameterManifest], read_only: bool):
+    """构造Dataplex工具配置。"""
     @register_tool(tool_type)
     @dataclass
     class _DataplexToolConfig(ToolConfig):
@@ -226,13 +272,16 @@ def _make_dataplex_tool_config(tool_type: str, description: str, param_defs: lis
 
         @property
         def tool_type(self) -> str:
+            """返回工具类型标识符。"""
             return tool_type
 
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _DataplexToolConfig:
+            """从字典创建配置实例。"""
             return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
 
         async def initialize(self) -> DataplexGenericTool:
+            """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return DataplexGenericTool(cfg=cfg, source_name=self.source, tool_type=tool_type, param_defs=param_defs, read_only=read_only)
 

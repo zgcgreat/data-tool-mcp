@@ -46,6 +46,7 @@ class PgSQLTool(BaseTool):
         template_parameters: list[dict[str, Any]] | None = None,
         parameters: list[dict[str, Any]] | None = None,
     ):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._statement = statement
@@ -58,6 +59,7 @@ class PgSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await _execute_sql_with_modes(
@@ -68,6 +70,7 @@ class PgSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         param_defs = self._template_parameters or self._parameters
         parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL query to execute")
         return ToolManifest(
@@ -89,10 +92,12 @@ class PgSQLToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "postgres-sql"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> PgSQLToolConfig:
+        """从字典创建配置实例。"""
         return cls(
             _name=name,
             source=data.get("source", ""),
@@ -103,6 +108,7 @@ class PgSQLToolConfig(ToolConfig):
         )
 
     async def initialize(self) -> PgSQLTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return PgSQLTool(
             cfg=cfg,
@@ -131,6 +137,7 @@ class PgExecuteSQLTool(BaseTool):
         template_parameters: list[dict[str, Any]] | None = None,
         parameters: list[dict[str, Any]] | None = None,
     ):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
         self._source_name = source_name
         self._statement = statement
@@ -143,6 +150,7 @@ class PgExecuteSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await _execute_sql_with_modes(
@@ -153,6 +161,7 @@ class PgExecuteSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         param_defs = self._template_parameters or self._parameters
         parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL statement to execute")
         return ToolManifest(
@@ -174,10 +183,12 @@ class PgExecuteSQLToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "postgres-execute-sql"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> PgExecuteSQLToolConfig:
+        """从字典创建配置实例。"""
         return cls(
             _name=name,
             source=data.get("source", ""),
@@ -188,6 +199,7 @@ class PgExecuteSQLToolConfig(ToolConfig):
         )
 
     async def initialize(self) -> PgExecuteSQLTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return PgExecuteSQLTool(
             cfg=cfg,
@@ -206,6 +218,7 @@ class PgListTool(BaseTool):
     """Generic PostgreSQL list tool that executes a fixed SQL query."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, sql: str, param_defs: list[ParameterManifest] | None = None):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._sql = sql
@@ -217,6 +230,7 @@ class PgListTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await source.execute_sql(self._sql, params if params else None)
@@ -225,6 +239,7 @@ class PgListTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=self._param_defs,
@@ -348,13 +363,16 @@ def _make_list_tool_config(tool_type: str, desc: str, sql: str, param_defs: list
 
         @property
         def tool_type(self) -> str:
+            """返回工具类型标识符。"""
             return tool_type
 
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _PgListToolConfig:
+            """从字典创建配置实例。"""
             return cls(_name=name, source=data.get("source", ""), description=data.get("description", _default_desc))
 
         async def initialize(self) -> PgListTool:
+            """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return PgListTool(cfg=cfg, source_name=self.source, sql=sql, param_defs=param_defs)
 
@@ -376,6 +394,7 @@ class PgDatabaseOverviewTool(BaseTool):
     """Get a comprehensive overview of the PostgreSQL database."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
@@ -385,6 +404,7 @@ class PgDatabaseOverviewTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             tables = await source.execute_sql("SELECT count(*) as table_count FROM pg_tables WHERE schemaname = 'public'")
@@ -405,6 +425,7 @@ class PgDatabaseOverviewTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[],
@@ -421,12 +442,15 @@ class PgDatabaseOverviewToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "postgres-database-overview"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> PgDatabaseOverviewToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "获取 PostgreSQL 数据库的全面概览"))
 
     async def initialize(self) -> PgDatabaseOverviewTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return PgDatabaseOverviewTool(cfg=cfg, source_name=self.source)

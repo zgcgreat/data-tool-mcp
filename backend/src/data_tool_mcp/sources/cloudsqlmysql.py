@@ -23,22 +23,27 @@ class CloudSQLMySQLSource(Source):
     query_timeout: float = 30.0
 
     def __init__(self, name: str, engine: Any, session_factory: Any):
+        """初始化数据源配置。"""
         self._name = name
         self._engine = engine
         self._session_factory = session_factory
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "cloud-sql-mysql"
 
     async def connect(self) -> None:
+        """建立数据库连接。"""
         async with self._engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
 
     async def close(self) -> None:
+        """关闭数据库连接。"""
         await self._engine.dispose()
 
     async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
                 session.execute(text(sql), params or {}),
@@ -48,6 +53,7 @@ class CloudSQLMySQLSource(Source):
             return [dict(row) for row in rows]
 
     async def list_tables(self) -> list[str]:
+        """列出数据库中所有表。"""
         async with self._session_factory() as session:
             result = await session.execute(text("SHOW TABLES"))
             return [row[0] for row in result.fetchall()]
@@ -67,10 +73,12 @@ class CloudSQLMySQLSourceConfig(SourceConfig):
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "cloud-sql-mysql"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> CloudSQLMySQLSourceConfig:
+        """从字典构造配置实例。"""
         return cls(
             _name=name,
             project_id=data.get("projectId", ""),
@@ -83,6 +91,7 @@ class CloudSQLMySQLSourceConfig(SourceConfig):
         )
 
     async def initialize(self, tracer=None) -> CloudSQLMySQLSource:
+        """创建并初始化数据源实例。"""
         try:
             from google.cloud.sql.connector import AsyncConnector
         except ImportError as e:

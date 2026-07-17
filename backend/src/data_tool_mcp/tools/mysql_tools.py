@@ -42,6 +42,7 @@ class MySQLSQLTool(BaseTool):
         template_parameters: list[dict[str, Any]] | None = None,
         parameters: list[dict[str, Any]] | None = None,
     ):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._statement = statement
@@ -54,6 +55,7 @@ class MySQLSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await _execute_sql_with_modes(
@@ -64,6 +66,7 @@ class MySQLSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         param_defs = self._template_parameters or self._parameters
         parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL query to execute")
         return ToolManifest(
@@ -85,10 +88,12 @@ class MySQLSQLToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mysql-sql"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MySQLSQLToolConfig:
+        """从字典创建配置实例。"""
         return cls(
             _name=name,
             source=data.get("source", ""),
@@ -99,6 +104,7 @@ class MySQLSQLToolConfig(ToolConfig):
         )
 
     async def initialize(self) -> MySQLSQLTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MySQLSQLTool(
             cfg=cfg,
@@ -127,6 +133,7 @@ class MySQLExecuteSQLTool(BaseTool):
         template_parameters: list[dict[str, Any]] | None = None,
         parameters: list[dict[str, Any]] | None = None,
     ):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
         self._source_name = source_name
         self._statement = statement
@@ -139,6 +146,7 @@ class MySQLExecuteSQLTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await _execute_sql_with_modes(
@@ -149,6 +157,7 @@ class MySQLExecuteSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         param_defs = self._template_parameters or self._parameters
         parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL statement to execute")
         return ToolManifest(
@@ -170,10 +179,12 @@ class MySQLExecuteSQLToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mysql-execute-sql"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MySQLExecuteSQLToolConfig:
+        """从字典创建配置实例。"""
         return cls(
             _name=name,
             source=data.get("source", ""),
@@ -184,6 +195,7 @@ class MySQLExecuteSQLToolConfig(ToolConfig):
         )
 
     async def initialize(self) -> MySQLExecuteSQLTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MySQLExecuteSQLTool(
             cfg=cfg,
@@ -202,6 +214,7 @@ class MySQLListTool(BaseTool):
     """Generic MySQL list tool that executes a fixed SQL query."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, sql: str, param_defs: list[ParameterManifest] | None = None):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._sql = sql
@@ -213,7 +226,8 @@ class MySQLListTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_sql_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await source.execute_sql(self._sql, params if params else None)
             return {"rows": rows, "rowCount": len(rows)}
@@ -221,6 +235,7 @@ class MySQLListTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=self._param_defs,
@@ -270,6 +285,7 @@ _MYSQL_PARAM_TOOLS: list[tuple[str, str, str, list[ParameterManifest]]] = [
 
 
 def _make_mysql_list_tool_config(tool_type: str, description: str, sql: str, param_defs: list[ParameterManifest]):
+    """构造MySQL 列表工具配置。"""
     @register_tool(tool_type)
     @dataclass
     class _MySQLListToolConfig(ToolConfig):
@@ -279,13 +295,16 @@ def _make_mysql_list_tool_config(tool_type: str, description: str, sql: str, par
 
         @property
         def tool_type(self) -> str:
+            """返回工具类型标识符。"""
             return tool_type
 
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _MySQLListToolConfig:
+            """从字典创建配置实例。"""
             return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
 
         async def initialize(self) -> MySQLListTool:
+            """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return MySQLListTool(cfg=cfg, source_name=self.source, sql=sql, param_defs=param_defs)
 

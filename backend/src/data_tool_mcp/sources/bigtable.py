@@ -16,6 +16,7 @@ class BigtableSource(Source):
     """Bigtable source using google-cloud-bigtable with BigQuery federated query support."""
 
     def __init__(self, name: str, admin_client: Any, instance: Any, project_id: str):
+        """初始化数据源配置。"""
         self._name = name
         self._admin_client = admin_client
         self._instance = instance
@@ -23,15 +24,19 @@ class BigtableSource(Source):
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "bigtable"
 
     async def connect(self) -> None:
+        """建立数据库连接。"""
         pass
 
     async def close(self) -> None:
+        """关闭数据库连接。"""
         pass
 
     async def execute_sql(self, sql: str) -> list[dict[str, Any]]:
+        """通过 BigQuery 联邦查询执行 SQL 并返回结果。"""
         loop = asyncio.get_event_loop()
         try:
             from google.cloud import bigquery
@@ -39,6 +44,7 @@ class BigtableSource(Source):
             raise ImportError("google-cloud-bigquery is required for federated queries") from e
 
         def _run() -> list[dict[str, Any]]:
+            """同步执行 BigQuery 联邦查询并收集行数据。"""
             bq_client = bigquery.Client(project=self._project_id)
             rows = bq_client.query(sql).result()
             return [dict(row) for row in rows]
@@ -55,10 +61,12 @@ class BigtableSourceConfig(SourceConfig):
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "bigtable"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> BigtableSourceConfig:
+        """从字典构造配置实例。"""
         return cls(
             _name=name,
             project_id=data.get("projectId", ""),
@@ -66,6 +74,7 @@ class BigtableSourceConfig(SourceConfig):
         )
 
     async def initialize(self, tracer=None) -> BigtableSource:
+        """创建并初始化数据源实例。"""
         try:
             from google.cloud import bigtable
         except ImportError as e:

@@ -17,26 +17,9 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
-
-
-async def _get_mongo_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> MongoDBSource:
-    """Resolve a MongoDBSource from the SourceProvider."""
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = await source_provider.get_source(source_name)
-    if source is None:
-        await source_provider.release_source(source_name)
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, MongoDBSource):
-        await source_provider.release_source(source_name)
-        raise TypeError(f"source {source_name!r} is not a MongoDB source")
-    return source
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +30,7 @@ class MongodbFindTool(BaseTool):
     """Find documents in a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
@@ -56,7 +40,8 @@ class MongodbFindTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
         try:
             collection = params.get("collection", "")
             query = params.get("query")
@@ -67,6 +52,7 @@ class MongodbFindTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -87,13 +73,16 @@ class MongodbFindToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mongodb-find"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbFindToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "查找文档"))
 
     async def initialize(self) -> MongodbFindTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MongodbFindTool(cfg=cfg, source_name=self.source)
 
@@ -106,6 +95,7 @@ class MongodbFindOneTool(BaseTool):
     """Find a single document in a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
@@ -115,7 +105,8 @@ class MongodbFindOneTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -126,6 +117,7 @@ class MongodbFindOneTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -146,13 +138,16 @@ class MongodbFindOneToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mongodb-find-one"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbFindOneToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "查询单个文档"))
 
     async def initialize(self) -> MongodbFindOneTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MongodbFindOneTool(cfg=cfg, source_name=self.source)
 
@@ -165,6 +160,7 @@ class MongodbAggregateTool(BaseTool):
     """Run an aggregation pipeline on a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
@@ -174,7 +170,8 @@ class MongodbAggregateTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
         try:
             collection = params.get("collection", "")
             pipeline = params.get("pipeline", [])
@@ -184,6 +181,7 @@ class MongodbAggregateTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -206,13 +204,16 @@ class MongodbAggregateToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mongodb-aggregate"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbAggregateToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "聚合文档"))
 
     async def initialize(self) -> MongodbAggregateTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MongodbAggregateTool(cfg=cfg, source_name=self.source)
 
@@ -225,6 +226,7 @@ class MongodbInsertOneTool(BaseTool):
     """Insert a single document into a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False))
         self._source_name = source_name
 
@@ -234,7 +236,8 @@ class MongodbInsertOneTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
         try:
             collection = params.get("collection", "")
             document = params.get("document", {})
@@ -244,6 +247,7 @@ class MongodbInsertOneTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -263,13 +267,16 @@ class MongodbInsertOneToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mongodb-insert-one"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbInsertOneToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "插入单个文档"))
 
     async def initialize(self) -> MongodbInsertOneTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MongodbInsertOneTool(cfg=cfg, source_name=self.source)
 
@@ -282,6 +289,7 @@ class MongodbInsertManyTool(BaseTool):
     """Insert multiple documents into a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False))
         self._source_name = source_name
 
@@ -291,7 +299,8 @@ class MongodbInsertManyTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
         try:
             collection = params.get("collection", "")
             documents = params.get("documents", [])
@@ -301,6 +310,7 @@ class MongodbInsertManyTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -323,13 +333,16 @@ class MongodbInsertManyToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mongodb-insert-many"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbInsertManyToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "插入多个文档"))
 
     async def initialize(self) -> MongodbInsertManyTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MongodbInsertManyTool(cfg=cfg, source_name=self.source)
 
@@ -342,6 +355,7 @@ class MongodbDeleteOneTool(BaseTool):
     """Delete a single document from a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
         self._source_name = source_name
 
@@ -351,7 +365,8 @@ class MongodbDeleteOneTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -361,6 +376,7 @@ class MongodbDeleteOneTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -380,13 +396,16 @@ class MongodbDeleteOneToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mongodb-delete-one"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbDeleteOneToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "删除单个文档"))
 
     async def initialize(self) -> MongodbDeleteOneTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MongodbDeleteOneTool(cfg=cfg, source_name=self.source)
 
@@ -399,6 +418,7 @@ class MongodbDeleteManyTool(BaseTool):
     """Delete multiple documents from a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
         self._source_name = source_name
 
@@ -408,7 +428,8 @@ class MongodbDeleteManyTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -418,6 +439,7 @@ class MongodbDeleteManyTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -437,13 +459,16 @@ class MongodbDeleteManyToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mongodb-delete-many"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbDeleteManyToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "删除多个文档"))
 
     async def initialize(self) -> MongodbDeleteManyTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MongodbDeleteManyTool(cfg=cfg, source_name=self.source)
 
@@ -456,6 +481,7 @@ class MongodbUpdateOneTool(BaseTool):
     """Update a single document in a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False))
         self._source_name = source_name
 
@@ -465,7 +491,8 @@ class MongodbUpdateOneTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -476,6 +503,7 @@ class MongodbUpdateOneTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -496,13 +524,16 @@ class MongodbUpdateOneToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mongodb-update-one"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbUpdateOneToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "更新单个文档"))
 
     async def initialize(self) -> MongodbUpdateOneTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MongodbUpdateOneTool(cfg=cfg, source_name=self.source)
 
@@ -515,6 +546,7 @@ class MongodbUpdateManyTool(BaseTool):
     """Update multiple documents in a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False))
         self._source_name = source_name
 
@@ -524,7 +556,8 @@ class MongodbUpdateManyTool(BaseTool):
         source_provider: SourceProvider | None = None,
         access_token: str = "",
     ) -> Any:
-        source = await _get_mongo_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -535,6 +568,7 @@ class MongodbUpdateManyTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -555,12 +589,15 @@ class MongodbUpdateManyToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mongodb-update-many"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbUpdateManyToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "更新多个文档"))
 
     async def initialize(self) -> MongodbUpdateManyTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MongodbUpdateManyTool(cfg=cfg, source_name=self.source)

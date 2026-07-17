@@ -17,36 +17,22 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
-
-
-async def _get_monitoring_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> CloudMonitoringSource:
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = await source_provider.get_source(source_name)
-    if source is None:
-        await source_provider.release_source(source_name)
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, CloudMonitoringSource):
-        await source_provider.release_source(source_name)
-        raise TypeError(f"source {source_name!r} is not a Cloud Monitoring source")
-    return source
 
 
 class CloudMonitoringQueryTool(BaseTool):
     """Query Cloud Monitoring using PromQL."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = await _get_monitoring_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, CloudMonitoringSource)
         try:
             query = params.get("query", "")
             if not query:
@@ -57,6 +43,7 @@ class CloudMonitoringQueryTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[ParameterManifest(name="query", type="string", description="PromQL query", required=True)],
@@ -73,12 +60,15 @@ class CloudMonitoringQueryToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "cloud-monitoring-query-prometheus"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> CloudMonitoringQueryToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "使用 PromQL 查询 Cloud Monitoring"))
 
     async def initialize(self) -> CloudMonitoringQueryTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return CloudMonitoringQueryTool(cfg=cfg, source_name=self.source)

@@ -16,25 +16,31 @@ class Neo4jSource(NoSQLSource):
     """Neo4j source using the official Python driver with asyncio wrapper."""
 
     def __init__(self, name: str, driver: Any, database: str):
+        """初始化数据源配置。"""
         self._name = name
         self._driver = driver
         self._database = database
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "neo4j"
 
     async def connect(self) -> None:
+        """建立数据库连接。"""
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: self._driver.verify_connectivity())
 
     async def close(self) -> None:
+        """关闭数据库连接。"""
         self._driver.close()
 
     async def execute_cypher(self, query: str, params: dict | None = None) -> list[dict[str, Any]]:
+        """执行 Cypher 查询并返回结果。"""
         loop = asyncio.get_event_loop()
 
         def _run() -> list[dict[str, Any]]:
+            """同步执行 Cypher 查询并收集记录。"""
             with self._driver.session(database=self._database) as session:
                 result = session.run(query, params or {})
                 return [dict(record) for record in result]
@@ -42,6 +48,7 @@ class Neo4jSource(NoSQLSource):
         return await loop.run_in_executor(None, _run)
 
     async def get_schema(self) -> list[dict[str, Any]]:
+        """返回图数据库的 schema 信息。"""
         return await self.execute_cypher("CALL db.schema.visualization()")
 
 
@@ -57,10 +64,12 @@ class Neo4jSourceConfig(SourceConfig):
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "neo4j"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> Neo4jSourceConfig:
+        """从字典构造配置实例。"""
         return cls(
             _name=name,
             uri=data.get("uri", "bolt://localhost:7687"),
@@ -71,6 +80,7 @@ class Neo4jSourceConfig(SourceConfig):
         )
 
     async def initialize(self, tracer=None) -> Neo4jSource:
+        """创建并初始化数据源实例。"""
         try:
             from neo4j import GraphDatabase
         except ImportError as e:

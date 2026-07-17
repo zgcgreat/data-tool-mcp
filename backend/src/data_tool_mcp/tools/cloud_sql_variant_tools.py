@@ -20,25 +20,10 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _execute_user_sql,
+    _get_typed_source_async,
     register_tool,
 )
-
-
-# ---------------------------------------------------------------------------
-# Helper: get typed source
-# ---------------------------------------------------------------------------
-
-async def _get_typed_source(source_provider, source_name, tool_name, source_type):
-    if source_provider is None:
-        raise ValueError(f"tool {tool_name!r} requires a source provider")
-    source = await source_provider.get_source(source_name)
-    if source is None:
-        await source_provider.release_source(source_name)
-        raise ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    if not isinstance(source, source_type):
-        await source_provider.release_source(source_name)
-        raise TypeError(f"source {source_name!r} is not the expected source type")
-    return source
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +34,7 @@ class CloudSQLMySQLGenericTool(BaseTool):
     """Generic CloudSQL MySQL tool."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+        """初始化工具配置。"""
         ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
@@ -56,22 +42,20 @@ class CloudSQLMySQLGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = await _get_typed_source(source_provider, self._source_name, self.name, CloudSQLMySQLSource)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, CloudSQLMySQLSource)
         try:
             if self._tool_type in ("cloud-sql-mysql-sql", "cloud-sql-mysql-execute-sql"):
-                sql = params.get("sql", "")
-                if not sql:
-                    raise ValueError("missing 'sql' parameter")
-                rows = await source.execute_sql(sql)
+                rows = await _execute_user_sql(source, params)
                 return {"rows": rows, "rowCount": len(rows)}
-            elif self._tool_type == "cloud-sql-mysql-list-tables":
-                tables = await source.list_tables()
-                return {"tables": tables}
+            if self._tool_type == "cloud-sql-mysql-list-tables":
+                return {"tables": await source.list_tables()}
             return {"result": "ok"}
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
 
 
@@ -94,6 +78,7 @@ class CloudSQLMSSQLGenericTool(BaseTool):
     """Generic CloudSQL MSSQL tool."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+        """初始化工具配置。"""
         ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
@@ -101,22 +86,20 @@ class CloudSQLMSSQLGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = await _get_typed_source(source_provider, self._source_name, self.name, CloudSQLMSSQLSource)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, CloudSQLMSSQLSource)
         try:
             if self._tool_type in ("cloud-sql-mssql-sql", "cloud-sql-mssql-execute-sql"):
-                sql = params.get("sql", "")
-                if not sql:
-                    raise ValueError("missing 'sql' parameter")
-                rows = await source.execute_sql(sql)
+                rows = await _execute_user_sql(source, params)
                 return {"rows": rows, "rowCount": len(rows)}
-            elif self._tool_type == "cloud-sql-mssql-list-tables":
-                tables = await source.list_tables()
-                return {"tables": tables}
+            if self._tool_type == "cloud-sql-mssql-list-tables":
+                return {"tables": await source.list_tables()}
             return {"result": "ok"}
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
 
 
@@ -139,6 +122,7 @@ class AlloyDBPGGenericTool(BaseTool):
     """Generic AlloyDB PG tool."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+        """初始化工具配置。"""
         ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
@@ -146,22 +130,20 @@ class AlloyDBPGGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = await _get_typed_source(source_provider, self._source_name, self.name, AlloyDBPGSource)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, AlloyDBPGSource)
         try:
             if self._tool_type in ("alloydb-pg-sql", "alloydb-pg-execute-sql"):
-                sql = params.get("sql", "")
-                if not sql:
-                    raise ValueError("missing 'sql' parameter")
-                rows = await source.execute_sql(sql)
+                rows = await _execute_user_sql(source, params)
                 return {"rows": rows, "rowCount": len(rows)}
-            elif self._tool_type == "alloydb-pg-list-tables":
-                tables = await source.list_tables()
-                return {"tables": tables}
+            if self._tool_type == "alloydb-pg-list-tables":
+                return {"tables": await source.list_tables()}
             return {"result": "ok"}
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
 
 
@@ -191,6 +173,7 @@ _CSPG_ADMIN_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
 # ---------------------------------------------------------------------------
 
 def _make_variant_tool_config(tool_type: str, description: str, param_defs: list[ParameterManifest], read_only: bool, tool_cls: type):
+    """构造Cloud SQL 变体工具配置。"""
     @register_tool(tool_type)
     @dataclass
     class _VariantToolConfig(ToolConfig):
@@ -200,13 +183,16 @@ def _make_variant_tool_config(tool_type: str, description: str, param_defs: list
 
         @property
         def tool_type(self) -> str:
+            """返回工具类型标识符。"""
             return tool_type
 
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _VariantToolConfig:
+            """从字典创建配置实例。"""
             return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
 
         async def initialize(self):
+            """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return tool_cls(cfg=cfg, source_name=self.source, tool_type=tool_type, param_defs=param_defs, read_only=read_only)
 
@@ -235,6 +221,7 @@ class CloudSQLPGAdminGenericTool(BaseTool):
     """Generic CloudSQL PG admin tool (create/upgrade)."""
 
     def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+        """初始化工具配置。"""
         ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
@@ -242,6 +229,7 @@ class CloudSQLPGAdminGenericTool(BaseTool):
         self._param_defs = param_defs
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source(source_provider, self._source_name, self.name, CloudSQLPGSource)
         try:
             if self._tool_type == "cloud-sql-postgres-create-instance":
@@ -253,6 +241,7 @@ class CloudSQLPGAdminGenericTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
 
 

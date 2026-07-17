@@ -79,6 +79,7 @@ _embedding_model_registry: dict[str, type[EmbeddingModelConfig]] = {}
 def register_embedding_model(model_type: str):
     """Decorator: register an EmbeddingModelConfig class for a given type."""
     def decorator(cls: type[EmbeddingModelConfig]) -> type[EmbeddingModelConfig]:
+        """将配置类注册到全局 registry。"""
         _embedding_model_registry[model_type] = cls
         return cls
     return decorator

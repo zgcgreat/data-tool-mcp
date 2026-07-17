@@ -37,6 +37,7 @@ class LRUCache:
         maxsize: int,
         close_callback: Callable[[Any], Awaitable[None]] | None = None,
     ):
+        """初始化实例。"""
         self._maxsize = maxsize
         self._close_callback = close_callback
         # 有序字典: 尾部为最近访问,头部为最久未访问
@@ -65,6 +66,7 @@ class LRUCache:
         self._evict_if_over_capacity()
 
     def _upsert(self, key: str, value: Any) -> None:
+        """写入或更新缓存项,并移至 LRU 尾部。"""
         if key in self._cache:
             self._cache[key] = value
             self._cache.move_to_end(key)
@@ -72,6 +74,7 @@ class LRUCache:
         self._cache[key] = value
 
     def _evict_if_over_capacity(self) -> None:
+        """超容量时循环淘汰最久未访问项,所有项使用中则停止。"""
         while len(self._cache) > self._maxsize:
             if self._evict_one_lru():
                 continue
@@ -113,6 +116,7 @@ class LRUCache:
             await self._decrement_ref(key)
 
     async def _decrement_ref(self, key: str) -> None:
+        """引用计数 -1,归零时触发最终释放。"""
         current = self._refcount.get(key, 0)
         if current <= 0:
             return
@@ -144,6 +148,7 @@ class LRUCache:
             await self._evict_locked(key)
 
     async def _evict_locked(self, key: str) -> None:
+        """evict 加锁实现: 引用计数 > 0 时标记待淘汰,否则立即淘汰。"""
         if key not in self._cache:
             self._pending_evict.discard(key)
             return
@@ -175,12 +180,15 @@ class LRUCache:
             await self._safe_close_if_needed(key, val)
 
     def contains(self, key: str) -> bool:
+        """判断 key 是否在缓存中。"""
         return key in self._cache
 
     def size(self) -> int:
+        """返回当前缓存项数量。"""
         return len(self._cache)
 
     def keys(self) -> list[str]:
+        """返回所有缓存 key 列表。"""
         return list(self._cache.keys())
 
     def snapshot(self) -> dict[str, Any]:

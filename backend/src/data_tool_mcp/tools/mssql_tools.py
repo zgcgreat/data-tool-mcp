@@ -42,6 +42,7 @@ class MSSQLSQLTool(BaseTool):
         template_parameters: list[dict[str, Any]] | None = None,
         parameters: list[dict[str, Any]] | None = None,
     ):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
         self._statement = statement
@@ -49,6 +50,7 @@ class MSSQLSQLTool(BaseTool):
         self._parameters = parameters or []
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await _execute_sql_with_modes(
@@ -59,6 +61,7 @@ class MSSQLSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         param_defs = self._template_parameters or self._parameters
         parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL query to execute")
         return ToolManifest(
@@ -80,10 +83,12 @@ class MSSQLSQLToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mssql-sql"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MSSQLSQLToolConfig:
+        """从字典创建配置实例。"""
         return cls(
             _name=name,
             source=data.get("source", ""),
@@ -94,6 +99,7 @@ class MSSQLSQLToolConfig(ToolConfig):
         )
 
     async def initialize(self) -> MSSQLSQLTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MSSQLSQLTool(
             cfg=cfg,
@@ -122,6 +128,7 @@ class MSSQLExecuteSQLTool(BaseTool):
         template_parameters: list[dict[str, Any]] | None = None,
         parameters: list[dict[str, Any]] | None = None,
     ):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
         self._source_name = source_name
         self._statement = statement
@@ -129,6 +136,7 @@ class MSSQLExecuteSQLTool(BaseTool):
         self._parameters = parameters or []
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await _execute_sql_with_modes(
@@ -139,6 +147,7 @@ class MSSQLExecuteSQLTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         param_defs = self._template_parameters or self._parameters
         parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL statement to execute")
         return ToolManifest(
@@ -160,10 +169,12 @@ class MSSQLExecuteSQLToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mssql-execute-sql"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MSSQLExecuteSQLToolConfig:
+        """从字典创建配置实例。"""
         return cls(
             _name=name,
             source=data.get("source", ""),
@@ -174,6 +185,7 @@ class MSSQLExecuteSQLToolConfig(ToolConfig):
         )
 
     async def initialize(self) -> MSSQLExecuteSQLTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MSSQLExecuteSQLTool(
             cfg=cfg,
@@ -192,10 +204,12 @@ class MSSQLListTablesTool(BaseTool):
     """List all tables in the MSSQL database."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+        """执行工具调用，返回查询结果。"""
         source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
         try:
             rows = await source.execute_sql(
@@ -206,6 +220,7 @@ class MSSQLListTablesTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)
 
 
@@ -218,12 +233,15 @@ class MSSQLListTablesToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "mssql-list-tables"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MSSQLListTablesToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "列出 MSSQL 数据库中的所有表"))
 
     async def initialize(self) -> MSSQLListTablesTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return MSSQLListTablesTool(cfg=cfg, source_name=self.source)

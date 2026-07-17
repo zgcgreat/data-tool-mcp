@@ -19,6 +19,7 @@ class StreamableHTTPTransport:
     """
 
     def __init__(self, protocol: MCPProtocol):
+        """初始化实例。"""
         self.protocol = protocol
 
     async def handle_request(self, body: bytes) -> JSONRPCResponse | None:

@@ -16,6 +16,7 @@ class SpannerSource(Source):
     """Spanner source using google-cloud-spanner with asyncio wrapper."""
 
     def __init__(self, name: str, client: Any, instance: Any, database: Any):
+        """初始化数据源配置。"""
         self._name = name
         self._client = client
         self._instance = instance
@@ -23,19 +24,24 @@ class SpannerSource(Source):
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "spanner"
 
     async def connect(self) -> None:
+        """建立数据库连接。"""
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: self._database.execute_sql("SELECT 1").__iter__())
 
     async def close(self) -> None:
+        """关闭数据库连接。"""
         pass
 
     async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """执行 SQL 查询并返回结果。"""
         loop = asyncio.get_event_loop()
 
         def _run() -> list[dict[str, Any]]:
+            """同步执行查询并转换为字典列表。"""
             with self._database.snapshot() as snapshot:
                 rows = snapshot.execute_sql(sql, params=params)
                 return [dict(row) for row in rows]
@@ -43,18 +49,21 @@ class SpannerSource(Source):
         return await loop.run_in_executor(None, _run)
 
     async def list_tables(self) -> list[str]:
+        """列出数据库中所有表。"""
         rows = await self.execute_sql(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = ''"
         )
         return [r["table_name"] for r in rows]
 
     async def list_graphs(self) -> list[str]:
+        """列出数据库中所有属性图。"""
         rows = await self.execute_sql(
             "SELECT graph_name FROM information_schema.property_graphs"
         )
         return [r["graph_name"] for r in rows]
 
     async def search_catalog(self, query: str) -> list[dict[str, Any]]:
+        """在数据目录中搜索并执行查询。"""
         return await self.execute_sql(query)
 
 
@@ -68,10 +77,12 @@ class SpannerSourceConfig(SourceConfig):
 
     @property
     def source_type(self) -> str:
+        """返回数据源类型标识符。"""
         return "spanner"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> SpannerSourceConfig:
+        """从字典构造配置实例。"""
         return cls(
             _name=name,
             project_id=data.get("projectId", ""),
@@ -80,6 +91,7 @@ class SpannerSourceConfig(SourceConfig):
         )
 
     async def initialize(self, tracer=None) -> SpannerSource:
+        """创建并初始化数据源实例。"""
         try:
             from google.cloud import spanner
         except ImportError as e:

@@ -17,35 +17,9 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _get_typed_source_async,
     register_tool,
 )
-
-
-async def _get_http_source(
-    source_provider: SourceProvider | None,
-    source_name: str,
-    tool_name: str,
-) -> HTTPSource:
-    if source_provider is None:
-        raise ValueError(
-            f"tool {tool_name!r} requires an 'http' source but no source provider is available. "
-            f"Ensure the tool configuration specifies a valid 'source' field pointing to an "
-            f"http-type source definition in the YAML config."
-        )
-    source = await source_provider.get_source(source_name)
-    if source is None:
-        await source_provider.release_source(source_name)
-        raise ValueError(
-            f"source {source_name!r} not found for tool {tool_name!r}. "
-            f"Ensure the 'source' field in the tool config matches a defined source name."
-        )
-    if not isinstance(source, HTTPSource):
-        await source_provider.release_source(source_name)
-        raise TypeError(
-            f"source {source_name!r} is not an HTTP source (got {type(source).__name__}). "
-            f"HTTP tools require a source of type 'http'."
-        )
-    return source
 
 
 class HTTPTool(BaseTool):
@@ -55,11 +29,13 @@ class HTTPTool(BaseTool):
     """
 
     def __init__(self, cfg: ConfigBase, source_name: str):
+        """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, open_world_hint=True))
         self._source_name = source_name
 
     async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
-        source = await _get_http_source(source_provider, self._source_name, self.name)
+        """执行工具调用，返回查询结果。"""
+        source = await _get_typed_source_async(source_provider, self._source_name, self.name, HTTPSource)
         try:
             return await source.make_request(
                 method=params.get("method"),
@@ -72,6 +48,7 @@ class HTTPTool(BaseTool):
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
+        """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
             parameters=[
@@ -94,12 +71,15 @@ class HTTPToolConfig(ToolConfig):
 
     @property
     def tool_type(self) -> str:
+        """返回工具类型标识符。"""
         return "http"
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> HTTPToolConfig:
+        """从字典创建配置实例。"""
         return cls(_name=name, source=data.get("source", ""), description=data.get("description", "发起 HTTP 请求"))
 
     async def initialize(self) -> HTTPTool:
+        """创建并初始化工具实例。"""
         cfg = ConfigBase(name=self._name, description=self.description)
         return HTTPTool(cfg=cfg, source_name=self.source)

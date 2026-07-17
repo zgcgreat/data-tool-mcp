@@ -55,6 +55,7 @@ class Instrumentation:
         mcp_active_sessions: Any = None,
         tool_execution_duration: Any = None,
     ):
+        """初始化实例。"""
         self.tracer = tracer
         self.mcp_operation_duration = mcp_operation_duration
         self.mcp_session_duration = mcp_session_duration
@@ -65,6 +66,133 @@ class Instrumentation:
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
+
+def _import_otel_core() -> Any:
+    """导入 OpenTelemetry 核心模块,未安装时返回 None。"""
+    try:
+        from opentelemetry import trace, metrics
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
+    except ImportError:
+        # OpenTelemetry not installed — return None (no-op)
+        return None
+    return trace, metrics, TracerProvider, MeterProvider, Resource, SERVICE_NAME, SERVICE_VERSION
+
+
+def _build_resource(
+    Resource: Any, SERVICE_NAME: Any, SERVICE_VERSION: Any,
+    version_string: str, telemetry_service_name: str,
+) -> Any:
+    """构建 OpenTelemetry Resource。"""
+    return Resource.create({
+        SERVICE_NAME: telemetry_service_name,
+        SERVICE_VERSION: version_string,
+    })
+
+
+def _resolve_gcp_project(telemetry_gcp_project: str) -> str:
+    """解析 GCP project:参数 > GOOGLE_CLOUD_PROJECT 环境变量。"""
+    return telemetry_gcp_project or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+
+
+def _make_otlp_trace_exporter(telemetry_otlp: str) -> Any:
+    """创建 OTLP trace exporter,未配置或未安装依赖时返回 None。"""
+    if not telemetry_otlp:
+        return None
+    try:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    except ImportError:
+        return None
+    return OTLPSpanExporter(endpoint=telemetry_otlp)
+
+
+def _create_cloud_trace_exporter(project: str) -> Any:
+    """创建 CloudTraceSpanExporter,导入失败返回 None。"""
+    try:
+        from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+    except ImportError:
+        return None
+    return CloudTraceSpanExporter(project_id=project)
+
+
+def _make_gcp_trace_exporter(telemetry_gcp: bool, telemetry_gcp_project: str) -> Any:
+    """创建 GCP Cloud Trace exporter,未启用/无 project/未安装依赖时返回 None。"""
+    if not telemetry_gcp:
+        return None
+    project = _resolve_gcp_project(telemetry_gcp_project)
+    if not project:
+        return None
+    return _create_cloud_trace_exporter(project)
+
+
+def _build_trace_exporters(
+    telemetry_otlp: str, telemetry_gcp: bool, telemetry_gcp_project: str,
+) -> list:
+    """构造 trace exporter 列表(过滤 None)。"""
+    candidates = [
+        _make_otlp_trace_exporter(telemetry_otlp),
+        _make_gcp_trace_exporter(telemetry_gcp, telemetry_gcp_project),
+    ]
+    return [e for e in candidates if e]
+
+
+def _setup_tracer_provider(
+    trace: Any, TracerProvider: Any, resource: Any, trace_exporters: list,
+) -> None:
+    """创建并注册 TracerProvider,有 exporter 时添加 BatchSpanProcessor。"""
+    tracer_provider = TracerProvider(resource=resource)
+    if trace_exporters:
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        for exporter in trace_exporters:
+            tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
+    trace.set_tracer_provider(tracer_provider)
+
+
+def _make_otlp_metric_reader(telemetry_otlp: str) -> Any:
+    """创建 OTLP metric reader,未配置或未安装依赖时返回 None。"""
+    if not telemetry_otlp:
+        return None
+    try:
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+    except ImportError:
+        return None
+    exporter = OTLPMetricExporter(endpoint=telemetry_otlp)
+    return PeriodicExportingMetricReader(exporter)
+
+
+def _create_cloud_monitoring_reader(project: str) -> Any:
+    """创建 CloudMonitoringMetricReader,导入失败返回 None。"""
+    try:
+        from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricExporter
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+    except ImportError:
+        return None
+    exporter = CloudMonitoringMetricExporter(project_id=project)
+    return PeriodicExportingMetricReader(exporter)
+
+
+def _make_gcp_metric_reader(telemetry_gcp: bool, telemetry_gcp_project: str) -> Any:
+    """创建 GCP Cloud Monitoring metric reader,未启用/无 project/未安装依赖时返回 None。"""
+    if not telemetry_gcp:
+        return None
+    project = _resolve_gcp_project(telemetry_gcp_project)
+    if not project:
+        return None
+    return _create_cloud_monitoring_reader(project)
+
+
+def _build_metric_readers(
+    telemetry_otlp: str, telemetry_gcp: bool, telemetry_gcp_project: str,
+) -> list:
+    """构造 metric reader 列表(过滤 None)。"""
+    candidates = [
+        _make_otlp_metric_reader(telemetry_otlp),
+        _make_gcp_metric_reader(telemetry_gcp, telemetry_gcp_project),
+    ]
+    return [r for r in candidates if r]
+
 
 def setup_otel(
     version_string: str = "0.0.0",
@@ -81,73 +209,22 @@ def setup_otel(
       - OTLP HTTP exporter (telemetry_otlp endpoint)
       - GCP Cloud Trace + Cloud Monitoring exporter (telemetry_gcp=True)
     """
-    try:
-        from opentelemetry import trace, metrics
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
-    except ImportError:
-        # OpenTelemetry not installed — return None (no-op)
+    core = _import_otel_core()
+    if core is None:
         return None
+    trace, metrics, TracerProvider, MeterProvider, Resource, SERVICE_NAME, SERVICE_VERSION = core
 
-    # Build resource
-    resource = Resource.create({
-        SERVICE_NAME: telemetry_service_name,
-        SERVICE_VERSION: version_string,
-    })
+    resource = _build_resource(
+        Resource, SERVICE_NAME, SERVICE_VERSION, version_string, telemetry_service_name,
+    )
 
     # --- TracerProvider ---
-    trace_exporters = []
-    if telemetry_otlp:
-        try:
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-            trace_exporters.append(OTLPSpanExporter(endpoint=telemetry_otlp))
-        except ImportError:
-            pass
-
-    if telemetry_gcp:
-        try:
-            from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
-            project = telemetry_gcp_project or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
-            if project:
-                trace_exporters.append(CloudTraceSpanExporter(project_id=project))
-        except ImportError:
-            pass
-
-    if trace_exporters:
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        tracer_provider = TracerProvider(resource=resource)
-        for exporter in trace_exporters:
-            tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
-        trace.set_tracer_provider(tracer_provider)
-    else:
-        tracer_provider = TracerProvider(resource=resource)
-        trace.set_tracer_provider(tracer_provider)
-
+    trace_exporters = _build_trace_exporters(telemetry_otlp, telemetry_gcp, telemetry_gcp_project)
+    _setup_tracer_provider(trace, TracerProvider, resource, trace_exporters)
     tracer = trace.get_tracer(TRACER_NAME, version_string)
 
     # --- MeterProvider ---
-    metric_readers = []
-    if telemetry_otlp:
-        try:
-            from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-            from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-            exporter = OTLPMetricExporter(endpoint=telemetry_otlp)
-            metric_readers.append(PeriodicExportingMetricReader(exporter))
-        except ImportError:
-            pass
-
-    if telemetry_gcp:
-        try:
-            from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricExporter
-            from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-            project = telemetry_gcp_project or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
-            if project:
-                exporter = CloudMonitoringMetricExporter(project_id=project)
-                metric_readers.append(PeriodicExportingMetricReader(exporter))
-        except ImportError:
-            pass
-
+    metric_readers = _build_metric_readers(telemetry_otlp, telemetry_gcp, telemetry_gcp_project)
     meter_provider = MeterProvider(resource=resource, metric_readers=metric_readers)
     metrics.set_meter_provider(meter_provider)
 

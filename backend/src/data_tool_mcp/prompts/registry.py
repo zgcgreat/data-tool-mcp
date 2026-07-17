@@ -16,6 +16,18 @@ from data_tool_mcp.prompts.base import (
 )
 
 
+def _decode_registered_prompt(
+    prompt_type: str,
+    name: str,
+    config_data: dict[str, Any],
+) -> PromptConfig:
+    """解码已注册类型的 prompt 配置,优先使用 from_dict。"""
+    cls = get_prompt_config_class(prompt_type)
+    if hasattr(cls, "from_dict"):
+        return cls.from_dict(name, config_data)  # type: ignore[attr-defined]
+    raise ValueError(f"unknown prompt type: {prompt_type!r}")
+
+
 def decode_prompt_config(
     prompt_type: str,
     name: str,
@@ -33,12 +45,7 @@ def decode_prompt_config(
     if prompt_type == "custom":
         return _decode_custom_prompt(name, config_data)
 
-    # For other registered types, use from_dict if available
-    cls = get_prompt_config_class(prompt_type)
-    if hasattr(cls, "from_dict"):
-        return cls.from_dict(name, config_data)  # type: ignore[attr-defined]
-
-    raise ValueError(f"unknown prompt type: {prompt_type!r}")
+    return _decode_registered_prompt(prompt_type, name, config_data)
 
 
 def _decode_custom_prompt(name: str, data: dict[str, Any]) -> CustomPromptConfig:
