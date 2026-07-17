@@ -102,18 +102,18 @@ def _make_otlp_trace_exporter(telemetry_otlp: str) -> Any:
         return None
     try:
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        return OTLPSpanExporter(endpoint=telemetry_otlp)
     except ImportError:
         return None
-    return OTLPSpanExporter(endpoint=telemetry_otlp)
 
 
 def _create_cloud_trace_exporter(project: str) -> Any:
     """创建 CloudTraceSpanExporter,导入失败返回 None。"""
     try:
         from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+        return CloudTraceSpanExporter(project_id=project)
     except ImportError:
         return None
-    return CloudTraceSpanExporter(project_id=project)
 
 
 def _make_gcp_trace_exporter(telemetry_gcp: bool, telemetry_gcp_project: str) -> Any:
@@ -156,10 +156,10 @@ def _make_otlp_metric_reader(telemetry_otlp: str) -> Any:
     try:
         from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+        exporter = OTLPMetricExporter(endpoint=telemetry_otlp)
+        return PeriodicExportingMetricReader(exporter)
     except ImportError:
         return None
-    exporter = OTLPMetricExporter(endpoint=telemetry_otlp)
-    return PeriodicExportingMetricReader(exporter)
 
 
 def _create_cloud_monitoring_reader(project: str) -> Any:
@@ -167,10 +167,10 @@ def _create_cloud_monitoring_reader(project: str) -> Any:
     try:
         from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricExporter
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+        exporter = CloudMonitoringMetricExporter(project_id=project)
+        return PeriodicExportingMetricReader(exporter)
     except ImportError:
         return None
-    exporter = CloudMonitoringMetricExporter(project_id=project)
-    return PeriodicExportingMetricReader(exporter)
 
 
 def _make_gcp_metric_reader(telemetry_gcp: bool, telemetry_gcp_project: str) -> Any:

@@ -7,6 +7,7 @@ Maps to Go:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -355,7 +356,6 @@ class MCPProtocol:
         If toolset_name is set, only return tools in that toolset.
         Maps to Go: handleToolsList (filters by toolset).
         """
-        import time
         t0 = time.monotonic()
         success = True
         try:
@@ -429,7 +429,6 @@ class MCPProtocol:
         必须确认请求调用的工具属于该 toolset,防止跨系统/跨数据源调用。
         未找到时统一返回 "tool not found",避免泄露工具存在性信息。
         """
-        import time
         tool_name = params.get("name", "")
         arguments = params.get("arguments", {})
         t0 = time.monotonic()

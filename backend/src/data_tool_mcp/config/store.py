@@ -37,8 +37,6 @@ from sqlalchemy.orm import DeclarativeBase
 # 加解密统一入口 — 企业部署时可替换 utils/crypto.py 为 SM4/KMS 实现
 from data_tool_mcp.utils.crypto import (
     decrypt_password,
-    encrypt_password,
-    is_encrypted,
     normalize_password_for_storage,
 )
 
@@ -455,7 +453,7 @@ def _safe_url_for(url: str) -> str:
 # MCP 日志查询过滤条件规约：(参数名, SQL 片段, 值转换函数)
 _LOG_FILTER_SPEC: list[tuple[str, str, Any]] = [
     ("start_date", "created_at >= :start_date", lambda v: f"{v} 00:00:00"),
-    ("end_date", "created_at <= :end_date_exclusive", lambda v: f"{v} 23:59:59"),
+    ("end_date", "created_at <= :end_date", lambda v: f"{v} 23:59:59"),
     ("system_id", "system_id = :system_id", lambda v: v),
     ("environment", "environment = :environment", lambda v: v),
     ("source_name", "source_name = :source_name", lambda v: v),

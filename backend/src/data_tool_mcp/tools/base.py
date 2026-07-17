@@ -473,11 +473,12 @@ def decode_tool_config(tool_type: str, name: str, config_data: dict[str, Any]) -
 # 共享辅助函数 — 供各 tool 模块复用,降低圈复杂度
 # ---------------------------------------------------------------------------
 
-def _source_resolution_error(source_name: str, tool_name: str, source: Any) -> Exception:
+def _source_resolution_error(source_name: str, tool_name: str, source: Any, expected_type: type | None = None) -> Exception:
     """根据 source 解析结果构造对应的异常对象。"""
     if source is None:
         return ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
-    return TypeError(f"source {source_name!r} is not the expected type")
+    type_hint = expected_type.__name__ if expected_type else "expected"
+    return TypeError(f"source {source_name!r} is not a {type_hint} source")
 
 
 async def _release_and_raise(source_provider: "SourceProvider", source_name: str, exc: Exception) -> None:
@@ -498,7 +499,7 @@ async def _get_typed_source_async(
     source = await source_provider.get_source(source_name)
     if isinstance(source, expected_type):
         return source
-    exc = _source_resolution_error(source_name, tool_name, source)
+    exc = _source_resolution_error(source_name, tool_name, source, expected_type)
     await _release_and_raise(source_provider, source_name, exc)
 
 
