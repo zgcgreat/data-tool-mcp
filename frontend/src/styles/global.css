@@ -365,6 +365,35 @@ ul, ol { list-style: none; }
 .form-textarea { resize: vertical; min-height: 80px; font-family: var(--font-mono); }
 
 /* ==========================================================================
+   Common: Filter field (label + select 组合,跨页面复用)
+   ========================================================================== */
+
+.filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.filter-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.filter-label::after {
+  content: '：';
+}
+
+.filter-field .form-select {
+  width: auto;
+  min-width: 140px;
+  font-size: 12px;
+  padding: 6px 30px 6px 10px;
+}
+
+/* ==========================================================================
    Common: Cards
    ========================================================================== */
 

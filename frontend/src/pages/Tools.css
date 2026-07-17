@@ -8,6 +8,18 @@
   margin: 0 auto;
 }
 
+/* 筛选栏固定在顶部,不随列表滚动 */
+.tools-page .page-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-base);
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-4);
+  margin-top: calc(-1 * var(--space-2));
+  margin-bottom: var(--space-4);
+}
+
 .tools-filter {
   font-size: 12px;
 }
@@ -15,8 +27,11 @@
 .tools-filters {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-4);
+  flex-wrap: wrap;
 }
+
+/* 筛选字段: 标签 + 下拉框 组合 (基础样式见 global.css .filter-field) */
 
 /* --- Layout: 320px list + 1fr detail --- */
 

@@ -96,6 +96,8 @@ export default function Sources() {
   const [editingSource, setEditingSource] = useState<SourceInfo | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; latency: number; error: string | null }>>({});
+  // 已应用的筛选条件(点击"查询"后更新,筛选不实时生效)
+  const [appliedFilters, setAppliedFilters] = useState({ systemId: '', environment: '' });
   const [selectedSystemId, setSelectedSystemId] = useState('');
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
@@ -110,10 +112,10 @@ export default function Sources() {
     loadEnvironments();
   }, []);
 
-  // 筛选条件变化时重置到第 1 页
+  // 应用筛选条件后(点击查询)重置到第 1 页
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSystemId, selectedEnvironment]);
+  }, [appliedFilters]);
 
   const loadData = async () => {
     try {
@@ -226,12 +228,20 @@ export default function Sources() {
     }
   };
 
-  // 按系统编号 + 环境筛选数据源
+  // 按已应用的筛选条件(系统+环境)过滤数据源
   const filteredSources = sources.filter(s => {
-    if (selectedSystemId && String(s.systemId || '') !== selectedSystemId) return false;
-    if (selectedEnvironment && String(s.environment || '') !== selectedEnvironment) return false;
+    if (appliedFilters.systemId && String(s.systemId || '') !== appliedFilters.systemId) return false;
+    if (appliedFilters.environment && String(s.environment || '') !== appliedFilters.environment) return false;
     return true;
   });
+
+  // 点击"查询"按钮：把当前筛选条件快照到 appliedFilters,触发列表刷新
+  const handleSearch = () => {
+    setAppliedFilters({
+      systemId: selectedSystemId,
+      environment: selectedEnvironment,
+    });
+  };
 
   // 分页计算（边界保护：删除后当前页可能超出范围）
   const totalPages = Math.max(1, Math.ceil(filteredSources.length / pageSize));
@@ -265,33 +275,37 @@ export default function Sources() {
         </div>
         <div className="page-header-actions">
           {systems.length > 0 && (
+            <label className="filter-field">
+              <span className="filter-label">系统</span>
+              <select
+                className="form-select tools-filter"
+                value={selectedSystemId}
+                onChange={e => setSelectedSystemId(e.target.value)}
+              >
+                <option value="">全部</option>
+                {systems.map(sys => (
+                  <option key={sys.systemId} value={sys.systemId}>
+                    {sys.systemId}（{sys.sourceCount} 个数据源）
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="filter-field">
+            <span className="filter-label">环境</span>
             <select
               className="form-select tools-filter"
-              value={selectedSystemId}
-              onChange={e => setSelectedSystemId(e.target.value)}
-              style={{ width: 'auto', minWidth: '180px' }}
+              value={selectedEnvironment}
+              onChange={e => setSelectedEnvironment(e.target.value)}
             >
-              <option value="">全部系统</option>
-              {systems.map(sys => (
-                <option key={sys.systemId} value={sys.systemId}>
-                  {sys.systemId}（{sys.sourceCount} 个数据源）
-                </option>
-              ))}
+              <option value="">全部</option>
+              {environments.map(env => <option key={env} value={env}>{env}</option>)}
             </select>
-          )}
-          <select
-            className="form-select tools-filter"
-            value={selectedEnvironment}
-            onChange={e => setSelectedEnvironment(e.target.value)}
-            style={{ width: 'auto', minWidth: '130px' }}
-          >
-            <option value="">全部环境</option>
-            {environments.map(env => <option key={env} value={env}>{env}</option>)}
-          </select>
-          <button className="btn-secondary" onClick={loadData} disabled={loading} title="刷新数据源列表">
+          </label>
+          <button className="btn-primary" onClick={handleSearch} title="按当前筛选条件查询">
             查询
           </button>
-          <button className="btn-primary" onClick={() => setShowModal(true)}>
+          <button className="btn-secondary" onClick={() => setShowModal(true)}>
             <PlusIcon /> 添加数据源
           </button>
         </div>

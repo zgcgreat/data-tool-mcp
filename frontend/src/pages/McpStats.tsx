@@ -156,7 +156,7 @@ export default function McpStats() {
               value={selectedSystemId}
               onChange={e => handleSystemChange(e.target.value)}
             >
-              <option value="">全部系统</option>
+              <option value="">全部</option>
               {systems.map(sys => (
                 <option key={sys.systemId} value={sys.systemId}>
                   {sys.systemId}
@@ -171,7 +171,7 @@ export default function McpStats() {
               value={selectedEnvironment}
               onChange={e => setSelectedEnvironment(e.target.value)}
             >
-              <option value="">全部环境</option>
+              <option value="">全部</option>
               {environments.map(env => (
                 <option key={env} value={env}>{env}</option>
               ))}
@@ -183,8 +183,9 @@ export default function McpStats() {
               className="form-select"
               value={selectedSourceName}
               onChange={e => setSelectedSourceName(e.target.value)}
+              disabled={filteredSources.length === 0}
             >
-              <option value="">全部数据源</option>
+              <option value="">全部</option>
               {filteredSources.map(s => (
                 <option key={s.name} value={s.name}>{s.name}</option>
               ))}

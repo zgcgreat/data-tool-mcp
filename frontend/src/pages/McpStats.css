@@ -49,6 +49,10 @@
   white-space: nowrap;
 }
 
+.filter-label::after {
+  content: '：';
+}
+
 /* 筛选栏内的下拉框和日期框统一高度和宽度 */
 .filter-item .form-select,
 .filter-item .form-input {

@@ -65,6 +65,8 @@ export default function Tools() {
   const [filterSource, setFilterSource] = useState<string>('');
   const [selectedSystemId, setSelectedSystemId] = useState('');
   const [selectedEnvironment, setSelectedEnvironment] = useState('');
+  // 已应用的筛选条件(点击"查询"后更新,筛选不实时生效)
+  const [appliedFilters, setAppliedFilters] = useState({ systemId: '', environment: '', source: '' });
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
 
@@ -154,20 +156,34 @@ export default function Tools() {
     }
   };
 
-  // 工具筛选：按系统编号 + 环境 + 数据源
+  // 工具筛选：按已应用的筛选条件(系统+环境+数据源)过滤
   const filteredTools = tools.filter(t => {
-    if (selectedSystemId && (t.systemId || '') !== selectedSystemId) return false;
-    if (selectedEnvironment && (t.environment || '') !== selectedEnvironment) return false;
-    if (filterSource && t.source !== filterSource) return false;
+    if (appliedFilters.systemId && (t.systemId || '') !== appliedFilters.systemId) return false;
+    if (appliedFilters.environment && (t.environment || '') !== appliedFilters.environment) return false;
+    if (appliedFilters.source && t.source !== appliedFilters.source) return false;
     return true;
   });
 
-  // 数据源下拉框跟随系统编号+环境联动
+  // 数据源下拉框选项：基于已应用的系统+环境筛选(不含数据源筛选本身),避免选中某数据源后其他选项消失
   const sourceNames = Array.from(new Set(
-    filteredTools
+    tools
+      .filter(t => {
+        if (appliedFilters.systemId && (t.systemId || '') !== appliedFilters.systemId) return false;
+        if (appliedFilters.environment && (t.environment || '') !== appliedFilters.environment) return false;
+        return true;
+      })
       .map(t => t.source)
       .filter((s): s is string => Boolean(s))
   ));
+
+  // 点击"查询"按钮：把当前筛选条件快照到 appliedFilters,触发列表刷新
+  const handleSearch = () => {
+    setAppliedFilters({
+      systemId: selectedSystemId,
+      environment: selectedEnvironment,
+      source: filterSource,
+    });
+  };
 
   const handleSystemChange = (sid: string) => {
     setSelectedSystemId(sid);
@@ -207,46 +223,51 @@ export default function Tools() {
         </div>
         <div className="tools-filters">
           {systems.length > 0 && (
+            <label className="filter-field">
+              <span className="filter-label">系统</span>
+              <select
+                className="form-select tools-filter"
+                value={selectedSystemId}
+                onChange={e => handleSystemChange(e.target.value)}
+              >
+                <option value="">全部</option>
+                {systems.map(sys => (
+                  <option key={sys.systemId} value={sys.systemId}>
+                    {sys.systemId}（{sys.sourceCount} 个数据源）
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="filter-field">
+            <span className="filter-label">环境</span>
             <select
               className="form-select tools-filter"
-              value={selectedSystemId}
-              onChange={e => handleSystemChange(e.target.value)}
-              style={{ width: 'auto', minWidth: '160px' }}
+              value={selectedEnvironment}
+              onChange={e => handleEnvironmentChange(e.target.value)}
             >
-              <option value="">全部系统</option>
-              {systems.map(sys => (
-                <option key={sys.systemId} value={sys.systemId}>
-                  {sys.systemId}（{sys.sourceCount} 个数据源）
-                </option>
+              <option value="">全部</option>
+              {environments.map(env => (
+                <option key={env} value={env}>{env}</option>
               ))}
             </select>
-          )}
-          <select
-            className="form-select tools-filter"
-            value={selectedEnvironment}
-            onChange={e => handleEnvironmentChange(e.target.value)}
-            style={{ width: 'auto', minWidth: '120px' }}
-          >
-            <option value="">全部环境</option>
-            {environments.map(env => (
-              <option key={env} value={env}>{env}</option>
-            ))}
-          </select>
-          {sourceNames.length > 0 && (
+          </label>
+          <label className="filter-field">
+            <span className="filter-label">数据源</span>
             <select
               className="form-select tools-filter"
               value={filterSource}
               onChange={e => setFilterSource(e.target.value)}
-              style={{ width: 'auto', minWidth: '200px' }}
+              disabled={sourceNames.length === 0}
             >
-              <option value="">全部数据源 ({filteredTools.length})</option>
+              <option value="">全部</option>
               {sourceNames.map(src => {
                 const count = filteredTools.filter(t => t.source === src).length;
                 return <option key={src} value={src}>{src} ({count})</option>;
               })}
             </select>
-          )}
-          <button className="btn-secondary" onClick={loadTools} disabled={loading} title="刷新工具列表">
+          </label>
+          <button className="btn-primary" onClick={handleSearch} title="按当前筛选条件查询">
             查询
           </button>
         </div>
