@@ -98,6 +98,8 @@ export default function Sources() {
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; latency: number; error: string | null }>>({});
   // 已应用的筛选条件(点击"查询"后更新,筛选不实时生效)
   const [appliedFilters, setAppliedFilters] = useState({ systemId: '', environment: '' });
+  // 查询中加载态(点击"查询"后短暂显示页面加载效果)
+  const [querying, setQuerying] = useState(false);
   const [selectedSystemId, setSelectedSystemId] = useState('');
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
@@ -235,12 +237,17 @@ export default function Sources() {
     return true;
   });
 
-  // 点击"查询"按钮：把当前筛选条件快照到 appliedFilters,触发列表刷新
+  // 点击"查询"按钮：短暂显示加载效果后应用筛选条件
   const handleSearch = () => {
-    setAppliedFilters({
-      systemId: selectedSystemId,
-      environment: selectedEnvironment,
-    });
+    setQuerying(true);
+    // 给浏览器一帧渲染加载层,再用 setTimeout 应用筛选(纯前端过滤,无网络请求)
+    setTimeout(() => {
+      setAppliedFilters({
+        systemId: selectedSystemId,
+        environment: selectedEnvironment,
+      });
+      setQuerying(false);
+    }, 300);
   };
 
   // 分页计算（边界保护：删除后当前页可能超出范围）
@@ -473,6 +480,14 @@ export default function Sources() {
           onClose={() => setEditingSource(null)}
           onSubmit={handleEdit}
         />
+      )}
+      {querying && (
+        <div className="query-loading-overlay" role="status" aria-live="polite">
+          <div className="query-loading-box">
+            <span className="spinner" />
+            <span className="loading-text">查询中...</span>
+          </div>
+        </div>
       )}
     </div>
   );

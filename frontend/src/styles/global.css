@@ -437,6 +437,41 @@ ul, ol { list-style: none; }
   letter-spacing: 0.02em;
 }
 
+/* 查询加载层: 小卡片居中,不遮挡页面其余内容 */
+.query-loading-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.query-loading-box {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+}
+
+.query-loading-box .spinner {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+.query-loading-box .loading-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
 /* ==========================================================================
    Common: Empty states
    ========================================================================== */

@@ -207,7 +207,6 @@ export default function QueryConsole() {
   const filteredTables = tableFilter.trim()
     ? tables.filter((t) => t.toLowerCase().includes(tableFilter.trim().toLowerCase()))
     : tables;
-  const hasSource = Boolean(selectedSource);
 
   return (
     <div className="query-console fade-in">
@@ -223,62 +222,70 @@ export default function QueryConsole() {
         </div>
       </div>
 
-      <div className={`qc-layout${hasSource ? '' : ' qc-layout--full'}`}>
-        {/* 表浏览器侧边栏 */}
-        {hasSource && (
-          <aside className="qc-sidebar card">
-            <div className="qc-sidebar-header">
-              <span className="section-label qc-sidebar-label">表</span>
-              {!tablesLoading && tables.length > 0 && (
-                <span className="qc-table-count">{tables.length}</span>
-              )}
-            </div>
-
-            {tables.length > 0 && (
-              <div className="qc-search">
-                <span className="qc-search-icon"><SearchIcon /></span>
-                <input
-                  className="qc-search-input"
-                  type="text"
-                  value={tableFilter}
-                  onChange={(e) => setTableFilter(e.target.value)}
-                  placeholder="筛选表名..."
-                  aria-label="筛选表名"
-                />
-              </div>
+      <div className="qc-layout">
+        {/* 表浏览器侧边栏 — 固定显示,未选数据源时提示选择 */}
+        <aside className="qc-sidebar card">
+          <div className="qc-sidebar-header">
+            <span className="section-label qc-sidebar-label">表</span>
+            {!tablesLoading && tables.length > 0 && (
+              <span className="qc-table-count">{tables.length}</span>
             )}
+          </div>
 
-            <div className="qc-table-list">
-              {tablesLoading ? (
-                <div className="qc-sidebar-state">
-                  <span className="spinner qc-sidebar-spinner" />
-                  <span className="qc-sidebar-state-text">加载表列表...</span>
-                </div>
-              ) : tables.length === 0 ? (
-                <div className="qc-sidebar-state">
-                  <span className="qc-sidebar-state-text qc-sidebar-state-text--muted">无可用表</span>
-                </div>
-              ) : filteredTables.length === 0 ? (
-                <div className="qc-sidebar-state">
-                  <span className="qc-sidebar-state-text qc-sidebar-state-text--muted">无匹配的表</span>
-                </div>
-              ) : (
-                filteredTables.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className="qc-table-item"
-                    onClick={() => handleTableClick(t)}
-                    title={`插入表名: ${t}`}
-                  >
-                    <span className="qc-table-item-icon"><TableIcon /></span>
-                    <span className="qc-table-name">{t}</span>
-                  </button>
-                ))
-              )}
+          {tables.length > 0 && (
+            <div className="qc-search">
+              <span className="qc-search-icon"><SearchIcon /></span>
+              <input
+                className="qc-search-input"
+                type="text"
+                value={tableFilter}
+                onChange={(e) => setTableFilter(e.target.value)}
+                placeholder="筛选表名..."
+                aria-label="筛选表名"
+              />
             </div>
-          </aside>
-        )}
+          )}
+
+          <div className="qc-table-list">
+            {tablesLoading ? (
+              <div className="qc-sidebar-state">
+                <span className="spinner qc-sidebar-spinner" />
+                <span className="qc-sidebar-state-text">加载表列表...</span>
+              </div>
+            ) : !selectedSource ? (
+              <div className="qc-sidebar-empty">
+                <span className="qc-sidebar-empty-icon"><TableIcon /></span>
+                <span className="qc-sidebar-empty-title">暂无表</span>
+                <span className="qc-sidebar-empty-hint">请先选择数据源</span>
+              </div>
+            ) : tables.length === 0 ? (
+              <div className="qc-sidebar-empty">
+                <span className="qc-sidebar-empty-icon"><TableIcon /></span>
+                <span className="qc-sidebar-empty-title">暂无表</span>
+                <span className="qc-sidebar-empty-hint">该数据源未返回任何表</span>
+              </div>
+            ) : filteredTables.length === 0 ? (
+              <div className="qc-sidebar-empty">
+                <span className="qc-sidebar-empty-icon"><SearchIcon /></span>
+                <span className="qc-sidebar-empty-title">无匹配的表</span>
+                <span className="qc-sidebar-empty-hint">调整筛选条件试试</span>
+              </div>
+            ) : (
+              filteredTables.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className="qc-table-item"
+                  onClick={() => handleTableClick(t)}
+                  title={`插入表名: ${t}`}
+                >
+                  <span className="qc-table-item-icon"><TableIcon /></span>
+                  <span className="qc-table-name">{t}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
 
         {/* 右侧主区域 */}
         <div className="qc-main">
