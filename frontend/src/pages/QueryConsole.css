@@ -23,7 +23,7 @@
   display: grid;
   grid-template-columns: 200px 1fr;
   gap: var(--space-4);
-  align-items: start;
+  align-items: stretch;
 }
 
 .qc-main {
@@ -38,11 +38,8 @@
    ========================================================================== */
 
 .qc-sidebar {
-  position: sticky;
-  top: var(--space-4);
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - var(--space-8));
   overflow: hidden;
 }
 
@@ -600,7 +597,6 @@
   }
 
   .qc-sidebar {
-    position: static;
     max-height: 280px;
   }
 }
