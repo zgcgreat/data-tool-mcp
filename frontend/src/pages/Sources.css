@@ -11,6 +11,18 @@
   gap: 12px;
 }
 
+/* 筛选栏固定在顶部,不随表格滚动 */
+.sources-page .page-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-base);
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-4);
+  margin-top: calc(-1 * var(--space-2));
+  margin-bottom: var(--space-4);
+}
+
 /* --- Page title group with eyebrow --- */
 
 .page-title-group {
