@@ -52,9 +52,11 @@ server {
         try_files $uri $uri/ /data-tool-mcp-ui/index.html;
     }
 
-    # 后端 Admin API（/admin 路由，由 data_tool_mcp 的 admin router 提供）
-    location /admin/ {
-        proxy_pass ${BACKEND_URL}/admin/;
+    # 后端 Admin API（/mcp-api 路由，由 data_tool_mcp 的 admin router 提供）
+    # 注意:此前缀刻意避开 /admin,以免与公司外层网关常用的 /admin 部署路径冲突,
+    # 否则会出现 /admin/admin/... 双层 admin 路径。
+    location /mcp-api/ {
+        proxy_pass ${BACKEND_URL}/mcp-api/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

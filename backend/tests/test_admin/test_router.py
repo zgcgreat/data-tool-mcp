@@ -44,7 +44,7 @@ async def client(app):
 
 @pytest.mark.asyncio
 async def test_dashboard(client):
-    resp = await client.get("/admin/dashboard")
+    resp = await client.get("/mcp-api/dashboard")
     assert resp.status_code == 200
     data = resp.json()
     assert "version" in data
@@ -54,7 +54,7 @@ async def test_dashboard(client):
 
 @pytest.mark.asyncio
 async def test_health(client):
-    resp = await client.get("/admin/health")
+    resp = await client.get("/mcp-api/health")
     assert resp.status_code == 200
     data = resp.json()
     assert "sources" in data
@@ -62,14 +62,14 @@ async def test_health(client):
 
 @pytest.mark.asyncio
 async def test_sources_list_empty(client):
-    resp = await client.get("/admin/sources")
+    resp = await client.get("/mcp-api/sources")
     assert resp.status_code == 200
     assert resp.json() == []
 
 
 @pytest.mark.asyncio
 async def test_source_types(client):
-    resp = await client.get("/admin/source-types")
+    resp = await client.get("/mcp-api/source-types")
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, dict)
@@ -81,7 +81,7 @@ async def test_source_types(client):
 async def test_source_types_with_whitelist(app, client):
     """启用白名单后,/source-types 只返回白名单内的类型。"""
     app.state.config.enabled_source_types = ["postgres", "mysql"]
-    resp = await client.get("/admin/source-types")
+    resp = await client.get("/mcp-api/source-types")
     assert resp.status_code == 200
     data = resp.json()
     assert set(data.keys()) == {"postgres", "mysql"}
@@ -91,7 +91,7 @@ async def test_source_types_with_whitelist(app, client):
 async def test_create_source_blocked_by_whitelist(app, client):
     """启用白名单后,创建被禁用类型的数据源应返回 403。"""
     app.state.config.enabled_source_types = ["postgres"]
-    resp = await client.post("/admin/sources", json={
+    resp = await client.post("/mcp-api/sources", json={
         "name": "test-mysql",
         "type": "mysql",
         "systemId": "sys001",
@@ -108,14 +108,14 @@ async def test_create_source_blocked_by_whitelist(app, client):
 
 @pytest.mark.asyncio
 async def test_tools_list(client):
-    resp = await client.get("/admin/tools")
+    resp = await client.get("/mcp-api/tools")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 
 
 @pytest.mark.asyncio
 async def test_config(client):
-    resp = await client.get("/admin/config")
+    resp = await client.get("/mcp-api/config")
     assert resp.status_code == 200
     data = resp.json()
     assert "yaml" in data
@@ -124,19 +124,19 @@ async def test_config(client):
 
 @pytest.mark.asyncio
 async def test_get_source_404(client):
-    resp = await client.get("/admin/sources/nonexistent")
+    resp = await client.get("/mcp-api/sources/nonexistent")
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_delete_source_204(client):
-    resp = await client.delete("/admin/sources/nonexistent")
+    resp = await client.delete("/mcp-api/sources/nonexistent")
     assert resp.status_code == 204
 
 
 @pytest.mark.asyncio
 async def test_query_missing_params(client):
-    resp = await client.post("/admin/query", json={})
+    resp = await client.post("/mcp-api/query", json={})
     assert resp.status_code == 400
     data = resp.json()
     assert "detail" in data

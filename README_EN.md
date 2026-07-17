@@ -84,7 +84,7 @@ and core design, we focused our extensions on:
                 │            data-tool-mcp  (backend)           │
                 │   FastAPI + MCP server  (port 5000)           │
                 │   ┌─────────┐ ┌────────┐ ┌─────────────────┐  │
-                │   │  MCP    │ │  /admin│ │ config hot-reload│  │
+                │   │  MCP    │ │/mcp-api│ │ config hot-reload│  │
                 │   │ routes  │ │  API   │ │ + prebuilt cfgs  │  │
                 │   └────┬────┘ └───┬────┘ └────────┬────────┘  │
                 │        ▼          ▼               ▼           │
@@ -98,7 +98,7 @@ and core design, we focused our extensions on:
                                 ▼
                 ┌──────────────────────────────────────────────┐
                 │   Admin UI  (React SPA, nginx, port 80/8080)  │
-                │   /data-tool-mcp-ui/  →  proxies /admin & MCP │
+                │   /data-tool-mcp-ui/  →  proxies /mcp-api & MCP │
                 └──────────────────────────────────────────────┘
 ```
 
@@ -146,7 +146,7 @@ npm install
 npm run dev        # http://localhost:5173/data-tool-mcp-ui/
 ```
 
-Vite proxies `/admin` and the MCP endpoints to the backend on `:5000`, so the dev UI just works.
+Vite proxies `/mcp-api` and the MCP endpoints to the backend on `:5000`, so the dev UI just works.
 
 ### Install backend drivers only (minimal footprint)
 
@@ -284,7 +284,7 @@ A standalone React SPA (no server-side rendering). Pages:
 | Health | per-source health checks |
 
 Local dev: `http://localhost:5173/data-tool-mcp-ui/`.
-Production: served by nginx at `/data-tool-mcp-ui/`, proxying `/admin` and MCP endpoints to the backend.
+Production: served by nginx at `/data-tool-mcp-ui/`, proxying `/mcp-api` and MCP endpoints to the backend.
 
 ---
 

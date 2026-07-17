@@ -12,7 +12,7 @@ from data_tool_mcp.config.store import get_store
 from data_tool_mcp.sources import decode_source_config
 from data_tool_mcp.tools import decode_tool_config
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/mcp-api", tags=["admin"])
 
 logger = logging.getLogger(__name__)
 
@@ -564,7 +564,7 @@ async def _auto_create_tools(rm, src_type: str, name: str) -> list[str]:
 
     Fulfills the admin UI promise ('添加数据源后会自动生成工具'): when a source
     is added at runtime we register its default tool(s) so they show up in
-    GET /admin/tools and are exposed via MCP (added to the default toolset).
+    GET /mcp-api/tools and are exposed via MCP (added to the default toolset).
 
     Strategy:
       1. If a prebuilt <src_type>.yaml exists, derive the COMPLETE tool set

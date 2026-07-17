@@ -10,7 +10,7 @@ import type {
   TablesList,
 } from './types';
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE || '/admin', timeout: 30000 });
+const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE || '/mcp-api', timeout: 30000 });
 
 api.interceptors.response.use(
   (response) => response,

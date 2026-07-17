@@ -237,7 +237,7 @@ class TestExecuteQueryRefcount:
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            resp = await ac.post("/admin/query", json={
+            resp = await ac.post("/mcp-api/query", json={
                 "sourceName": "src1",
                 "statement": "SELECT 1",
             })

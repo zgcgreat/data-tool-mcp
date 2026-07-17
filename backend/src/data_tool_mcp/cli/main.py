@@ -104,7 +104,7 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--enable-draft-specs", action="store_true", help="Enable draft MCP protocol specs")
     serve.add_argument("--ignore-unknown-tools", action="store_true", help="Ignore unknown tool types")
 
-    # 数据源类型白名单:仅启用的类型会出现在 /admin/source-types 与创建数据源接口
+    # 数据源类型白名单:仅启用的类型会出现在 /mcp-api/source-types 与创建数据源接口
     # 格式: 逗号分隔,例如 postgres,mysql,redis。留空 = 全部启用
     serve.add_argument("--enabled-source-types", default=os.environ.get("TOOLBOX_ENABLED_SOURCE_TYPES"),
                        help="启用的数据源类型白名单(逗号分隔,留空=全部启用)。"

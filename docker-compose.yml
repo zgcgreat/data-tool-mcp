@@ -20,7 +20,7 @@ services:
     ports:
       - "5000:5000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:5000/admin/health', timeout=5).read(); sys.exit(0)"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:5000/mcp-api/health', timeout=5).read(); sys.exit(0)"]
       interval: 30s
       timeout: 5s
       start_period: 15s
@@ -31,7 +31,7 @@ services:
     build: ./frontend
     image: data-tool-mcp-ui:latest
     environment:
-      # Reverse-proxies /admin and MCP endpoints to the backend service on the compose network.
+      # Reverse-proxies /mcp-api and MCP endpoints to the backend service on the compose network.
       BACKEND_URL: http://backend:5000
     depends_on:
       backend:

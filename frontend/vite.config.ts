@@ -22,7 +22,7 @@ export default defineConfig({
     // allowedHosts: ['admin.example.com', '.internal', '127.0.0.1', '[::1]']
     allowedHosts: true,
     proxy: {
-      '/admin': { target: 'http://localhost:15000', changeOrigin: true },
+      '/mcp-api': { target: 'http://localhost:15000', changeOrigin: true },
       // MCP SSE 和 Streamable HTTP 端点代理（含 toolset 前缀路由）
       // 匹配: /sse, /{toolset}/sse, /message, /{toolset}/message, POST /, POST /{toolset}/
       '/': {

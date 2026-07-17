@@ -81,7 +81,7 @@
                 │            data-tool-mcp（后端）              │
                 │   FastAPI + MCP 服务（端口 5000）             │
                 │   ┌─────────┐ ┌────────┐ ┌─────────────────┐  │
-                │   │  MCP    │ │  /admin│ │ 配置热重载        │  │
+                │   │  MCP    │ │/mcp-api│ │ 配置热重载        │  │
                 │   │ 路由    │ │  API   │ │ + 预置配置        │  │
                 │   └────┬────┘ └───┬────┘ └────────┬────────┘  │
                 │        ▼          ▼               ▼           │
@@ -95,7 +95,7 @@
                                 ▼
                 ┌──────────────────────────────────────────────┐
                 │   管理后台（React SPA，nginx，端口 80/8080）   │
-                │   /data-tool-mcp-ui/  →  反代 /admin 与 MCP    │
+                │   /data-tool-mcp-ui/  →  反代 /mcp-api 与 MCP  │
                 └──────────────────────────────────────────────┘
 ```
 
@@ -142,7 +142,7 @@ npm install
 npm run dev        # http://localhost:5173/data-tool-mcp-ui/
 ```
 
-Vite 会把 `/admin` 与 MCP 端点代理到后端 `:5000`，开发版后台开箱即用。
+Vite 会把 `/mcp-api` 与 MCP 端点代理到后端 `:5000`，开发版后台开箱即用。
 
 ### 仅安装后端驱动（最小依赖）
 
@@ -297,7 +297,7 @@ mysql -u root -p < backend/docker/init-mysql.sql
 | 健康 | 数据源健康检查 |
 
 本地开发：`http://localhost:5173/data-tool-mcp-ui/`；
-生产由 nginx 在 `/data-tool-mcp-ui/` 托管，并把 `/admin` 与 MCP 端点反代到后端。
+生产由 nginx 在 `/data-tool-mcp-ui/` 托管，并把 `/mcp-api` 与 MCP 端点反代到后端。
 
 ---
 
@@ -430,7 +430,7 @@ ruff format src/ && ruff check src/
 
 # 前端
 cd frontend && npm install
-npm run dev            # 开发服务器（反代 /admin + MCP 到 :5000）
+npm run dev            # 开发服务器（反代 /mcp-api + MCP 到 :5000）
 npm run build          # -> frontend/dist/（nginx 托管）
 ```
 
