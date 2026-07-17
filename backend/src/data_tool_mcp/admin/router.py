@@ -1984,9 +1984,9 @@ async def list_toolsets(request: Request) -> list[dict[str, Any]]:
     store = get_store()
     if _is_store_usable(store):
         result = await _build_toolsets_from_store(store)
-        if result is not None:
+        if result:
             return result
-    # 回退到 rm
+    # store 不可用或返回空列表时回退到 rm 内存
     rm = _get_rm(request)
     return _build_toolsets_from_rm(rm)
 
