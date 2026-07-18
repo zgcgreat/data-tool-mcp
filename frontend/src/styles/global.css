@@ -52,10 +52,10 @@
   --text-muted: #8c959f;
   --text-disabled: #afb8c1;
 
-  /* --- Typography --- */
-  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-  --font-display: 'Fraunces', 'IBM Plex Sans', Georgia, serif;
+  /* --- Typography (内网部署使用系统字体栈,避免外部 CDN 依赖) --- */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', 'Source Code Pro', monospace;
+  --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 
   /* --- Spacing scale --- */
   --space-1: 4px;
