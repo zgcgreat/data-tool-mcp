@@ -112,7 +112,10 @@ class TrinoSourceConfig(SourceConfig):
     async def initialize(self, tracer=None) -> TrinoSource:
         """创建并初始化数据源实例。"""
         url = self._build_url()
-        engine = create_async_engine(url, pool_size=self.max_open_conns, echo=False)
+        engine = create_async_engine(
+            url, pool_size=self.max_open_conns,
+            pool_recycle=3600, pool_pre_ping=True, echo=False,
+        )
         from sqlalchemy.ext.asyncio import async_sessionmaker
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         source = TrinoSource(name=self._name, engine=engine, session_factory=session_factory)

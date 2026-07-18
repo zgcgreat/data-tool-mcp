@@ -21,6 +21,8 @@ dependencies = [
     # MySQL driver — Config DB 和持久化存储的核心依赖
     "aiomysql>=0.2.0,<1.0.0",
     "cryptography>=41.0.0,<46.0.0",
+    # 结构化日志 — 用于 --logging-format json 输出 ELK/Loki 友好的 JSON 日志
+    "python-json-logger>=2.0.0,<3.0.0",
 ]
 
 [project.optional-dependencies]

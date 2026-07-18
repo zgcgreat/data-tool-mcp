@@ -108,6 +108,8 @@ class CloudSQLPGSourceConfig(SourceConfig):
                 user=self.user, password=self.password, db=self.database,
                 enable_iam_auth=self.iam_auth,
             ),
+            pool_recycle=3600,
+            pool_pre_ping=True,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

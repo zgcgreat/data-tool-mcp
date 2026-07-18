@@ -107,6 +107,8 @@ class AlloyDBPGSourceConfig(SourceConfig):
                 password=self.password,
                 db=self.database,
             ),
+            pool_recycle=3600,
+            pool_pre_ping=True,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

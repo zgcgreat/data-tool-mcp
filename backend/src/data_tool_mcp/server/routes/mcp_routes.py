@@ -54,6 +54,32 @@ def _client_host(request: Request) -> str:
     return request.client.host or ""
 
 
+def _verify_source_belongs_to_system(
+    rm: ResourceManager, source_name: str,
+    system_id: str | None = None, environment: str | None = None,
+) -> str | None:
+    """校验数据源归属:URL 中的 systemId/environment 必须与 source 配置一致。
+
+    防止跨系统访问(如 /systemA/dev/sourceB/sse 访问属于 systemB 的 sourceB)。
+    返回 None 表示校验通过,返回字符串表示错误消息(应返回 404)。
+    """
+    cfg = rm.get_source_config(source_name)
+    if cfg is None:
+        return f"toolset not found: {source_name}"
+    # 校验 system_id(若 URL 中提供)
+    if system_id:
+        cfg_sid = str(cfg.get("systemId") or cfg.get("system_id") or "")
+        if cfg_sid != system_id:
+            # systemId 不匹配,返回 404 防止泄露 source 存在性
+            return f"toolset not found: {source_name}"
+    # 校验 environment(若 URL 中提供)
+    if environment:
+        cfg_env = str(cfg.get("environment") or "")
+        if cfg_env != environment:
+            return f"toolset not found: {source_name}"
+    return None
+
+
 def register_routes(app: FastAPI) -> None:
     """Register all MCP routes on the FastAPI app.
     
@@ -235,6 +261,10 @@ def register_routes(app: FastAPI) -> None:
         过滤逻辑: 使用 sourceName 对应的 toolset。
         """
         rm: ResourceManager = request.app.state.resource_manager
+        # 校验 source 归属:防止跨系统访问
+        err = _verify_source_belongs_to_system(rm, sourceName, system_id=systemId, environment=environment)
+        if err:
+            return JSONResponse(status_code=404, content={"error": err})
         toolset = rm.get_toolset(sourceName)
         if not toolset:
             return JSONResponse(
@@ -262,6 +292,10 @@ def register_routes(app: FastAPI) -> None:
     async def system_env_source_message_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
         """Message endpoint for system+environment+source-scoped SSE transport."""
         rm: ResourceManager = request.app.state.resource_manager
+        # 校验 source 归属:防止跨系统访问
+        err = _verify_source_belongs_to_system(rm, sourceName, system_id=systemId, environment=environment)
+        if err:
+            return JSONResponse(status_code=404, content={"error": err})
         toolset = rm.get_toolset(sourceName)
         if not toolset:
             return JSONResponse(
@@ -299,6 +333,10 @@ def register_routes(app: FastAPI) -> None:
     async def system_env_source_streamable_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
         """Streamable HTTP endpoint scoped to a specific source within a system+environment."""
         rm: ResourceManager = request.app.state.resource_manager
+        # 校验 source 归属:防止跨系统访问
+        err = _verify_source_belongs_to_system(rm, sourceName, system_id=systemId, environment=environment)
+        if err:
+            return JSONResponse(status_code=404, content={"error": err})
         toolset = rm.get_toolset(sourceName)
         if not toolset:
             return JSONResponse(
@@ -338,6 +376,10 @@ def register_routes(app: FastAPI) -> None:
         过滤逻辑: 使用 sourceName 对应的 toolset。
         """
         rm: ResourceManager = request.app.state.resource_manager
+        # 校验 source 归属:防止跨系统访问
+        err = _verify_source_belongs_to_system(rm, sourceName, system_id=systemId)
+        if err:
+            return JSONResponse(status_code=404, content={"error": err})
         toolset = rm.get_toolset(sourceName)
         if not toolset:
             return JSONResponse(
@@ -364,6 +406,10 @@ def register_routes(app: FastAPI) -> None:
     async def system_source_message_endpoint(systemId: str, sourceName: str, request: Request):
         """Message endpoint for system+source-scoped SSE transport."""
         rm: ResourceManager = request.app.state.resource_manager
+        # 校验 source 归属:防止跨系统访问
+        err = _verify_source_belongs_to_system(rm, sourceName, system_id=systemId)
+        if err:
+            return JSONResponse(status_code=404, content={"error": err})
         toolset = rm.get_toolset(sourceName)
         if not toolset:
             return JSONResponse(
@@ -400,6 +446,10 @@ def register_routes(app: FastAPI) -> None:
     async def system_source_streamable_endpoint(systemId: str, sourceName: str, request: Request):
         """Streamable HTTP endpoint scoped to a specific source within a system."""
         rm: ResourceManager = request.app.state.resource_manager
+        # 校验 source 归属:防止跨系统访问
+        err = _verify_source_belongs_to_system(rm, sourceName, system_id=systemId)
+        if err:
+            return JSONResponse(status_code=404, content={"error": err})
         toolset = rm.get_toolset(sourceName)
         if not toolset:
             return JSONResponse(

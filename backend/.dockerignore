@@ -1,12 +1,44 @@
-.venv
-__pycache__
-*.pyc
-.pytest_cache
-.mypy_cache
-.ruff_cache
-tests
-test.db
+# 版本控制与 IDE 配置
 .git
+.gitignore
+.vscode
 .idea
-.workbuddy
-*.log
+*.swp
+*.swo
+
+# Python 缓存与构建产物
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# 测试与开发工具
+tests/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# 文档与示例配置(运行期不需要)
+docker/
+*.md
+LICENSE
+
+# 本地数据库与运行时产物
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+test.db
+
+# 便捷启动器(容器内通过 ENTRYPOINT 启动,不需要)
+main.py

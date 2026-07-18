@@ -211,9 +211,61 @@ def _build_server_config(args: argparse.Namespace):
     )
 
 
+def _setup_logging(config: "ServerConfig") -> None:
+    """根据 config.logging_format 配置根日志器。
+
+    - standard: 默认人类可读格式
+    - json: 结构化 JSON 日志(ELK/Loki/Datadog 友好),
+      字段包含 timestamp/level/name/message,便于日志聚合平台查询。
+
+    uvicorn 与应用代码共享根日志器配置,确保输出格式一致。
+    """
+    import logging
+
+    level = getattr(logging, config.log_level.upper(), logging.INFO)
+    root = logging.getLogger()
+    root.setLevel(level)
+
+    # 清空现有 handlers,避免重复输出
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+
+    if config.logging_format == "json":
+        try:
+            from pythonjsonlogger import jsonlogger
+        except ImportError:
+            # 优雅降级:未安装 python-json-logger 时回退到 standard 格式
+            logging.basicConfig(
+                level=level,
+                format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+            logging.getLogger(__name__).warning(
+                "python-json-logger 未安装,回退到 standard 日志格式。"
+                "请安装: pip install python-json-logger"
+            )
+            return
+
+        handler = logging.StreamHandler()
+        formatter = jsonlogger.JsonFormatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s",
+            rename_fields={"asctime": "timestamp", "levelname": "level"},
+            json_ensure_ascii=False,
+        )
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+    else:
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+
+
 def _cmd_serve(args: argparse.Namespace) -> None:
     """执行 serve 子命令,启动 HTTP/STDIO 服务。"""
     server_config = _build_server_config(args)
+    _setup_logging(server_config)
     if args.stdio:
         asyncio.run(_run_stdio(server_config))
     else:
@@ -242,15 +294,44 @@ async def _prepare_runtime(config: "ServerConfig"):
     from data_tool_mcp.config.loader import load_config
     from data_tool_mcp.config.store import init_store
     from data_tool_mcp.resources import ResourceManager
-    from data_tool_mcp.utils.crypto import validate_encryption_key
+    from data_tool_mcp.utils.crypto import validate_encryption_key, is_encryption_available
 
     validate_encryption_key()
+    _validate_production_security(config)
     await _setup_telemetry(config)
     config = await load_config(config)
     rm = ResourceManager()
     await _initialize_resources(config, rm)
     store = await init_store(config.store_url, config.store_username, config.store_password)
     return config, rm, store
+
+
+def _is_production_mode(config: "ServerConfig") -> bool:
+    """判断是否为生产模式:监听非本地地址 或 APP_ENV=production。"""
+    if os.environ.get("APP_ENV", "").lower() == "production":
+        return True
+    # 监听 0.0.0.0 或非 loopback 地址视为生产
+    if config.address in ("0.0.0.0", "::"):
+        return True
+    return False
+
+
+def _validate_production_security(config: "ServerConfig") -> None:
+    """生产模式安全校验:加密必须可用,否则拒绝启动。
+
+    防止生产环境误用开发回退密钥或未安装 cryptography 导致明文存储密码。
+    """
+    if not _is_production_mode(config):
+        return
+    if not is_encryption_available():
+        sys.exit(
+            "FATAL: 生产模式(监听 0.0.0.0 或 APP_ENV=production)下加密不可用。\n"
+            "请确保:\n"
+            "  1. 已安装 cryptography: pip install cryptography\n"
+            "  2. 已配置 TOOLBOX_ENCRYPTION_KEY 环境变量(urlsafe-base64 编码的 32 字节)\n"
+            "     生成命令: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"\n"
+            "多实例部署必须使用相同密钥,否则无法解密数据源密码。"
+        )
 
 
 def _warn_sqlite_remote(store, config: "ServerConfig") -> None:

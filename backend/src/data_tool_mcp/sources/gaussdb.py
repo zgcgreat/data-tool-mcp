@@ -136,6 +136,8 @@ class GaussDBSourceConfig(SourceConfig):
         engine = create_async_engine(
             url,
             pool_size=self.max_open_conns,
+            pool_recycle=3600,
+            pool_pre_ping=True,
             echo=False,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker

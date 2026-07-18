@@ -139,11 +139,37 @@ def _add_server_name_middleware(app: FastAPI) -> None:
 
 def _register_routers(app: FastAPI, config: ServerConfig) -> None:
     """注册路由。"""
-    # Health check — 轻量级探针,不查数据库,直接返回
+    # Health check — 兼容旧端点,等价于 /live (轻量级探针,不查依赖)
     @app.get("/health")
     async def health() -> dict:
-        """健康检查端点,返回服务状态。"""
+        """健康检查端点(向后兼容),返回服务存活状态。"""
         return {"status": "ok"}
+
+    # Liveness — 进程存活探针。K8s/Docker 用于判断是否需要重启容器。
+    # 永远返回 200(只要事件循环还在跑),不查任何依赖。
+    @app.get("/live")
+    async def live() -> dict:
+        """Liveness probe — 进程存活即返回 ok。"""
+        return {"status": "ok"}
+
+    # Readiness — 就绪探针。K8s 用于判断是否可以把流量打到本实例。
+    # 检查 ResourceManager 与 ConfigStore 是否已初始化。
+    @app.get("/ready")
+    async def ready(request: Request) -> dict:
+        """Readiness probe — 检查依赖是否就绪。"""
+        rm: ResourceManager | None = getattr(request.app.state, "resource_manager", None)
+        if rm is None:
+            return {"status": "not_ready", "reason": "resource_manager unavailable"}
+
+        from data_tool_mcp.config.store import get_store
+        store = get_store()
+        if store is None:
+            return {"status": "not_ready", "reason": "config_store not initialized"}
+
+        return {
+            "status": "ok",
+            "sources": len(rm.get_all_source_configs()),
+        }
 
     # Register MCP routes
     mcp_routes.register_routes(app)

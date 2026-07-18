@@ -8,10 +8,18 @@
 # Enable global API-key auth:
 #   export TOOLBOX_API_KEY="$(openssl rand -hex 24)"
 #   docker compose up --build
+#
+# Build with extra DB drivers (postgres/redis/mongodb/etc.):
+#   docker compose build --build-arg EXTRAS=postgres,redis backend
 
 services:
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        # 默认仅装核心依赖。需要更多驱动时通过环境变量传入:
+        #   export BACKEND_EXTRAS=postgres,redis,mongodb
+        EXTRAS: ${BACKEND_EXTRAS:-}
     image: data-tool-mcp-backend:latest
     command: ["--prebuilt", "sqlite", "--address", "0.0.0.0", "--port", "5000"]
     environment:
@@ -20,11 +28,30 @@ services:
     ports:
       - "5000:5000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:5000/mcp-api/health', timeout=5).read(); sys.exit(0)"]
+      # /live:轻量级存活探针(不查依赖);/ready 用于 K8s readinessProbe
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:5000/live', timeout=5).read(); sys.exit(0)"]
       interval: 30s
       timeout: 5s
       start_period: 15s
       retries: 3
+    # 资源限制:防止异常查询或连接泄漏耗尽宿主机资源
+    # 多实例部署时按 宿主机CPU/内存 ÷ 实例数 调整
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+        reservations:
+          cpus: "0.5"
+          memory: 512m
+    # 进程数限制:防止 fork 炸弹或连接泄漏导致 PID 耗尽
+    pids_limit: 512
+    # 单容器日志大小限制(防止日志撑满磁盘)
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     restart: unless-stopped
 
   ui:
@@ -38,4 +65,18 @@ services:
         condition: service_healthy
     ports:
       - "8080:80"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+        reservations:
+          cpus: "0.1"
+          memory: 64m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
     restart: unless-stopped

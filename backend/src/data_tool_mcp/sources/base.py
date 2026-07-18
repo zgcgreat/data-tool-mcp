@@ -71,6 +71,14 @@ class SQLSource(Source):
     # holding connections indefinitely. Individual sources can override.
     query_timeout: float = 30.0
 
+    # 连接池配置:防止 MySQL/PostgreSQL 服务端 wait_timeout 回收空闲连接后,
+    # 池中持有失效连接导致 OperationalError (2013/2006)。
+    # pool_recycle=3600: 连接复用 1 小时后自动回收重建(应小于 DB wait_timeout)
+    # pool_pre_ping=True: 取连接前做轻量 SELECT 1 检查,失效连接自动重建
+    # 各 SourceConfig 子类在 create_async_engine 时必须传入这两个参数。
+    DEFAULT_POOL_RECYCLE_SECONDS: int = 3600
+    DEFAULT_POOL_PRE_PING: bool = True
+
     @abstractmethod
     async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Execute a SQL statement and return results as list of dicts.

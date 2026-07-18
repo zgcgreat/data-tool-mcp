@@ -112,6 +112,15 @@ def _create_fernet_from_env() -> Any:
     return _try_create_fernet(Fernet)
 
 
+def is_encryption_available() -> bool:
+    """检查加密功能是否可用(Fernet 已安装且密钥有效)。
+
+    供启动校验使用,避免生产环境误用明文存储密码。
+    """
+    f = _get_fernet()
+    return bool(f)
+
+
 def _get_fernet() -> Any:
     """Lazy-initialize Fernet cipher for password encryption.
 
@@ -180,13 +189,17 @@ def _try_decrypt(f: Any, value: str) -> bool:
 def encrypt(plaintext: str) -> str:
     """加密明文字符串，返回密文。
 
-    若加密不可用（cryptography 未安装），返回明文（仅开发环境）。
+    若加密不可用(cryptography 未安装或密钥无效),抛 RuntimeError。
+    生产环境启动校验应确保加密可用,避免明文密码落库。
     """
     if not plaintext:
         return ""
     f = _get_fernet()
     if not f:
-        return plaintext
+        raise RuntimeError(
+            "加密不可用(cryptography 未安装或 Fernet 密钥无效),"
+            "拒绝明文存储密码。请安装 cryptography 并配置 TOOLBOX_ENCRYPTION_KEY。"
+        )
     return _do_encrypt(f, plaintext, plaintext)
 
 
@@ -199,6 +212,7 @@ def decrypt(ciphertext: str) -> str:
         return ""
     f = _get_fernet()
     if not f:
+        # 解密不可用时返回原值,兼容历史明文数据(只读场景)
         return ciphertext
     return _do_decrypt(f, ciphertext, ciphertext)
 
