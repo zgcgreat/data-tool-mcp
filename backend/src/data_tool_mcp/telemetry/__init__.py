@@ -27,14 +27,13 @@ MCP_ACTIVE_SESSIONS_NAME = "toolbox.server.mcp.active_sessions"
 TOOL_EXECUTION_DURATION_NAME = "toolbox.tool.execution.duration"
 
 # Duration histogram bucket boundaries (matching Go)
-DURATION_HISTOGRAM_BUCKETS = [
-    0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300
-]
+DURATION_HISTOGRAM_BUCKETS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300]
 
 
 # ---------------------------------------------------------------------------
 # Instrumentation
 # ---------------------------------------------------------------------------
+
 
 class Instrumentation:
     """Holds OpenTelemetry tracer and 4 MCP metrics.
@@ -67,6 +66,7 @@ class Instrumentation:
 # Setup
 # ---------------------------------------------------------------------------
 
+
 def _import_otel_core() -> Any:
     """导入 OpenTelemetry 核心模块,未安装时返回 None。"""
     try:
@@ -81,14 +81,19 @@ def _import_otel_core() -> Any:
 
 
 def _build_resource(
-    Resource: Any, SERVICE_NAME: Any, SERVICE_VERSION: Any,
-    version_string: str, telemetry_service_name: str,
+    Resource: Any,
+    SERVICE_NAME: Any,
+    SERVICE_VERSION: Any,
+    version_string: str,
+    telemetry_service_name: str,
 ) -> Any:
     """构建 OpenTelemetry Resource。"""
-    return Resource.create({
-        SERVICE_NAME: telemetry_service_name,
-        SERVICE_VERSION: version_string,
-    })
+    return Resource.create(
+        {
+            SERVICE_NAME: telemetry_service_name,
+            SERVICE_VERSION: version_string,
+        }
+    )
 
 
 def _resolve_gcp_project(telemetry_gcp_project: str) -> str:
@@ -102,6 +107,7 @@ def _make_otlp_trace_exporter(telemetry_otlp: str) -> Any:
         return None
     try:
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
         return OTLPSpanExporter(endpoint=telemetry_otlp)
     except ImportError:
         return None
@@ -111,6 +117,7 @@ def _create_cloud_trace_exporter(project: str) -> Any:
     """创建 CloudTraceSpanExporter,导入失败返回 None。"""
     try:
         from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+
         return CloudTraceSpanExporter(project_id=project)
     except ImportError:
         return None
@@ -127,7 +134,9 @@ def _make_gcp_trace_exporter(telemetry_gcp: bool, telemetry_gcp_project: str) ->
 
 
 def _build_trace_exporters(
-    telemetry_otlp: str, telemetry_gcp: bool, telemetry_gcp_project: str,
+    telemetry_otlp: str,
+    telemetry_gcp: bool,
+    telemetry_gcp_project: str,
 ) -> list:
     """构造 trace exporter 列表(过滤 None)。"""
     candidates = [
@@ -138,12 +147,16 @@ def _build_trace_exporters(
 
 
 def _setup_tracer_provider(
-    trace: Any, TracerProvider: Any, resource: Any, trace_exporters: list,
+    trace: Any,
+    TracerProvider: Any,
+    resource: Any,
+    trace_exporters: list,
 ) -> None:
     """创建并注册 TracerProvider,有 exporter 时添加 BatchSpanProcessor。"""
     tracer_provider = TracerProvider(resource=resource)
     if trace_exporters:
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
         for exporter in trace_exporters:
             tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(tracer_provider)
@@ -156,6 +169,7 @@ def _make_otlp_metric_reader(telemetry_otlp: str) -> Any:
     try:
         from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
         exporter = OTLPMetricExporter(endpoint=telemetry_otlp)
         return PeriodicExportingMetricReader(exporter)
     except ImportError:
@@ -167,6 +181,7 @@ def _create_cloud_monitoring_reader(project: str) -> Any:
     try:
         from opentelemetry.exporter.cloud_monitoring import CloudMonitoringMetricExporter
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
         exporter = CloudMonitoringMetricExporter(project_id=project)
         return PeriodicExportingMetricReader(exporter)
     except ImportError:
@@ -184,7 +199,9 @@ def _make_gcp_metric_reader(telemetry_gcp: bool, telemetry_gcp_project: str) -> 
 
 
 def _build_metric_readers(
-    telemetry_otlp: str, telemetry_gcp: bool, telemetry_gcp_project: str,
+    telemetry_otlp: str,
+    telemetry_gcp: bool,
+    telemetry_gcp_project: str,
 ) -> list:
     """构造 metric reader 列表(过滤 None)。"""
     candidates = [
@@ -215,7 +232,11 @@ def setup_otel(
     trace, metrics, TracerProvider, MeterProvider, Resource, SERVICE_NAME, SERVICE_VERSION = core
 
     resource = _build_resource(
-        Resource, SERVICE_NAME, SERVICE_VERSION, version_string, telemetry_service_name,
+        Resource,
+        SERVICE_NAME,
+        SERVICE_VERSION,
+        version_string,
+        telemetry_service_name,
     )
 
     # --- TracerProvider ---

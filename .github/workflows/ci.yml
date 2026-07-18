@@ -1,0 +1,98 @@
+name: CI
+
+# 触发条件: push 到 main 分支或任意 Pull Request
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同一分支的并发任务自动取消旧的,避免资源浪费
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===== 后端: 代码检查 + 类型检查 + 单元测试 =====
+  backend:
+    name: Backend (lint + type + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install dependencies
+        # 安装 core 依赖 + dev 工具链(ruff/mypy/pytest/pytest-asyncio)
+        # 不安装 all 可选依赖(避免内网构建机拉取 google-cloud-* 等大包)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check src tests
+
+      - name: Ruff format check
+        run: ruff format --check src tests
+
+      - name: Mypy type check
+        # 只检查 src,避免 tests 中 MagicMock 类型推断噪声
+        # 暂设为 advisory(non-blocking):代码库尚未完全达到 strict 合规,
+        # 待类型债务清理后改为 blocking(移除 continue-on-error)
+        continue-on-error: true
+        run: mypy src
+
+      - name: Pytest
+        run: pytest -v --tb=short
+
+  # ===== 前端: 类型检查 + 生产构建 =====
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
+
+  # ===== Docker 构建烟雾测试(可选,验证 Dockerfile 可用) =====
+  docker-build:
+    name: Docker build smoke test
+    runs-on: ubuntu-latest
+    # 仅在 push 到 main 时触发(省 PR 资源),且需要后端测试通过
+    if: github.event_name == 'push'
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image
+        working-directory: backend
+        run: docker build -t data-tool-mcp-backend:ci .
+
+      - name: Build frontend image
+        working-directory: frontend
+        run: docker build -t data-tool-mcp-ui:ci .

@@ -36,7 +36,9 @@ class SpannerSource(Source):
         """关闭数据库连接。"""
         pass
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         loop = asyncio.get_event_loop()
 
@@ -57,9 +59,7 @@ class SpannerSource(Source):
 
     async def list_graphs(self) -> list[str]:
         """列出数据库中所有属性图。"""
-        rows = await self.execute_sql(
-            "SELECT graph_name FROM information_schema.property_graphs"
-        )
+        rows = await self.execute_sql("SELECT graph_name FROM information_schema.property_graphs")
         return [r["graph_name"] for r in rows]
 
     async def search_catalog(self, query: str) -> list[dict[str, Any]]:
@@ -95,7 +95,9 @@ class SpannerSourceConfig(SourceConfig):
         try:
             from google.cloud import spanner
         except ImportError as e:
-            raise ImportError("google-cloud-spanner is required: pip install google-cloud-spanner") from e
+            raise ImportError(
+                "google-cloud-spanner is required: pip install google-cloud-spanner"
+            ) from e
 
         client = spanner.Client(project=self.project_id)
         instance = client.instance(self.instance_id)

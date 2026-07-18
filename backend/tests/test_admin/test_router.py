@@ -91,17 +91,20 @@ async def test_source_types_with_whitelist(app, client):
 async def test_create_source_blocked_by_whitelist(app, client):
     """启用白名单后,创建被禁用类型的数据源应返回 403。"""
     app.state.config.enabled_source_types = ["postgres"]
-    resp = await client.post("/mcp-api/sources", json={
-        "name": "test-mysql",
-        "type": "mysql",
-        "systemId": "sys001",
-        "environment": "dev",
-        "host": "localhost",
-        "port": 3306,
-        "database": "test",
-        "user": "root",
-        "password": "secret",
-    })
+    resp = await client.post(
+        "/mcp-api/sources",
+        json={
+            "name": "test-mysql",
+            "type": "mysql",
+            "systemId": "sys001",
+            "environment": "dev",
+            "host": "localhost",
+            "port": 3306,
+            "database": "test",
+            "user": "root",
+            "password": "secret",
+        },
+    )
     assert resp.status_code == 403
     assert "未启用" in resp.json()["detail"]
 

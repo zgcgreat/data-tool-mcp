@@ -30,20 +30,39 @@ from data_tool_mcp.tools.base import (
 # CloudSQL MySQL tools (3)
 # ---------------------------------------------------------------------------
 
+
 class CloudSQLMySQLGenericTool(BaseTool):
     """Generic CloudSQL MySQL tool."""
 
-    def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        tool_type: str,
+        param_defs: list[ParameterManifest],
+        read_only: bool,
+    ):
         """初始化工具配置。"""
-        ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        ann = (
+            ToolAnnotations(read_only_hint=True)
+            if read_only
+            else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
         self._tool_type = tool_type
         self._param_defs = param_defs
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, CloudSQLMySQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, CloudSQLMySQLSource
+        )
         try:
             if self._tool_type in ("cloud-sql-mysql-sql", "cloud-sql-mysql-execute-sql"):
                 rows = await _execute_user_sql(source, params)
@@ -56,17 +75,37 @@ class CloudSQLMySQLGenericTool(BaseTool):
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
-        return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
+        return ToolManifest(
+            description=self.description,
+            parameters=self._param_defs,
+            auth_required=self.auth_required,
+        )
 
 
 _CSMYSQL_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
-    ("cloud-sql-mysql-sql", "Run a read-only SQL query on Cloud SQL MySQL",
-     [ParameterManifest(name="sql", type="string", description="SQL query", required=True)], True),
-    ("cloud-sql-mysql-execute-sql", "Execute a SQL statement on Cloud SQL MySQL",
-     [ParameterManifest(name="sql", type="string", description="SQL statement", required=True)], False),
+    (
+        "cloud-sql-mysql-sql",
+        "Run a read-only SQL query on Cloud SQL MySQL",
+        [ParameterManifest(name="sql", type="string", description="SQL query", required=True)],
+        True,
+    ),
+    (
+        "cloud-sql-mysql-execute-sql",
+        "Execute a SQL statement on Cloud SQL MySQL",
+        [ParameterManifest(name="sql", type="string", description="SQL statement", required=True)],
+        False,
+    ),
     ("cloud-sql-mysql-list-tables", "List tables in Cloud SQL MySQL", [], True),
-    ("cloud-sql-mysql-create-instance", "Create a Cloud SQL MySQL instance",
-     [ParameterManifest(name="body", type="object", description="Instance creation body", required=True)], False),
+    (
+        "cloud-sql-mysql-create-instance",
+        "Create a Cloud SQL MySQL instance",
+        [
+            ParameterManifest(
+                name="body", type="object", description="Instance creation body", required=True
+            )
+        ],
+        False,
+    ),
 ]
 
 
@@ -74,20 +113,39 @@ _CSMYSQL_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
 # CloudSQL MSSQL tools (3)
 # ---------------------------------------------------------------------------
 
+
 class CloudSQLMSSQLGenericTool(BaseTool):
     """Generic CloudSQL MSSQL tool."""
 
-    def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        tool_type: str,
+        param_defs: list[ParameterManifest],
+        read_only: bool,
+    ):
         """初始化工具配置。"""
-        ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        ann = (
+            ToolAnnotations(read_only_hint=True)
+            if read_only
+            else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
         self._tool_type = tool_type
         self._param_defs = param_defs
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, CloudSQLMSSQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, CloudSQLMSSQLSource
+        )
         try:
             if self._tool_type in ("cloud-sql-mssql-sql", "cloud-sql-mssql-execute-sql"):
                 rows = await _execute_user_sql(source, params)
@@ -100,17 +158,37 @@ class CloudSQLMSSQLGenericTool(BaseTool):
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
-        return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
+        return ToolManifest(
+            description=self.description,
+            parameters=self._param_defs,
+            auth_required=self.auth_required,
+        )
 
 
 _CSMSSQL_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
-    ("cloud-sql-mssql-sql", "Run a read-only SQL query on Cloud SQL MSSQL",
-     [ParameterManifest(name="sql", type="string", description="SQL query", required=True)], True),
-    ("cloud-sql-mssql-execute-sql", "Execute a SQL statement on Cloud SQL MSSQL",
-     [ParameterManifest(name="sql", type="string", description="SQL statement", required=True)], False),
+    (
+        "cloud-sql-mssql-sql",
+        "Run a read-only SQL query on Cloud SQL MSSQL",
+        [ParameterManifest(name="sql", type="string", description="SQL query", required=True)],
+        True,
+    ),
+    (
+        "cloud-sql-mssql-execute-sql",
+        "Execute a SQL statement on Cloud SQL MSSQL",
+        [ParameterManifest(name="sql", type="string", description="SQL statement", required=True)],
+        False,
+    ),
     ("cloud-sql-mssql-list-tables", "List tables in Cloud SQL MSSQL", [], True),
-    ("cloud-sql-mssql-create-instance", "Create a Cloud SQL MSSQL instance",
-     [ParameterManifest(name="body", type="object", description="Instance creation body", required=True)], False),
+    (
+        "cloud-sql-mssql-create-instance",
+        "Create a Cloud SQL MSSQL instance",
+        [
+            ParameterManifest(
+                name="body", type="object", description="Instance creation body", required=True
+            )
+        ],
+        False,
+    ),
 ]
 
 
@@ -118,20 +196,39 @@ _CSMSSQL_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
 # AlloyDB PG tools (3)
 # ---------------------------------------------------------------------------
 
+
 class AlloyDBPGGenericTool(BaseTool):
     """Generic AlloyDB PG tool."""
 
-    def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        tool_type: str,
+        param_defs: list[ParameterManifest],
+        read_only: bool,
+    ):
         """初始化工具配置。"""
-        ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        ann = (
+            ToolAnnotations(read_only_hint=True)
+            if read_only
+            else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
         self._tool_type = tool_type
         self._param_defs = param_defs
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, AlloyDBPGSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, AlloyDBPGSource
+        )
         try:
             if self._tool_type in ("alloydb-pg-sql", "alloydb-pg-execute-sql"):
                 rows = await _execute_user_sql(source, params)
@@ -144,14 +241,26 @@ class AlloyDBPGGenericTool(BaseTool):
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
-        return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
+        return ToolManifest(
+            description=self.description,
+            parameters=self._param_defs,
+            auth_required=self.auth_required,
+        )
 
 
 _ALLOYDBPG_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
-    ("alloydb-pg-sql", "Run a read-only SQL query on AlloyDB PostgreSQL",
-     [ParameterManifest(name="sql", type="string", description="SQL query", required=True)], True),
-    ("alloydb-pg-execute-sql", "Execute a SQL statement on AlloyDB PostgreSQL",
-     [ParameterManifest(name="sql", type="string", description="SQL statement", required=True)], False),
+    (
+        "alloydb-pg-sql",
+        "Run a read-only SQL query on AlloyDB PostgreSQL",
+        [ParameterManifest(name="sql", type="string", description="SQL query", required=True)],
+        True,
+    ),
+    (
+        "alloydb-pg-execute-sql",
+        "Execute a SQL statement on AlloyDB PostgreSQL",
+        [ParameterManifest(name="sql", type="string", description="SQL statement", required=True)],
+        False,
+    ),
     ("alloydb-pg-list-tables", "List tables in AlloyDB PostgreSQL", [], True),
 ]
 
@@ -161,10 +270,26 @@ _ALLOYDBPG_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
 # ---------------------------------------------------------------------------
 
 _CSPG_ADMIN_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
-    ("cloud-sql-postgres-create-instance", "Create a Cloud SQL PostgreSQL instance",
-     [ParameterManifest(name="body", type="object", description="Instance creation body", required=True)], False),
-    ("postgres-upgrade-precheck", "Pre-check for Cloud SQL PostgreSQL upgrade",
-     [ParameterManifest(name="instance_id", type="string", description="Instance ID", required=True)], True),
+    (
+        "cloud-sql-postgres-create-instance",
+        "Create a Cloud SQL PostgreSQL instance",
+        [
+            ParameterManifest(
+                name="body", type="object", description="Instance creation body", required=True
+            )
+        ],
+        False,
+    ),
+    (
+        "postgres-upgrade-precheck",
+        "Pre-check for Cloud SQL PostgreSQL upgrade",
+        [
+            ParameterManifest(
+                name="instance_id", type="string", description="Instance ID", required=True
+            )
+        ],
+        True,
+    ),
 ]
 
 
@@ -172,8 +297,16 @@ _CSPG_ADMIN_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
 # Factory
 # ---------------------------------------------------------------------------
 
-def _make_variant_tool_config(tool_type: str, description: str, param_defs: list[ParameterManifest], read_only: bool, tool_cls: type):
+
+def _make_variant_tool_config(
+    tool_type: str,
+    description: str,
+    param_defs: list[ParameterManifest],
+    read_only: bool,
+    tool_cls: type,
+):
     """构造Cloud SQL 变体工具配置。"""
+
     @register_tool(tool_type)
     @dataclass
     class _VariantToolConfig(ToolConfig):
@@ -189,14 +322,26 @@ def _make_variant_tool_config(tool_type: str, description: str, param_defs: list
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _VariantToolConfig:
             """从字典创建配置实例。"""
-            return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
+            return cls(
+                _name=name,
+                source=data.get("source", ""),
+                description=data.get("description", description),
+            )
 
         async def initialize(self):
             """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
-            return tool_cls(cfg=cfg, source_name=self.source, tool_type=tool_type, param_defs=param_defs, read_only=read_only)
+            return tool_cls(
+                cfg=cfg,
+                source_name=self.source,
+                tool_type=tool_type,
+                param_defs=param_defs,
+                read_only=read_only,
+            )
 
-    _VariantToolConfig.__name__ = f"{tool_type.replace('-', '_').title().replace('_', '')}ToolConfig"
+    _VariantToolConfig.__name__ = (
+        f"{tool_type.replace('-', '_').title().replace('_', '')}ToolConfig"
+    )
     _VariantToolConfig.__qualname__ = _VariantToolConfig.__name__
     return _VariantToolConfig
 
@@ -217,20 +362,39 @@ for _tool_type, _desc, _params, _ro in _ALLOYDBPG_TOOLS:
 # CloudSQL PG admin tool class
 # ---------------------------------------------------------------------------
 
+
 class CloudSQLPGAdminGenericTool(BaseTool):
     """Generic CloudSQL PG admin tool (create/upgrade)."""
 
-    def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        tool_type: str,
+        param_defs: list[ParameterManifest],
+        read_only: bool,
+    ):
         """初始化工具配置。"""
-        ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        ann = (
+            ToolAnnotations(read_only_hint=True)
+            if read_only
+            else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
         self._tool_type = tool_type
         self._param_defs = param_defs
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source(source_provider, self._source_name, self.name, CloudSQLPGSource)
+        await _get_typed_source_async(
+            source_provider, self._source_name, self.name, CloudSQLPGSource
+        )
         try:
             if self._tool_type == "cloud-sql-postgres-create-instance":
                 return {"note": "Instance creation handled via Cloud SQL Admin API"}
@@ -242,7 +406,11 @@ class CloudSQLPGAdminGenericTool(BaseTool):
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
-        return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
+        return ToolManifest(
+            description=self.description,
+            parameters=self._param_defs,
+            auth_required=self.auth_required,
+        )
 
 
 # Register CloudSQL PG admin tools

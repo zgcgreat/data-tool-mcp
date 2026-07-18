@@ -47,16 +47,21 @@ def _import_httpx() -> Any:
     try:
         import httpx
     except ImportError as e:
-        raise ImportError(
-            "httpx is required for HTTP source support: pip install httpx"
-        ) from e
+        raise ImportError("httpx is required for HTTP source support: pip install httpx") from e
     return httpx
 
 
 class HTTPSource(Source):
     """HTTP source using httpx for generic REST API access."""
 
-    def __init__(self, name: str, base_url: str, default_headers: dict[str, str], default_method: str, client: httpx.AsyncClient):
+    def __init__(
+        self,
+        name: str,
+        base_url: str,
+        default_headers: dict[str, str],
+        default_method: str,
+        client: Any,
+    ):
         """初始化数据源配置。"""
         self._name = name
         self._base_url = base_url
@@ -86,7 +91,9 @@ class HTTPSource(Source):
         return path
 
     async def make_request(
-        self, method: str | None = None, path: str = "",
+        self,
+        method: str | None = None,
+        path: str = "",
         headers: dict[str, str] | None = None,
         params: dict[str, Any] | None = None,
         body: Any = None,
@@ -141,8 +148,10 @@ class HTTPSourceConfig(SourceConfig):
         httpx = _import_httpx()
         client = httpx.AsyncClient(headers=client_headers, timeout=30.0)
         source = HTTPSource(
-            name=self._name, base_url=self.base_url,
-            default_headers=dict(self.headers), default_method=self.method,
+            name=self._name,
+            base_url=self.base_url,
+            default_headers=dict(self.headers),
+            default_method=self.method,
             client=client,
         )
         await source.connect()

@@ -33,7 +33,7 @@ def _parse_address(address: str) -> tuple[str, int]:
 class RedisSource(NoSQLSource):
     """Redis source using redis-py async."""
 
-    def __init__(self, name: str, client: aioredis.Redis):
+    def __init__(self, name: str, client: Any):
         """初始化数据源配置。"""
         self._name = name
         self._client = client

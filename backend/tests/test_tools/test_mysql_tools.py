@@ -1,7 +1,7 @@
 """Tests for MySQL tools — registration, manifest, config parsing."""
+
 from __future__ import annotations
 
-import pytest
 from data_tool_mcp.tools.base import get_tool_config_class, list_tool_types
 
 

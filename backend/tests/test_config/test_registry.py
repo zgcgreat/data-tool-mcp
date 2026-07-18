@@ -1,4 +1,5 @@
 """Tests for source and tool registry."""
+
 from __future__ import annotations
 
 import pytest
@@ -12,10 +13,7 @@ from data_tool_mcp.sources.base import (
 )
 from data_tool_mcp.tools.base import (
     _tool_registry,
-    _tool_aliases,
     list_tool_types,
-    register_tool,
-    get_tool_config_class,
 )
 
 
@@ -53,6 +51,7 @@ class TestSourceRegistry:
     def test_duplicate_registration_raises(self):
         """Registering a duplicate should still raise ValueError."""
         with pytest.raises(ValueError, match="already registered"):
+
             @register_source("postgres")
             class DuplicateSource:
                 pass

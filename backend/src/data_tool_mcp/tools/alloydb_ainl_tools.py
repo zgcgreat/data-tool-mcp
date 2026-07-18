@@ -51,10 +51,17 @@ def _build_alloydb_nl_sql(nl_config_parameters: dict[str, str] | None) -> str:
 # AlloyDB AI NL tool
 # ---------------------------------------------------------------------------
 
+
 class AlloyDBAINLTool(BaseTool):
     """Execute a natural language query on AlloyDB using the alloydb_ai_nl extension."""
 
-    def __init__(self, cfg: ConfigBase, source_name: str, nl_config: str, nl_config_parameters: dict[str, str] | None = None):
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        nl_config: str,
+        nl_config_parameters: dict[str, str] | None = None,
+    ):
         """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
@@ -68,13 +75,17 @@ class AlloyDBAINLTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, AlloyDBPGSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, AlloyDBPGSource
+        )
         try:
             question = params.get("question", "")
             if not question:
                 raise ValueError("missing 'question' parameter")
             sql = _build_alloydb_nl_sql(self._nl_config_parameters)
-            rows = await source.execute_sql(sql, {"question": question, "nl_config_id": self._nl_config})
+            rows = await source.execute_sql(
+                sql, {"question": question, "nl_config_id": self._nl_config}
+            )
             return {"rows": rows, "rowCount": len(rows)}
         finally:
             await source_provider.release_source(self._source_name)
@@ -84,7 +95,12 @@ class AlloyDBAINLTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="question", type="string", description="Natural language question to ask AlloyDB AI", required=True),
+                ParameterManifest(
+                    name="question",
+                    type="string",
+                    description="Natural language question to ask AlloyDB AI",
+                    required=True,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -93,6 +109,7 @@ class AlloyDBAINLTool(BaseTool):
 # ---------------------------------------------------------------------------
 # Tool config
 # ---------------------------------------------------------------------------
+
 
 @register_tool("alloydb-ai-nl")
 @dataclass
@@ -116,7 +133,9 @@ class AlloyDBAINLToolConfig(ToolConfig):
             source=data.get("source", ""),
             nlConfig=data.get("nlConfig", ""),
             nlConfigParameters=data.get("nlConfigParameters"),
-            description=data.get("description", "使用 alloydb_ai_nl 扩展在 AlloyDB 上执行自然语言查询"),
+            description=data.get(
+                "description", "使用 alloydb_ai_nl 扩展在 AlloyDB 上执行自然语言查询"
+            ),
         )
 
     async def initialize(self) -> AlloyDBAINLTool:

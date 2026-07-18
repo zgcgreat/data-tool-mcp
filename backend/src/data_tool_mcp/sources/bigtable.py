@@ -78,10 +78,17 @@ class BigtableSourceConfig(SourceConfig):
         try:
             from google.cloud import bigtable
         except ImportError as e:
-            raise ImportError("google-cloud-bigtable is required: pip install google-cloud-bigtable") from e
+            raise ImportError(
+                "google-cloud-bigtable is required: pip install google-cloud-bigtable"
+            ) from e
 
         admin_client = bigtable.Client(project=self.project_id, admin=True)
         instance = admin_client.instance(self.instance_id)
-        source = BigtableSource(name=self._name, admin_client=admin_client, instance=instance, project_id=self.project_id)
+        source = BigtableSource(
+            name=self._name,
+            admin_client=admin_client,
+            instance=instance,
+            project_id=self.project_id,
+        )
         await source.connect()
         return source

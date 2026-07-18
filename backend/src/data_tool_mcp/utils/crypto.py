@@ -72,15 +72,15 @@ _fernet = None
 def _derive_dev_key() -> bytes:
     """从固定字符串派生开发回退密钥(仅限本地开发)。"""
     import hashlib
-    return base64.urlsafe_b64encode(
-        hashlib.sha256(_DEFAULT_KEY_FALLBACK.encode()).digest()
-    )
+
+    return base64.urlsafe_b64encode(hashlib.sha256(_DEFAULT_KEY_FALLBACK.encode()).digest())
 
 
 def _import_fernet() -> Any:
     """导入 cryptography.Fernet,不可用时返回 None 并记录警告。"""
     try:
         from cryptography.fernet import Fernet
+
         return Fernet
     except ImportError:
         logger.warning("cryptography not available — passwords stored in plaintext")
@@ -155,6 +155,7 @@ def validate_encryption_key() -> bool:
 # ---------------------------------------------------------------------------
 # 公开 API — 企业替换时只需修改这三个函数的实现
 # ---------------------------------------------------------------------------
+
 
 def _do_encrypt(f: Any, plaintext: str, fallback: str) -> str:
     """执行实际加密,失败时返回 fallback。"""

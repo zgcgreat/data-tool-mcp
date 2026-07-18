@@ -40,7 +40,9 @@ class DgraphSource(NoSQLSource):
         """关闭数据库连接。"""
         self._client.close()
 
-    async def execute_dql(self, query: str, variables: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_dql(
+        self, query: str, variables: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 DQL 查询并返回结果。"""
         loop = asyncio.get_event_loop()
 

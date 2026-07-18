@@ -25,8 +25,7 @@ from data_tool_mcp.sources.mysql import _build_auth_part
 def _normalize_gaussdb_connection_string(connection_string: str) -> str:
     """将 GaussDB 连接字符串中的协议前缀统一为 postgresql+asyncpg://。"""
     return (
-        connection_string
-        .replace("postgresql://", "postgresql+asyncpg://")
+        connection_string.replace("postgresql://", "postgresql+asyncpg://")
         .replace("postgres://", "postgresql+asyncpg://")
         .replace("gaussdb://", "postgresql+asyncpg://")
     )
@@ -55,7 +54,9 @@ class GaussDBSource(SQLSource):
         """关闭数据库连接。"""
         await self._engine.dispose()
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
@@ -68,9 +69,11 @@ class GaussDBSource(SQLSource):
     async def list_tables(self) -> list[str]:
         """列出数据库中所有表。"""
         async with self._session_factory() as session:
-            result = await session.execute(text(
-                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
-            ))
+            result = await session.execute(
+                text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+                )
+            )
             return [row[0] for row in result.fetchall()]
 
     async def describe_table(self, table_name: str) -> list[dict[str, Any]]:
@@ -79,12 +82,15 @@ class GaussDBSource(SQLSource):
         if not table_name.replace("_", "").replace("-", "").isalnum():
             raise ValueError(f"invalid table name: {table_name}")
         async with self._session_factory() as session:
-            result = await session.execute(text(
-                "SELECT column_name, data_type, is_nullable, column_default "
-                "FROM information_schema.columns "
-                "WHERE table_name = :table_name AND table_schema = 'public' "
-                "ORDER BY ordinal_position"
-            ), {"table_name": table_name})
+            result = await session.execute(
+                text(
+                    "SELECT column_name, data_type, is_nullable, column_default "
+                    "FROM information_schema.columns "
+                    "WHERE table_name = :table_name AND table_schema = 'public' "
+                    "ORDER BY ordinal_position"
+                ),
+                {"table_name": table_name},
+            )
             return [dict(row) for row in result.mappings().all()]
 
 
@@ -95,6 +101,7 @@ class GaussDBSourceConfig(SourceConfig):
 
     GaussDB 兼容 PostgreSQL 协议,连接参数与 PostgreSQL 一致。
     """
+
     _name: str = field(init=True, repr=False)
     connection_string: str = ""
     host: str = "localhost"
@@ -141,6 +148,7 @@ class GaussDBSourceConfig(SourceConfig):
             echo=False,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         source = GaussDBSource(name=self._name, engine=engine, session_factory=session_factory)
         await source.connect()

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 class SourceEntry(BaseModel):
     """A single source definition in YAML config."""
+
     kind: Literal["source"] = "source"
     name: str
     type: str  # e.g., "postgres", "mysql", "redis"
@@ -21,6 +22,7 @@ class SourceEntry(BaseModel):
 
 class ToolEntry(BaseModel):
     """A single tool definition in YAML config."""
+
     kind: Literal["tool"] = "tool"
     name: str
     type: str  # e.g., "postgres-execute-sql", "redis"
@@ -32,12 +34,14 @@ class ToolEntry(BaseModel):
 
 class ToolsetToolRef(BaseModel):
     """Reference to a tool within a toolset."""
+
     name: str
     description: str = ""
 
 
 class ToolsetEntry(BaseModel):
     """A single toolset definition in YAML config."""
+
     kind: Literal["toolset"] = "toolset"
     name: str
     tools: list[ToolsetToolRef] = Field(default_factory=list)
@@ -48,6 +52,7 @@ class PromptEntry(BaseModel):
 
     Maps to Go: prompt config in YAML with kind: prompt
     """
+
     kind: Literal["prompt"] = "prompt"
     name: str
     type: str = "custom"  # prompt type, defaults to "custom"
@@ -60,6 +65,7 @@ class PromptEntry(BaseModel):
 
 class PromptsetPromptRef(BaseModel):
     """Reference to a prompt within a promptset."""
+
     name: str
 
 
@@ -68,6 +74,7 @@ class PromptsetEntry(BaseModel):
 
     Maps to Go: promptset config in YAML with kind: promptset
     """
+
     kind: Literal["promptset"] = "promptset"
     name: str
     prompts: list[PromptsetPromptRef] = Field(default_factory=list)
@@ -78,6 +85,7 @@ class EmbeddingModelEntry(BaseModel):
 
     Maps to Go: embeddingModel config in YAML with kind: embeddingModel
     """
+
     kind: Literal["embeddingModel"] = "embeddingModel"
     name: str
     type: str  # e.g., "gemini"
@@ -89,6 +97,7 @@ class ToolboxFile(BaseModel):
 
     Maps to Go: the merged config structure from cmd/internal/config.go
     """
+
     sources: dict[str, Any] = Field(default_factory=dict)
     tools: dict[str, Any] = Field(default_factory=dict)
     toolsets: dict[str, Any] = Field(default_factory=dict)

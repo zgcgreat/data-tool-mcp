@@ -44,7 +44,7 @@ class DataplexSource(Source):
     async def list_lakes(self) -> list[dict[str, Any]]:
         """列出所有 Dataplex 湖。"""
         lakes = await self._exec(lambda: list(self._client.list_lakes(parent=self._parent)))
-        return [dict(l) for l in lakes]
+        return [dict(lake) for lake in lakes]
 
     async def get_lake(self, lake_id: str) -> dict[str, Any]:
         """获取指定湖的详细信息。"""
@@ -53,7 +53,9 @@ class DataplexSource(Source):
 
     async def create_lake(self, lake_id: str, lake: dict) -> Any:
         """创建 Dataplex 湖。"""
-        return await self._exec(lambda: self._client.create_lake(parent=self._parent, lake_id=lake_id, lake=lake))
+        return await self._exec(
+            lambda: self._client.create_lake(parent=self._parent, lake_id=lake_id, lake=lake)
+        )
 
     async def delete_lake(self, lake_id: str) -> Any:
         """删除指定湖。"""
@@ -75,7 +77,9 @@ class DataplexSource(Source):
     async def create_zone(self, lake_id: str, zone_id: str, zone: dict) -> Any:
         """在指定湖下创建分区。"""
         parent = f"{self._parent}/lakes/{lake_id}"
-        return await self._exec(lambda: self._client.create_zone(parent=parent, zone_id=zone_id, zone=zone))
+        return await self._exec(
+            lambda: self._client.create_zone(parent=parent, zone_id=zone_id, zone=zone)
+        )
 
     async def delete_zone(self, lake_id: str, zone_id: str) -> Any:
         """删除指定分区。"""
@@ -97,7 +101,9 @@ class DataplexSource(Source):
     async def create_asset(self, lake_id: str, zone_id: str, asset_id: str, asset: dict) -> Any:
         """在指定分区下创建资产。"""
         parent = f"{self._parent}/lakes/{lake_id}/zones/{zone_id}"
-        return await self._exec(lambda: self._client.create_asset(parent=parent, asset_id=asset_id, asset=asset))
+        return await self._exec(
+            lambda: self._client.create_asset(parent=parent, asset_id=asset_id, asset=asset)
+        )
 
     async def delete_asset(self, lake_id: str, zone_id: str, asset_id: str) -> Any:
         """删除指定资产。"""
@@ -119,7 +125,9 @@ class DataplexSource(Source):
     async def create_task(self, lake_id: str, task_id: str, task: dict) -> Any:
         """在指定湖下创建任务。"""
         parent = f"{self._parent}/lakes/{lake_id}"
-        return await self._exec(lambda: self._client.create_task(parent=parent, task_id=task_id, task=task))
+        return await self._exec(
+            lambda: self._client.create_task(parent=parent, task_id=task_id, task=task)
+        )
 
     async def delete_task(self, lake_id: str, task_id: str) -> Any:
         """删除指定任务。"""
@@ -153,9 +161,13 @@ class DataplexSourceConfig(SourceConfig):
         try:
             from google.cloud import dataplex_v1
         except ImportError as e:
-            raise ImportError("google-cloud-dataplex is required: pip install google-cloud-dataplex") from e
+            raise ImportError(
+                "google-cloud-dataplex is required: pip install google-cloud-dataplex"
+            ) from e
 
         client = dataplex_v1.DataplexServiceClient()
-        source = DataplexSource(name=self._name, client=client, project_id=self.project_id, location=self.location)
+        source = DataplexSource(
+            name=self._name, client=client, project_id=self.project_id, location=self.location
+        )
         await source.connect()
         return source

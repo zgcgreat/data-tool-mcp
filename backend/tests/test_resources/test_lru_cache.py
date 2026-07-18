@@ -6,6 +6,7 @@
   3. remove_source/invalidate 后 get_source 不命中已删除 source
   4. execute_query/list_source_tables 中 acquire 后 raise 的 refcount 泄漏
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -135,8 +136,8 @@ class TestResourceManagerAddSource:
         from data_tool_mcp.resources import ResourceManager
 
         rm = ResourceManager()
-        old = FakeSource("old")
-        new = FakeSource("new")
+        FakeSource("old")
+        FakeSource("new")
 
         # 用 MagicMock 模拟 Source(有 close 方法)
         old_mock = MagicMock()
@@ -222,6 +223,7 @@ class TestExecuteQueryRefcount:
         # 使用 spec=[] 限制 MagicMock 不自动生成 execute_sql 属性
         class NonSQLSource:
             """没有 execute_sql 方法的 source。"""
+
             pass
 
         app = FastAPI()
@@ -237,10 +239,13 @@ class TestExecuteQueryRefcount:
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            resp = await ac.post("/mcp-api/query", json={
-                "sourceName": "src1",
-                "statement": "SELECT 1",
-            })
+            resp = await ac.post(
+                "/mcp-api/query",
+                json={
+                    "sourceName": "src1",
+                    "statement": "SELECT 1",
+                },
+            )
             assert resp.status_code == 400
             assert "does not support SQL queries" in resp.json()["detail"]
 

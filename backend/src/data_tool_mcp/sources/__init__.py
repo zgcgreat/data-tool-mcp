@@ -24,7 +24,7 @@ from data_tool_mcp.sources.base import (
     get_source_config_class,
     list_source_types,
     register_source,
-    register_source_alias,
+    register_source_alias,  # noqa: F401  — re-exported for source modules
 )
 
 # Auto-import concrete source modules to trigger @register_source decorators

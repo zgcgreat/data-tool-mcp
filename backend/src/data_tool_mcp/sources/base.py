@@ -80,7 +80,9 @@ class SQLSource(Source):
     DEFAULT_POOL_PRE_PING: bool = True
 
     @abstractmethod
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute a SQL statement and return results as list of dicts.
 
         Implementations MUST enforce ``self.max_rows`` to prevent unbounded
@@ -103,6 +105,7 @@ class SQLSource(Source):
 
 class NoSQLSource(Source):
     """Base class for NoSQL database sources (Redis, MongoDB)."""
+
     pass
 
 
@@ -122,21 +125,29 @@ def register_source(source_type: str):
         class PostgreSQLSourceConfig(SourceConfig):
             ...
     """
+
     def decorator(cls: type[SourceConfig]) -> type[SourceConfig]:
         """将 SourceConfig 子类注册到全局注册表。"""
         if source_type in _source_registry:
             raise ValueError(f"source type {source_type!r} already registered")
         _source_registry[source_type] = cls
         return cls
+
     return decorator
 
 
 def _check_alias_conflict(alias: str, canonical: str) -> str | None:
     """检查别名注册冲突,返回错误消息;无冲突返回 None。"""
     checks: list[tuple[bool, str]] = [
-        (alias in _source_registry, f"cannot register source alias {alias!r}: already registered as a primary"),
+        (
+            alias in _source_registry,
+            f"cannot register source alias {alias!r}: already registered as a primary",
+        ),
         (alias in _source_aliases, f"alias {alias!r} already registered"),
-        (canonical not in _source_registry, f"cannot register alias {alias!r} -> {canonical!r}: canonical {canonical!r} not registered"),
+        (
+            canonical not in _source_registry,
+            f"cannot register alias {alias!r} -> {canonical!r}: canonical {canonical!r} not registered",
+        ),
     ]
     for condition, message in checks:
         if condition:
@@ -157,7 +168,9 @@ def register_source_alias(alias: str, canonical: str):
 
 def get_source_config_class(source_type: str) -> type[SourceConfig]:
     """Look up a registered SourceConfig class by type, resolving aliases."""
-    cls = _source_registry.get(source_type) or _source_registry.get(_source_aliases.get(source_type, ""))
+    cls = _source_registry.get(source_type) or _source_registry.get(
+        _source_aliases.get(source_type, "")
+    )
     if cls is None:
         raise ValueError(f"unknown source type: {source_type!r}")
     return cls

@@ -36,9 +36,7 @@ def _replace_env_match(match: re.Match) -> str:
         return env_val
     if default is not None:
         return default
-    raise ValueError(
-        f"environment variable {var_name!r} not set and no default provided"
-    )
+    raise ValueError(f"environment variable {var_name!r} not set and no default provided")
 
 
 def _substitute_in_dict(value: dict[str, Any]) -> dict[str, Any]:
@@ -238,9 +236,7 @@ def _check_no_self_ref(name: str, p_name: str, ref_name: str) -> None:
     )
 
 
-def _validate_single_param_ref(
-    name: str, i: int, p: dict, valid_names: set[str]
-) -> None:
+def _validate_single_param_ref(name: str, i: int, p: dict, valid_names: set[str]) -> None:
     """校验单个参数的 valueFromParam 引用。"""
     p_name = p.get("name", "")
     ref_name = p.get("valueFromParam", "")
@@ -300,6 +296,7 @@ def parse_resource_entry(raw: dict[str, Any]) -> tuple[str, str, dict[str, Any]]
 def _warn_unknown_kind(kind: str, name: str) -> None:
     """对未知资源类型发出警告。"""
     import warnings
+
     warnings.warn(f"Unknown resource kind {kind!r} for resource {name!r}")
 
 
@@ -321,8 +318,12 @@ def load_config_from_file(path: Path) -> ToolboxFile:
     """
     docs = load_yaml_file(path)
     buckets: dict[str, dict[str, Any]] = {
-        "sources": {}, "tools": {}, "toolsets": {},
-        "prompts": {}, "promptsets": {}, "embeddingModels": {},
+        "sources": {},
+        "tools": {},
+        "toolsets": {},
+        "prompts": {},
+        "promptsets": {},
+        "embeddingModels": {},
     }
 
     for entry in docs:
@@ -351,7 +352,9 @@ def load_config_from_prebuilt(name: str) -> ToolboxFile:
     """
     docs = load_prebuilt_config(name)
     buckets: dict[str, dict[str, Any]] = {
-        "sources": {}, "tools": {}, "toolsets": {},
+        "sources": {},
+        "tools": {},
+        "toolsets": {},
     }
 
     for entry in docs:

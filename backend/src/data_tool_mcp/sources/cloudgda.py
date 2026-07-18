@@ -69,7 +69,9 @@ class CloudGDASource(Source):
 
     async def ask_data_agent(self, agent_id: str, question: str) -> dict[str, Any]:
         """向指定数据代理提问。"""
-        return await self._request("POST", f"{self._parent}/dataAgents/{agent_id}:ask", {"question": question})
+        return await self._request(
+            "POST", f"{self._parent}/dataAgents/{agent_id}:ask", {"question": question}
+        )
 
 
 @register_source("cloud-gemini-data-analytics")

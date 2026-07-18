@@ -45,7 +45,14 @@ class CloudLoggingAdminSource(Source):
                 max_results=limit,
                 order_by="timestamp desc",
             )
-            return [{"timestamp": str(e.timestamp), "severity": str(e.severity), "text_payload": e.text_payload} for e in entries]
+            return [
+                {
+                    "timestamp": str(e.timestamp),
+                    "severity": str(e.severity),
+                    "text_payload": e.text_payload,
+                }
+                for e in entries
+            ]
 
         return await loop.run_in_executor(None, _run)
 
@@ -98,7 +105,9 @@ class CloudLoggingAdminSourceConfig(SourceConfig):
         try:
             from google.cloud import logging
         except ImportError as e:
-            raise ImportError("google-cloud-logging is required: pip install google-cloud-logging") from e
+            raise ImportError(
+                "google-cloud-logging is required: pip install google-cloud-logging"
+            ) from e
 
         client = logging.Client(project=self.project_id)
         source = CloudLoggingAdminSource(name=self._name, client=client, project_id=self.project_id)

@@ -55,7 +55,9 @@ class SnowflakeSource(SQLSource):
         """关闭数据库连接。"""
         await self._engine.dispose()
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
@@ -74,12 +76,15 @@ class SnowflakeSource(SQLSource):
     async def describe_table(self, table_name: str) -> list[dict[str, Any]]:
         """描述表结构,返回列信息列表。"""
         async with self._session_factory() as session:
-            result = await session.execute(text(
-                "SELECT column_name, data_type, is_nullable, column_default "
-                "FROM information_schema.columns "
-                "WHERE table_name = :table_name "
-                "ORDER BY ordinal_position"
-            ), {"table_name": table_name})
+            result = await session.execute(
+                text(
+                    "SELECT column_name, data_type, is_nullable, column_default "
+                    "FROM information_schema.columns "
+                    "WHERE table_name = :table_name "
+                    "ORDER BY ordinal_position"
+                ),
+                {"table_name": table_name},
+            )
             return [dict(row) for row in result.mappings().all()]
 
 
@@ -90,6 +95,7 @@ class SnowflakeSourceConfig(SourceConfig):
 
     Maps to Go: internal/sources/snowflake/ Config struct
     """
+
     _name: str = field(init=True, repr=False)
     connection_string: str = ""
     account: str = ""
@@ -126,17 +132,23 @@ class SnowflakeSourceConfig(SourceConfig):
         """构造 SQLAlchemy 异步连接 URL。"""
         if self.connection_string:
             return self.connection_string
-        url = f"snowflake://{self.user}:{self.password}@{self.account}/{self.database}/{self.schema}"
+        url = (
+            f"snowflake://{self.user}:{self.password}@{self.account}/{self.database}/{self.schema}"
+        )
         return url + _build_snowflake_query_params(self.warehouse, self.role)
 
     async def initialize(self, tracer=None) -> SnowflakeSource:
         """创建并初始化数据源实例。"""
         url = self._build_url()
         engine = create_async_engine(
-            url, pool_size=self.max_open_conns,
-            pool_recycle=3600, pool_pre_ping=True, echo=False,
+            url,
+            pool_size=self.max_open_conns,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            echo=False,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         source = SnowflakeSource(name=self._name, engine=engine, session_factory=session_factory)
         await source.connect()

@@ -30,8 +30,13 @@ class ConfigChangeHandler(FileSystemEventHandler):
     ResourceManager.set_resources() lock.
     """
 
-    def __init__(self, config: ServerConfig, resource_manager: ResourceManager,
-                 debounce_seconds: float = 1.0, loop: asyncio.AbstractEventLoop | None = None):
+    def __init__(
+        self,
+        config: ServerConfig,
+        resource_manager: ResourceManager,
+        debounce_seconds: float = 1.0,
+        loop: asyncio.AbstractEventLoop | None = None,
+    ):
         """初始化实例。"""
         self.config = config
         self.resource_manager = resource_manager

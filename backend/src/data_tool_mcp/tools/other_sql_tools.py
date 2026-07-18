@@ -27,6 +27,7 @@ from data_tool_mcp.tools.base import (
 # Reusable tool classes
 # ---------------------------------------------------------------------------
 
+
 class GenericSQLTool(BaseTool):
     """Run a read-only SQL query."""
 
@@ -35,9 +36,16 @@ class GenericSQLTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             sql = params.get("sql", "")
             if not sql:
@@ -51,7 +59,11 @@ class GenericSQLTool(BaseTool):
         """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
-            parameters=[ParameterManifest(name="sql", type="string", description="SQL query to execute", required=True)],
+            parameters=[
+                ParameterManifest(
+                    name="sql", type="string", description="SQL query to execute", required=True
+                )
+            ],
             auth_required=self.auth_required,
         )
 
@@ -61,12 +73,21 @@ class GenericExecuteSQLTool(BaseTool):
 
     def __init__(self, cfg: ConfigBase, source_name: str):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             sql = params.get("sql", "")
             if not sql:
@@ -80,7 +101,11 @@ class GenericExecuteSQLTool(BaseTool):
         """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
-            parameters=[ParameterManifest(name="sql", type="string", description="SQL statement to execute", required=True)],
+            parameters=[
+                ParameterManifest(
+                    name="sql", type="string", description="SQL statement to execute", required=True
+                )
+            ],
             auth_required=self.auth_required,
         )
 
@@ -94,9 +119,16 @@ class GenericListTablesTool(BaseTool):
         self._source_name = source_name
         self._sql = sql
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             rows = await source.execute_sql(self._sql)
             return {"tables": [list(r.values())[0] for r in rows]}
@@ -105,7 +137,9 @@ class GenericListTablesTool(BaseTool):
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
-        return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)
+        return ToolManifest(
+            description=self.description, parameters=[], auth_required=self.auth_required
+        )
 
 
 class GenericListQueryTool(BaseTool):
@@ -117,9 +151,16 @@ class GenericListQueryTool(BaseTool):
         self._source_name = source_name
         self._sql = sql
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             rows = await source.execute_sql(self._sql)
             return {"rows": rows, "rowCount": len(rows)}
@@ -128,7 +169,9 @@ class GenericListQueryTool(BaseTool):
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
-        return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)
+        return ToolManifest(
+            description=self.description, parameters=[], auth_required=self.auth_required
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -141,10 +184,18 @@ _TOOL_DEFS: list[tuple[str, str, str, dict[str, Any]]] = [
     # ClickHouse (4)
     ("clickhouse-sql", "Run a read-only SQL query on ClickHouse", "sql", {}),
     ("clickhouse-execute-sql", "Execute a SQL statement on ClickHouse", "exec", {}),
-    ("clickhouse-list-tables", "List all tables in the ClickHouse database", "list-tables",
-     {"sql": "SELECT name FROM system.tables WHERE database = currentDatabase()"}),
-    ("clickhouse-list-databases", "List all databases in ClickHouse", "list-query",
-     {"sql": "SELECT name FROM system.databases"}),
+    (
+        "clickhouse-list-tables",
+        "List all tables in the ClickHouse database",
+        "list-tables",
+        {"sql": "SELECT name FROM system.tables WHERE database = currentDatabase()"},
+    ),
+    (
+        "clickhouse-list-databases",
+        "List all databases in ClickHouse",
+        "list-query",
+        {"sql": "SELECT name FROM system.databases"},
+    ),
     # Snowflake (2)
     ("snowflake-sql", "Run a read-only SQL query on Snowflake", "sql", {}),
     ("snowflake-execute-sql", "Execute a SQL statement on Snowflake", "exec", {}),
@@ -166,10 +217,20 @@ _TOOL_DEFS: list[tuple[str, str, str, dict[str, Any]]] = [
     # CockroachDB (4)
     ("cockroachdb-sql", "Run a read-only SQL query on CockroachDB", "sql", {}),
     ("cockroachdb-execute-sql", "Execute a SQL statement on CockroachDB", "exec", {}),
-    ("cockroachdb-list-tables", "List all tables in the CockroachDB database", "list-tables",
-     {"sql": "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"}),
-    ("cockroachdb-list-schemas", "List all schemas in the CockroachDB database", "list-query",
-     {"sql": "SELECT schema_name FROM information_schema.schemata"}),
+    (
+        "cockroachdb-list-tables",
+        "List all tables in the CockroachDB database",
+        "list-tables",
+        {
+            "sql": "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        },
+    ),
+    (
+        "cockroachdb-list-schemas",
+        "List all schemas in the CockroachDB database",
+        "list-query",
+        {"sql": "SELECT schema_name FROM information_schema.schemata"},
+    ),
     # TiDB (2)
     ("tidb-sql", "Run a read-only SQL query on TiDB", "sql", {}),
     ("tidb-execute-sql", "Execute a SQL statement on TiDB", "exec", {}),
@@ -220,14 +281,20 @@ def _make_other_sql_tool_config(tool_type: str, description: str, kind: str, ext
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _OtherSQLToolConfig:
             """从字典创建配置实例。"""
-            return cls(_name=name, source=data.get("source", ""), description=data.get("description", _default_desc))
+            return cls(
+                _name=name,
+                source=data.get("source", ""),
+                description=data.get("description", _default_desc),
+            )
 
         async def initialize(self):
             """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return _build_tool(cfg, self.source)
 
-    _OtherSQLToolConfig.__name__ = f"{tool_type.replace('-', '_').title().replace('_', '')}ToolConfig"
+    _OtherSQLToolConfig.__name__ = (
+        f"{tool_type.replace('-', '_').title().replace('_', '')}ToolConfig"
+    )
     _OtherSQLToolConfig.__qualname__ = _OtherSQLToolConfig.__name__
     return _OtherSQLToolConfig
 

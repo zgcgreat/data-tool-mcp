@@ -30,7 +30,9 @@ class ScyllaDBSource(NoSQLSource):
     async def connect(self) -> None:
         """建立数据库连接。"""
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: self._session.execute("SELECT release_version FROM system.local"))
+        await loop.run_in_executor(
+            None, lambda: self._session.execute("SELECT release_version FROM system.local")
+        )
 
     async def close(self) -> None:
         """关闭数据库连接。"""

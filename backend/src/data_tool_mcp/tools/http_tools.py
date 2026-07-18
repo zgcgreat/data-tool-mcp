@@ -30,12 +30,21 @@ class HTTPTool(BaseTool):
 
     def __init__(self, cfg: ConfigBase, source_name: str):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, open_world_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, open_world_hint=True)
+        )
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, HTTPSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, HTTPSource
+        )
         try:
             return await source.make_request(
                 method=params.get("method"),
@@ -52,11 +61,24 @@ class HTTPTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="method", type="string", description="HTTP method (GET, POST, PUT, DELETE, etc.)", required=False),
-                ParameterManifest(name="path", type="string", description="URL path", required=False),
-                ParameterManifest(name="headers", type="object", description="Request headers", required=False),
-                ParameterManifest(name="params", type="object", description="Query parameters", required=False),
-                ParameterManifest(name="body", type="object", description="Request body", required=False),
+                ParameterManifest(
+                    name="method",
+                    type="string",
+                    description="HTTP method (GET, POST, PUT, DELETE, etc.)",
+                    required=False,
+                ),
+                ParameterManifest(
+                    name="path", type="string", description="URL path", required=False
+                ),
+                ParameterManifest(
+                    name="headers", type="object", description="Request headers", required=False
+                ),
+                ParameterManifest(
+                    name="params", type="object", description="Query parameters", required=False
+                ),
+                ParameterManifest(
+                    name="body", type="object", description="Request body", required=False
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -77,7 +99,11 @@ class HTTPToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> HTTPToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "发起 HTTP 请求"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "发起 HTTP 请求"),
+        )
 
     async def initialize(self) -> HTTPTool:
         """创建并初始化工具实例。"""

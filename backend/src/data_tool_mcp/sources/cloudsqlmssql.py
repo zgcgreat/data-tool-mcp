@@ -42,7 +42,9 @@ class CloudSQLMSSQLSource(Source):
         """关闭数据库连接。"""
         await self._engine.dispose()
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
@@ -55,9 +57,11 @@ class CloudSQLMSSQLSource(Source):
     async def list_tables(self) -> list[str]:
         """列出数据库中所有表。"""
         async with self._session_factory() as session:
-            result = await session.execute(text(
-                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'"
-            ))
+            result = await session.execute(
+                text(
+                    "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'"
+                )
+            )
             return [row[0] for row in result.fetchall()]
 
 
@@ -97,7 +101,9 @@ class CloudSQLMSSQLSourceConfig(SourceConfig):
         try:
             from google.cloud.sql.connector import AsyncConnector
         except ImportError as e:
-            raise ImportError("cloud-sql-python-connector[aioodbc] is required: pip install 'cloud-sql-python-connector[aioodbc]' aioodbc") from e
+            raise ImportError(
+                "cloud-sql-python-connector[aioodbc] is required: pip install 'cloud-sql-python-connector[aioodbc]' aioodbc"
+            ) from e
 
         connector = AsyncConnector()
         instance_conn = f"{self.project_id}:{self.region}:{self.instance_id}"
@@ -105,15 +111,21 @@ class CloudSQLMSSQLSourceConfig(SourceConfig):
         engine = create_async_engine(
             url,
             async_creator=lambda: connector.connect(
-                instance_conn, "aioodbc",
-                user=self.user, password=self.password, db=self.database,
+                instance_conn,
+                "aioodbc",
+                user=self.user,
+                password=self.password,
+                db=self.database,
                 enable_iam_auth=self.iam_auth,
             ),
             pool_recycle=3600,
             pool_pre_ping=True,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        source = CloudSQLMSSQLSource(name=self._name, engine=engine, session_factory=session_factory)
+        source = CloudSQLMSSQLSource(
+            name=self._name, engine=engine, session_factory=session_factory
+        )
         await source.connect()
         return source

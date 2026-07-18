@@ -24,6 +24,7 @@ from data_tool_mcp.errors import (
 # JSON-RPC message types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class JSONRPCRequest:
     """JSON-RPC 2.0 request.
@@ -34,6 +35,7 @@ class JSONRPCRequest:
     JSON.  An explicit ``"id": null`` is a valid request id (not a
     notification) per JSON-RPC 2.0 spec.  We track this with ``_is_notification``.
     """
+
     jsonrpc: str = "2.0"
     method: str = ""
     params: dict[str, Any] = field(default_factory=dict)
@@ -69,6 +71,7 @@ class RequestMetaObject:
 
     Maps to Go: jsonrpc.RequestMetaObject
     """
+
     traceparent: str = ""
     tracestate: str = ""
     progress_token: Any = None  # ProgressToken — str | int | None
@@ -82,6 +85,7 @@ RequestId = str | int | None
 @dataclass
 class JSONRPCResponse:
     """JSON-RPC 2.0 response."""
+
     jsonrpc: str = "2.0"
     result: Any = None
     error: dict[str, Any] | None = None
@@ -100,6 +104,7 @@ class JSONRPCResponse:
 @dataclass
 class JSONRPCNotification:
     """JSON-RPC 2.0 notification (no id, no response expected)."""
+
     jsonrpc: str = "2.0"
     method: str = ""
     params: dict[str, Any] = field(default_factory=dict)
@@ -118,6 +123,7 @@ class JSONRPCNotification:
 # MCP protocol version configuration
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class MCPVersionConfig:
     """Configuration differences between MCP protocol versions.
@@ -125,6 +131,7 @@ class MCPVersionConfig:
     Maps to Go: separate method.go files per version.
     In Python, we unify into one base class with version-specific config.
     """
+
     version: str  # e.g., "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"
     supports_sampling: bool = False
     supports_roots: bool = False
@@ -136,9 +143,15 @@ class MCPVersionConfig:
 MCP_VERSIONS = {
     "2024-11-05": MCPVersionConfig(version="2024-11-05"),
     "2025-03-26": MCPVersionConfig(version="2025-03-26", supports_sampling=True),
-    "2025-06-18": MCPVersionConfig(version="2025-06-18", supports_sampling=True, supports_roots=True),
-    "2025-11-25": MCPVersionConfig(version="2025-11-25", supports_sampling=True, supports_roots=True),
-    "DRAFT-2026-v1": MCPVersionConfig(version="DRAFT-2026-v1", supports_sampling=True, supports_roots=True),
+    "2025-06-18": MCPVersionConfig(
+        version="2025-06-18", supports_sampling=True, supports_roots=True
+    ),
+    "2025-11-25": MCPVersionConfig(
+        version="2025-11-25", supports_sampling=True, supports_roots=True
+    ),
+    "DRAFT-2026-v1": MCPVersionConfig(
+        version="DRAFT-2026-v1", supports_sampling=True, supports_roots=True
+    ),
 }
 
 DEFAULT_MCP_VERSION = "2025-06-18"
@@ -148,18 +161,26 @@ DEFAULT_MCP_VERSION = "2025-06-18"
 # MCP Protocol handler
 # ---------------------------------------------------------------------------
 
+
 class MCPProtocol:
     """MCP protocol handler — routes JSON-RPC methods to handlers.
 
     Maps to Go: 5 separate method.go files unified into one class.
     """
 
-    def __init__(self, resource_manager: Any, version: str = DEFAULT_MCP_VERSION,
-                 toolset_name: str = "", access_token: str = "",
-                 system_id: str = "", environment: str = "",
-                 client_addr: str = ""):
+    def __init__(
+        self,
+        resource_manager: Any,
+        version: str = DEFAULT_MCP_VERSION,
+        toolset_name: str = "",
+        access_token: str = "",
+        system_id: str = "",
+        environment: str = "",
+        client_addr: str = "",
+    ):
         """初始化实例。"""
         from data_tool_mcp.resources import ResourceManager
+
         self.rm: ResourceManager = resource_manager
         self.toolset_name = toolset_name
         self.access_token = access_token
@@ -204,6 +225,7 @@ class MCPProtocol:
         """
         # 记录今日 MCP 协议请求计数(Dashboard 指标)
         from data_tool_mcp.server.stats import get_request_counter
+
         get_request_counter().increment()
 
         # Check if this is a notification (no id field present in original JSON)
@@ -247,6 +269,7 @@ class MCPProtocol:
         """实际执行 trace context 传播(可能抛 ImportError 或其他异常)。"""
         from opentelemetry import context as otel_context
         from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
         carrier = {
             "traceparent": traceparent,
             "tracestate": tracestate,
@@ -275,7 +298,10 @@ class MCPProtocol:
         }
 
     def _notification_or_error(
-        self, is_notification: bool, error_dict: dict[str, Any], request_id: RequestId,
+        self,
+        is_notification: bool,
+        error_dict: dict[str, Any],
+        request_id: RequestId,
     ) -> JSONRPCResponse | None:
         """通知请求返回 None,否则返回带 error 的响应。"""
         if is_notification:
@@ -293,8 +319,11 @@ class MCPProtocol:
             return None, exception_to_jsonrpc_error(exc)
 
     def _build_response(
-        self, result: Any, error_dict: dict[str, Any] | None,
-        request_id: RequestId, is_notification: bool,
+        self,
+        result: Any,
+        error_dict: dict[str, Any] | None,
+        request_id: RequestId,
+        is_notification: bool,
     ) -> JSONRPCResponse | None:
         """根据调用结果构建响应,通知请求返回 None。"""
         if is_notification:
@@ -315,6 +344,7 @@ class MCPProtocol:
         stable version.
         """
         from data_tool_mcp import __version__
+
         return {
             "protocolVersion": self._negotiate_version(params),
             "capabilities": self._build_capabilities(),
@@ -399,10 +429,7 @@ class MCPProtocol:
 
     def _build_param_properties(self, manifest) -> dict[str, Any]:
         """构建参数 properties 映射。"""
-        return {
-            p.name: {"type": p.type, "description": p.description}
-            for p in manifest.parameters
-        }
+        return {p.name: {"type": p.type, "description": p.description} for p in manifest.parameters}
 
     def _build_required_params(self, manifest) -> list[str]:
         """构建必填参数名列表。"""
@@ -486,7 +513,9 @@ class MCPProtocol:
         if tool_name in self._get_allowed_tool_names():
             return None
         await self._log_request(
-            method="tools/call", tool_name=tool_name, success=False,
+            method="tools/call",
+            tool_name=tool_name,
+            success=False,
             latency_ms=int((time.monotonic() - t0) * 1000),
             error_msg=f"tool not found: {tool_name}",
         )
@@ -504,7 +533,9 @@ class MCPProtocol:
         tool = self.rm.get_tool(tool_name)
         if not tool:
             await self._log_request(
-                method="tools/call", tool_name=tool_name, success=False,
+                method="tools/call",
+                tool_name=tool_name,
+                success=False,
                 latency_ms=int((time.monotonic() - t0) * 1000),
                 error_msg=f"tool not found: {tool_name}",
             )
@@ -517,8 +548,11 @@ class MCPProtocol:
         # Maps to Go: tool.RequiresClientAuthorization(resourceMgr)
         if self._requires_auth_failure(tool):
             await self._log_request(
-                method="tools/call", tool_name=tool_name, source_name=source_name,
-                success=False, latency_ms=int((time.monotonic() - t0) * 1000),
+                method="tools/call",
+                tool_name=tool_name,
+                source_name=source_name,
+                success=False,
+                latency_ms=int((time.monotonic() - t0) * 1000),
                 error_msg="missing access token",
             )
             raise ClientServerError(
@@ -574,6 +608,7 @@ class MCPProtocol:
         """
         try:
             from data_tool_mcp.config.store import get_store
+
             store = get_store()
             if not self._is_store_loggable(store):
                 return
@@ -707,6 +742,7 @@ class MCPProtocol:
         Maps to Go: logging/setLevel method
         """
         import logging
+
         level = params.get("level", "info").upper()
         logging.getLogger("data_tool_mcp").setLevel(getattr(logging, level, logging.INFO))
         return {}

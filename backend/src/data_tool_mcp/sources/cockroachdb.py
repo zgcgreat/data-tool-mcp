@@ -38,7 +38,9 @@ class CockroachDBSource(SQLSource):
         """关闭数据库连接。"""
         await self._engine.dispose()
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
@@ -51,28 +53,33 @@ class CockroachDBSource(SQLSource):
     async def list_tables(self) -> list[str]:
         """列出数据库中所有表。"""
         async with self._session_factory() as session:
-            result = await session.execute(text(
-                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
-            ))
+            result = await session.execute(
+                text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+                )
+            )
             return [row[0] for row in result.fetchall()]
 
     async def list_schemas(self) -> list[str]:
         """List all schemas in the CockroachDB database."""
         async with self._session_factory() as session:
-            result = await session.execute(text(
-                "SELECT schema_name FROM information_schema.schemata ORDER BY schema_name"
-            ))
+            result = await session.execute(
+                text("SELECT schema_name FROM information_schema.schemata ORDER BY schema_name")
+            )
             return [row[0] for row in result.fetchall()]
 
     async def describe_table(self, table_name: str) -> list[dict[str, Any]]:
         """描述表结构，返回列信息列表。"""
         async with self._session_factory() as session:
-            result = await session.execute(text(
-                "SELECT column_name, data_type, is_nullable, column_default "
-                "FROM information_schema.columns "
-                "WHERE table_name = :table_name AND table_schema = 'public' "
-                "ORDER BY ordinal_position"
-            ), {"table_name": table_name})
+            result = await session.execute(
+                text(
+                    "SELECT column_name, data_type, is_nullable, column_default "
+                    "FROM information_schema.columns "
+                    "WHERE table_name = :table_name AND table_schema = 'public' "
+                    "ORDER BY ordinal_position"
+                ),
+                {"table_name": table_name},
+            )
             return [dict(row) for row in result.mappings().all()]
 
 
@@ -83,6 +90,7 @@ class CockroachDBSourceConfig(SourceConfig):
 
     Maps to Go: internal/sources/cockroachdb/ Config struct
     """
+
     _name: str = field(init=True, repr=False)
     connection_string: str = ""
     host: str = "localhost"
@@ -116,10 +124,8 @@ class CockroachDBSourceConfig(SourceConfig):
     def _build_url(self) -> str:
         """构造 SQLAlchemy 异步连接 URL。"""
         if self.connection_string:
-            return (
-                self.connection_string
-                .replace("postgresql://", "postgresql+asyncpg://")
-                .replace("postgres://", "postgresql+asyncpg://")
+            return self.connection_string.replace("postgresql://", "postgresql+asyncpg://").replace(
+                "postgres://", "postgresql+asyncpg://"
             )
         return (
             f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
@@ -130,10 +136,14 @@ class CockroachDBSourceConfig(SourceConfig):
         """创建并初始化数据源实例。"""
         url = self._build_url()
         engine = create_async_engine(
-            url, pool_size=self.max_open_conns,
-            pool_recycle=3600, pool_pre_ping=True, echo=False,
+            url,
+            pool_size=self.max_open_conns,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            echo=False,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         source = CockroachDBSource(name=self._name, engine=engine, session_factory=session_factory)
         await source.connect()

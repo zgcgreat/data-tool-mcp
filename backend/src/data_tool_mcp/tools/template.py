@@ -123,4 +123,3 @@ def render_sql_template(template: str, params: dict[str, Any]) -> str:
         return _sql_escape(val)
 
     return _VAR_RE.sub(_var_repl, curr)
-

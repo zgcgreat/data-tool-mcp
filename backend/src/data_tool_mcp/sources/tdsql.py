@@ -40,7 +40,9 @@ class TDSQLSource(SQLSource):
         """关闭数据库连接。"""
         await self._engine.dispose()
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
@@ -73,6 +75,7 @@ class TDSQLSourceConfig(SourceConfig):
 
     TDSQL 兼容 MySQL 协议,连接参数与 MySQL 一致。
     """
+
     _name: str = field(init=True, repr=False)
     connection_string: str = ""
     host: str = "localhost"
@@ -112,10 +115,14 @@ class TDSQLSourceConfig(SourceConfig):
         """创建并初始化数据源实例。"""
         url = self._build_url()
         engine = create_async_engine(
-            url, pool_size=self.max_open_conns,
-            pool_recycle=3600, pool_pre_ping=True, echo=False,
+            url,
+            pool_size=self.max_open_conns,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            echo=False,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         source = TDSQLSource(name=self._name, engine=engine, session_factory=session_factory)
         await source.connect()

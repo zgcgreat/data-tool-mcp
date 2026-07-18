@@ -80,7 +80,8 @@ class LRUCache:
                 continue
             logger.warning(
                 "LRU 缓存超限但所有项都在使用中(%d/%d),临时跳过淘汰",
-                len(self._cache), self._maxsize,
+                len(self._cache),
+                self._maxsize,
             )
             break
 

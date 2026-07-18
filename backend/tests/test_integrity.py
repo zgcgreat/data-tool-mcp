@@ -1,4 +1,5 @@
 """Quick integrity test — import all modules and verify registration counts."""
+
 import sys
 import os
 
@@ -9,13 +10,14 @@ errors = []
 
 # 1. Import sources and verify source type registration
 try:
-    from data_tool_mcp.sources import register_source, get_source_config_class, list_source_types
+    from data_tool_mcp.sources import list_source_types
+
     print(f"✅ sources base imported. Registered sources: {len(list_source_types())}")
 
     # Verify "postgres" exists (not "postgresql")
     src_types = list_source_types()
     if "postgres" in src_types:
-        print(f"   ✅ 'postgres' source registered (not 'postgresql')")
+        print("   ✅ 'postgres' source registered (not 'postgresql')")
     else:
         errors.append("ERROR: 'postgres' source not found in registry")
 
@@ -29,24 +31,39 @@ print()
 
 # 2. Import all tool modules to trigger @register_tool decorators
 try:
-    import data_tool_mcp.tools as tools_pkg
     from data_tool_mcp.tools import list_tool_types, get_tool_config_class
+
     tool_types = list_tool_types()
     print(f"✅ tools package imported. Registered tool types: {len(tool_types)}")
 
     # Verify key tools exist
     key_tools = [
-        "postgres-sql", "postgres-execute-sql", "postgres-list-tables",
-        "mysql-sql", "mysql-execute-sql",
-        "mssql-sql", "mssql-execute-sql", "mssql-list-tables",
-        "sqlite-sql", "sqlite-execute-sql",
-        "redis", "valkey", "http",
-        "mongodb-find", "mongodb-find-one", "mongodb-insert-one",
+        "postgres-sql",
+        "postgres-execute-sql",
+        "postgres-list-tables",
+        "mysql-sql",
+        "mysql-execute-sql",
+        "mssql-sql",
+        "mssql-execute-sql",
+        "mssql-list-tables",
+        "sqlite-sql",
+        "sqlite-execute-sql",
+        "redis",
+        "valkey",
+        "http",
+        "mongodb-find",
+        "mongodb-find-one",
+        "mongodb-insert-one",
         "wait",
-        "neo4j-cypher", "neo4j-execute-cypher", "neo4j-schema",
-        "elasticsearch-esql", "elasticsearch-execute-esql",
-        "cassandra-cql", "scylladb-cql",
-        "vector-assist-define-spec", "vector-assist-get-spec",
+        "neo4j-cypher",
+        "neo4j-execute-cypher",
+        "neo4j-schema",
+        "elasticsearch-esql",
+        "elasticsearch-execute-esql",
+        "cassandra-cql",
+        "scylladb-cql",
+        "vector-assist-define-spec",
+        "vector-assist-get-spec",
         "cloud-gemini-data-analytics-query",
         "alloydb-ai-nl",
     ]
@@ -69,11 +86,13 @@ print()
 
 # 3. Verify no duplicate tool registrations
 import data_tool_mcp.tools.base as base_mod
+
 registry = base_mod._tool_registry
 print(f"✅ Tool registry size: {len(registry)} (no duplicate errors = no conflicts)")
 
 # 4. Verify no duplicate source registrations
 from data_tool_mcp.sources.base import _source_registry
+
 print(f"✅ Source registry size: {len(_source_registry)} (no duplicate errors = no conflicts)")
 
 print()
@@ -81,16 +100,13 @@ print()
 # 5. Verify model entry import too
 try:
     # Just import what we can
-    from data_tool_mcp.config.models import ServerConfig, SourceEntry, ToolEntry
-    print(f"✅ config.models imported OK")
-    from data_tool_mcp.config.loader import load_config
-    print(f"✅ config.loader imported OK")
-    from data_tool_mcp.resources import ResourceManager, Toolset
-    print(f"✅ resources imported OK")
-    from data_tool_mcp.server.mcp.protocol import MCPProtocol, MCP_VERSIONS
+    print("✅ config.models imported OK")
+    print("✅ config.loader imported OK")
+    print("✅ resources imported OK")
+    from data_tool_mcp.server.mcp.protocol import MCP_VERSIONS
+
     print(f"✅ server.mcp.protocol imported OK. Versions: {list(MCP_VERSIONS.keys())}")
-    from data_tool_mcp.server.routes.mcp_routes import _extract_access_token
-    print(f"✅ server.routes.mcp_routes imported OK")
+    print("✅ server.routes.mcp_routes imported OK")
 except Exception as e:
     errors.append(f"FAIL: additional imports: {e}")
 

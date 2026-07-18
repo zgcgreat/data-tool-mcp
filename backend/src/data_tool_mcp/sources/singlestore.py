@@ -38,7 +38,9 @@ class SingleStoreSource(SQLSource):
         """关闭数据库连接。"""
         await self._engine.dispose()
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
@@ -68,6 +70,7 @@ class SingleStoreSourceConfig(SourceConfig):
 
     Maps to Go: internal/sources/singlestore/ Config struct
     """
+
     _name: str = field(init=True, repr=False)
     connection_string: str = ""
     host: str = "localhost"
@@ -100,16 +103,22 @@ class SingleStoreSourceConfig(SourceConfig):
         """构造 SQLAlchemy 异步连接 URL。"""
         if self.connection_string:
             return self.connection_string.replace("mysql://", "mysql+aiomysql://")
-        return f"mysql+aiomysql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        return (
+            f"mysql+aiomysql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        )
 
     async def initialize(self, tracer=None) -> SingleStoreSource:
         """创建并初始化数据源实例。"""
         url = self._build_url()
         engine = create_async_engine(
-            url, pool_size=self.max_open_conns,
-            pool_recycle=3600, pool_pre_ping=True, echo=False,
+            url,
+            pool_size=self.max_open_conns,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            echo=False,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         source = SingleStoreSource(name=self._name, engine=engine, session_factory=session_factory)
         await source.connect()

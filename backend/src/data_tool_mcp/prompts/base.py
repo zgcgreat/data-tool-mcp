@@ -21,12 +21,14 @@ from data_tool_mcp.tools.base import validate_name
 # Argument (maps to Go Argument struct)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ArgumentManifest:
     """Argument description sent to MCP clients.
 
     Maps to Go: parameters.ParameterManifest
     """
+
     name: str
     description: str = ""
     required: bool = True
@@ -38,6 +40,7 @@ class Argument:
 
     Maps to Go: Argument struct
     """
+
     name: str
     description: str = ""
     required: bool = True
@@ -55,12 +58,14 @@ class Argument:
 # Message (maps to Go Message struct)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Message:
     """A message in a prompt's content.
 
     Maps to Go: Message struct with Role + Content + template substitution.
     """
+
     role: str  # "user" or "assistant"
     content: str  # May contain {{param}} template placeholders
 
@@ -79,12 +84,14 @@ class Message:
 # Prompt Manifest
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PromptManifest:
     """Prompt description sent to MCP clients.
 
     Maps to Go: prompts.Manifest
     """
+
     description: str
     arguments: list[ArgumentManifest] = field(default_factory=list)
 
@@ -92,6 +99,7 @@ class PromptManifest:
 # ---------------------------------------------------------------------------
 # Prompt interface
 # ---------------------------------------------------------------------------
+
 
 class PromptConfig(ABC):
     """Prompt configuration interface.
@@ -171,6 +179,7 @@ class Prompt(ABC):
 # Custom Prompt implementation
 # ---------------------------------------------------------------------------
 
+
 class CustomPrompt(Prompt):
     """Custom prompt with user-defined messages and arguments.
 
@@ -213,9 +222,7 @@ class CustomPrompt(Prompt):
 
     def substitute_params(self, param_values: dict[str, Any]) -> dict[str, Any]:
         """Substitute parameters into messages and return MCP response format."""
-        substituted_messages = [
-            msg.substitute(param_values) for msg in self._messages
-        ]
+        substituted_messages = [msg.substitute(param_values) for msg in self._messages]
         return {
             "description": self._description,
             "messages": [
@@ -243,6 +250,7 @@ class CustomPromptConfig(PromptConfig):
 
     Maps to Go: custom/custom.go CustomPromptConfig
     """
+
     name: str = ""
     description: str = ""
     messages: list[Message] = field(default_factory=list)
@@ -269,12 +277,14 @@ class CustomPromptConfig(PromptConfig):
 # Promptset (maps to Go Promptset)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PromptsetManifest:
     """Manifest for a promptset.
 
     Maps to Go: PromptsetManifest
     """
+
     server_version: str
     prompts_manifest: dict[str, PromptManifest] = field(default_factory=dict)
 
@@ -341,6 +351,7 @@ class PromptsetConfig:
 
     Maps to Go: PromptsetConfig
     """
+
     name: str
     prompt_names: list[str] = field(default_factory=list)
 
@@ -362,12 +373,14 @@ def register_prompt(prompt_type: str):
         class CustomPromptConfig(PromptConfig):
             ...
     """
+
     def decorator(cls: type[PromptConfig]) -> type[PromptConfig]:
         """将 PromptConfig 子类注册到全局 registry。"""
         if prompt_type in _prompt_registry:
             raise ValueError(f"prompt type {prompt_type!r} already registered")
         _prompt_registry[prompt_type] = cls
         return cls
+
     return decorator
 
 

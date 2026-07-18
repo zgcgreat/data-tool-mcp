@@ -6,7 +6,6 @@ from data_tool_mcp.server.mcp.protocol import (
     JSONRPCRequest,
     JSONRPCResponse,
     MCPProtocol,
-    MCPVersionConfig,
     MCP_VERSIONS,
 )
 from data_tool_mcp.resources import ResourceManager

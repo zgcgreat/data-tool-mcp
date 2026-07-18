@@ -15,7 +15,9 @@ from data_tool_mcp.sources.base import Source, SourceConfig, register_source
 class DataprocSource(Source):
     """Dataproc source using google-cloud-dataproc API."""
 
-    def __init__(self, name: str, cluster_client: Any, job_client: Any, project_id: str, region: str):
+    def __init__(
+        self, name: str, cluster_client: Any, job_client: Any, project_id: str, region: str
+    ):
         """初始化数据源配置。"""
         self._name = name
         self._cluster_client = cluster_client
@@ -48,17 +50,25 @@ class DataprocSource(Source):
 
     async def get_job(self, job_id: str) -> dict[str, Any]:
         """获取指定作业的详细信息。"""
-        job = await self._exec(lambda: self._job_client.get_job(region=self._region_path, job_id=job_id))
+        job = await self._exec(
+            lambda: self._job_client.get_job(region=self._region_path, job_id=job_id)
+        )
         return dict(job)
 
     async def list_clusters(self) -> list[dict[str, Any]]:
         """列出所有 Dataproc 集群。"""
-        clusters = await self._exec(lambda: list(self._cluster_client.list_clusters(region=self._region_path)))
+        clusters = await self._exec(
+            lambda: list(self._cluster_client.list_clusters(region=self._region_path))
+        )
         return [dict(c) for c in clusters]
 
     async def get_cluster(self, cluster_name: str) -> dict[str, Any]:
         """获取指定集群的详细信息。"""
-        cluster = await self._exec(lambda: self._cluster_client.get_cluster(region=self._region_path, cluster_name=cluster_name))
+        cluster = await self._exec(
+            lambda: self._cluster_client.get_cluster(
+                region=self._region_path, cluster_name=cluster_name
+            )
+        )
         return dict(cluster)
 
 
@@ -88,13 +98,18 @@ class DataprocSourceConfig(SourceConfig):
         try:
             from google.cloud import dataproc_v1
         except ImportError as e:
-            raise ImportError("google-cloud-dataproc is required: pip install google-cloud-dataproc") from e
+            raise ImportError(
+                "google-cloud-dataproc is required: pip install google-cloud-dataproc"
+            ) from e
 
         cluster_client = dataproc_v1.ClusterControllerClient()
         job_client = dataproc_v1.JobControllerClient()
         source = DataprocSource(
-            name=self._name, cluster_client=cluster_client, job_client=job_client,
-            project_id=self.project_id, region=self.region,
+            name=self._name,
+            cluster_client=cluster_client,
+            job_client=job_client,
+            project_id=self.project_id,
+            region=self.region,
         )
         await source.connect()
         return source

@@ -26,18 +26,22 @@ from data_tool_mcp.tools.base import (
 # Valkey 命令分发表 — handler 签名 (source, params) -> dict
 # ---------------------------------------------------------------------------
 
+
 async def _vk_execute_command(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
     """执行 Valkey 命令。"""
     return {"result": await source.execute_command(*params.get("args", []))}
+
 
 async def _vk_get(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
     """获取 Valkey 键值。"""
     return {"value": await source.get(params["key"])}
 
+
 async def _vk_set(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
     """设置 Valkey 键值。"""
     await source.set(params["key"], params["value"], params.get("ex"))
     return {"set": True}
+
 
 async def _vk_delete(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
     """删除 Valkey 键。"""
@@ -45,6 +49,7 @@ async def _vk_delete(source: ValkeySource, params: dict[str, Any]) -> dict[str, 
     if isinstance(keys, str):
         keys = [keys]
     return {"deleted": await source.delete(*keys)}
+
 
 async def _vk_keys(source: ValkeySource, params: dict[str, Any]) -> dict[str, Any]:
     """获取 Valkey 键列表。"""
@@ -69,17 +74,28 @@ class ValkeyTool(BaseTool):
 
     def __init__(self, cfg: ConfigBase, source_name: str):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, open_world_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, open_world_hint=True)
+        )
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, ValkeySource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, ValkeySource
+        )
         try:
             command = params.get("command", "").lower()
             handler = _VALKEY_DISPATCH.get(command)
             if handler is None:
-                raise ValueError(f"unsupported valkey command: {command!r}. Supported: execute-command, get, set, delete, keys")
+                raise ValueError(
+                    f"unsupported valkey command: {command!r}. Supported: execute-command, get, set, delete, keys"
+                )
             return await handler(source, params)
         finally:
             await source_provider.release_source(self._source_name)
@@ -89,13 +105,42 @@ class ValkeyTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="command", type="string", description="Valkey command (execute-command, get, set, delete, keys)", required=True),
-                ParameterManifest(name="args", type="array", description="Command arguments (for execute-command)", required=False),
-                ParameterManifest(name="key", type="string", description="Key (for get/set)", required=False),
-                ParameterManifest(name="value", type="string", description="Value (for set)", required=False),
-                ParameterManifest(name="keys", type="array", description="Keys to delete (for delete)", required=False),
-                ParameterManifest(name="pattern", type="string", description="Key pattern (for keys)", required=False),
-                ParameterManifest(name="ex", type="integer", description="Expiry in seconds (for set)", required=False),
+                ParameterManifest(
+                    name="command",
+                    type="string",
+                    description="Valkey command (execute-command, get, set, delete, keys)",
+                    required=True,
+                ),
+                ParameterManifest(
+                    name="args",
+                    type="array",
+                    description="Command arguments (for execute-command)",
+                    required=False,
+                ),
+                ParameterManifest(
+                    name="key", type="string", description="Key (for get/set)", required=False
+                ),
+                ParameterManifest(
+                    name="value", type="string", description="Value (for set)", required=False
+                ),
+                ParameterManifest(
+                    name="keys",
+                    type="array",
+                    description="Keys to delete (for delete)",
+                    required=False,
+                ),
+                ParameterManifest(
+                    name="pattern",
+                    type="string",
+                    description="Key pattern (for keys)",
+                    required=False,
+                ),
+                ParameterManifest(
+                    name="ex",
+                    type="integer",
+                    description="Expiry in seconds (for set)",
+                    required=False,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -116,7 +161,11 @@ class ValkeyToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> ValkeyToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "执行 Valkey 操作"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "执行 Valkey 操作"),
+        )
 
     async def initialize(self) -> ValkeyTool:
         """创建并初始化工具实例。"""

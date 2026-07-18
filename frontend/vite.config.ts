@@ -11,6 +11,19 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // 代码分包:将第三方依赖拆分到独立 chunk,提升缓存命中率与首屏加载性能
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // React 核心(react/react-dom/react-router-dom)
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          // antd 组件库(体积较大,单独分包)
+          'antd-vendor': ['antd'],
+          // 工具库
+          'utils-vendor': ['axios', 'dayjs'],
+        },
+      },
+    },
   },
   server: {
     port: 5173,

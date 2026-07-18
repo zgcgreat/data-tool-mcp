@@ -38,8 +38,12 @@ def _add_es_auth(kwargs: dict[str, Any], api_key: str, username: str, password: 
 
 
 def _build_es_kwargs(
-    cloud_id: str, hosts: list[str], api_key: str,
-    username: str, password: str, verify_certs: bool,
+    cloud_id: str,
+    hosts: list[str],
+    api_key: str,
+    username: str,
+    password: str,
+    verify_certs: bool,
 ) -> dict[str, Any]:
     """构造 AsyncElasticsearch 的连接参数。"""
     kwargs: dict[str, Any] = {"verify_certs": verify_certs}
@@ -114,8 +118,12 @@ class ElasticsearchSourceConfig(SourceConfig):
         """创建并初始化数据源实例。"""
         AsyncElasticsearch = _import_async_elasticsearch()
         kwargs = _build_es_kwargs(
-            self.cloud_id, self.hosts, self.api_key,
-            self.username, self.password, self.verify_certs,
+            self.cloud_id,
+            self.hosts,
+            self.api_key,
+            self.username,
+            self.password,
+            self.verify_certs,
         )
         client = AsyncElasticsearch(**kwargs)
         source = ElasticsearchSource(name=self._name, client=client)

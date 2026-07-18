@@ -28,6 +28,7 @@ from data_tool_mcp.tools.base import (
 # Generic SQL query tool (read-only)
 # ---------------------------------------------------------------------------
 
+
 class PgSQLTool(BaseTool):
     """Run a read-only SQL query on PostgreSQL.
 
@@ -60,7 +61,9 @@ class PgSQLTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             rows = await _execute_sql_with_modes(
                 source, self._statement, self._template_parameters, self._parameters, params
@@ -123,6 +126,7 @@ class PgSQLToolConfig(ToolConfig):
 # Execute SQL tool (read-write)
 # ---------------------------------------------------------------------------
 
+
 class PgExecuteSQLTool(BaseTool):
     """Execute a SQL statement on PostgreSQL (may modify data).
 
@@ -138,7 +142,9 @@ class PgExecuteSQLTool(BaseTool):
         parameters: list[dict[str, Any]] | None = None,
     ):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         self._source_name = source_name
         self._statement = statement
         self._template_parameters = template_parameters or []
@@ -151,7 +157,9 @@ class PgExecuteSQLTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             rows = await _execute_sql_with_modes(
                 source, self._statement, self._template_parameters, self._parameters, params
@@ -163,7 +171,9 @@ class PgExecuteSQLTool(BaseTool):
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
         param_defs = self._template_parameters or self._parameters
-        parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL statement to execute")
+        parameters = _build_sql_tool_parameters(
+            param_defs, self._statement, "SQL statement to execute"
+        )
         return ToolManifest(
             description=self.description,
             parameters=parameters,
@@ -214,10 +224,17 @@ class PgExecuteSQLToolConfig(ToolConfig):
 # List-type tools — fixed SQL query tools
 # ---------------------------------------------------------------------------
 
+
 class PgListTool(BaseTool):
     """Generic PostgreSQL list tool that executes a fixed SQL query."""
 
-    def __init__(self, cfg: ConfigBase, source_name: str, sql: str, param_defs: list[ParameterManifest] | None = None):
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        sql: str,
+        param_defs: list[ParameterManifest] | None = None,
+    ):
         """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
@@ -231,7 +248,9 @@ class PgListTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             rows = await source.execute_sql(self._sql, params if params else None)
             return {"rows": rows, "rowCount": len(rows)}
@@ -252,97 +271,143 @@ class PgListTool(BaseTool):
 # ---------------------------------------------------------------------------
 
 _PG_LIST_TOOLS: list[tuple[str, str, str, list[ParameterManifest]]] = [
-    ("postgres-list-tables",
-     "列出 PostgreSQL 数据库中的所有表",
-     "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
-     []),
-    ("postgres-list-views",
-     "列出 PostgreSQL 数据库中的所有视图",
-     "SELECT viewname FROM pg_views WHERE schemaname = 'public'",
-     []),
-    ("postgres-list-schemas",
-     "列出 PostgreSQL 数据库中的所有模式",
-     "SELECT schema_name FROM information_schema.schemata",
-     []),
-    ("postgres-list-indexes",
-     "列出 PostgreSQL 数据库中的所有索引",
-     "SELECT indexname, tablename FROM pg_indexes WHERE schemaname = 'public'",
-     []),
-    ("postgres-list-sequences",
-     "列出 PostgreSQL 数据库中的所有序列",
-     "SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'",
-     []),
-    ("postgres-list-triggers",
-     "列出 PostgreSQL 数据库中的所有触发器",
-     "SELECT tgname, relname FROM pg_trigger t JOIN pg_class c ON t.tgrelid = c.oid",
-     []),
-    ("postgres-list-roles",
-     "列出 PostgreSQL 数据库中的所有角色",
-     "SELECT rolname FROM pg_roles",
-     []),
-    ("postgres-list-stored-procedure",
-     "列出 PostgreSQL 数据库中的所有存储过程",
-     "SELECT routine_name FROM information_schema.routines WHERE routine_type = 'FUNCTION'",
-     []),
-    ("postgres-list-active-queries",
-     "列出 PostgreSQL 数据库中的所有活动查询",
-     "SELECT pid, query, state, duration FROM pg_stat_activity WHERE state = 'active'",
-     []),
-    ("postgres-list-locks",
-     "列出 PostgreSQL 数据库中的所有锁",
-     "SELECT locktype, relation::regclass, mode, pid FROM pg_locks",
-     []),
-    ("postgres-list-available-extensions",
-     "列出 PostgreSQL 数据库中的所有可用扩展",
-     "SELECT name FROM pg_available_extensions",
-     []),
-    ("postgres-list-installed-extensions",
-     "列出 PostgreSQL 数据库中的所有已安装扩展",
-     "SELECT extname FROM pg_extension",
-     []),
-    ("postgres-list-pg-settings",
-     "列出 PostgreSQL 设置",
-     "SELECT name, setting, source FROM pg_settings",
-     []),
-    ("postgres-list-tablespaces",
-     "列出 PostgreSQL 数据库中的所有表空间",
-     "SELECT spcname FROM pg_tablespace",
-     []),
-    ("postgres-list-publication-tables",
-     "列出 PostgreSQL 数据库中的所有发布表",
-     "SELECT pubname, tablename FROM pg_publication_tables",
-     []),
-    ("postgres-list-query-stats",
-     "列出 pg_stat_statements 中的查询统计信息",
-     "SELECT query, calls, total_exec_time, rows FROM pg_stat_statements",
-     []),
-    ("postgres-list-table-stats",
-     "列出 pg_stat_user_tables 中的表统计信息",
-     "SELECT relname, n_live_tup, n_dead_tup FROM pg_stat_user_tables",
-     []),
-    ("postgres-list-database-stats",
-     "列出 pg_stat_database 中的数据库统计信息",
-     "SELECT datname, numbackends, xact_commit, blks_read FROM pg_stat_database",
-     []),
-    ("postgres-long-running-transactions",
-     "列出 PostgreSQL 数据库中的长时间运行事务",
-     "SELECT pid, now() - xact_start AS duration, query FROM pg_stat_activity WHERE xact_start IS NOT NULL ORDER BY duration DESC",
-     []),
-    ("postgres-replication-stats",
-     "列出 pg_stat_replication 中的复制统计信息",
-     "SELECT * FROM pg_stat_replication",
-     []),
+    (
+        "postgres-list-tables",
+        "列出 PostgreSQL 数据库中的所有表",
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+        [],
+    ),
+    (
+        "postgres-list-views",
+        "列出 PostgreSQL 数据库中的所有视图",
+        "SELECT viewname FROM pg_views WHERE schemaname = 'public'",
+        [],
+    ),
+    (
+        "postgres-list-schemas",
+        "列出 PostgreSQL 数据库中的所有模式",
+        "SELECT schema_name FROM information_schema.schemata",
+        [],
+    ),
+    (
+        "postgres-list-indexes",
+        "列出 PostgreSQL 数据库中的所有索引",
+        "SELECT indexname, tablename FROM pg_indexes WHERE schemaname = 'public'",
+        [],
+    ),
+    (
+        "postgres-list-sequences",
+        "列出 PostgreSQL 数据库中的所有序列",
+        "SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'",
+        [],
+    ),
+    (
+        "postgres-list-triggers",
+        "列出 PostgreSQL 数据库中的所有触发器",
+        "SELECT tgname, relname FROM pg_trigger t JOIN pg_class c ON t.tgrelid = c.oid",
+        [],
+    ),
+    (
+        "postgres-list-roles",
+        "列出 PostgreSQL 数据库中的所有角色",
+        "SELECT rolname FROM pg_roles",
+        [],
+    ),
+    (
+        "postgres-list-stored-procedure",
+        "列出 PostgreSQL 数据库中的所有存储过程",
+        "SELECT routine_name FROM information_schema.routines WHERE routine_type = 'FUNCTION'",
+        [],
+    ),
+    (
+        "postgres-list-active-queries",
+        "列出 PostgreSQL 数据库中的所有活动查询",
+        "SELECT pid, query, state, duration FROM pg_stat_activity WHERE state = 'active'",
+        [],
+    ),
+    (
+        "postgres-list-locks",
+        "列出 PostgreSQL 数据库中的所有锁",
+        "SELECT locktype, relation::regclass, mode, pid FROM pg_locks",
+        [],
+    ),
+    (
+        "postgres-list-available-extensions",
+        "列出 PostgreSQL 数据库中的所有可用扩展",
+        "SELECT name FROM pg_available_extensions",
+        [],
+    ),
+    (
+        "postgres-list-installed-extensions",
+        "列出 PostgreSQL 数据库中的所有已安装扩展",
+        "SELECT extname FROM pg_extension",
+        [],
+    ),
+    (
+        "postgres-list-pg-settings",
+        "列出 PostgreSQL 设置",
+        "SELECT name, setting, source FROM pg_settings",
+        [],
+    ),
+    (
+        "postgres-list-tablespaces",
+        "列出 PostgreSQL 数据库中的所有表空间",
+        "SELECT spcname FROM pg_tablespace",
+        [],
+    ),
+    (
+        "postgres-list-publication-tables",
+        "列出 PostgreSQL 数据库中的所有发布表",
+        "SELECT pubname, tablename FROM pg_publication_tables",
+        [],
+    ),
+    (
+        "postgres-list-query-stats",
+        "列出 pg_stat_statements 中的查询统计信息",
+        "SELECT query, calls, total_exec_time, rows FROM pg_stat_statements",
+        [],
+    ),
+    (
+        "postgres-list-table-stats",
+        "列出 pg_stat_user_tables 中的表统计信息",
+        "SELECT relname, n_live_tup, n_dead_tup FROM pg_stat_user_tables",
+        [],
+    ),
+    (
+        "postgres-list-database-stats",
+        "列出 pg_stat_database 中的数据库统计信息",
+        "SELECT datname, numbackends, xact_commit, blks_read FROM pg_stat_database",
+        [],
+    ),
+    (
+        "postgres-long-running-transactions",
+        "列出 PostgreSQL 数据库中的长时间运行事务",
+        "SELECT pid, now() - xact_start AS duration, query FROM pg_stat_activity WHERE xact_start IS NOT NULL ORDER BY duration DESC",
+        [],
+    ),
+    (
+        "postgres-replication-stats",
+        "列出 pg_stat_replication 中的复制统计信息",
+        "SELECT * FROM pg_stat_replication",
+        [],
+    ),
 ]
 
 # Tools with parameters
 _PG_PARAM_TOOLS: list[tuple[str, str, str, list[ParameterManifest]]] = [
-    ("postgres-get-column-cardinality",
-     "从 pg_stats 获取列基数",
-     "SELECT n_distinct FROM pg_stats WHERE tablename = :table_name AND attname = :column_name",
-     [
-         ParameterManifest(name="table_name", type="string", description="Table name", required=True),
-         ParameterManifest(name="column_name", type="string", description="Column name", required=True),
-     ]),
+    (
+        "postgres-get-column-cardinality",
+        "从 pg_stats 获取列基数",
+        "SELECT n_distinct FROM pg_stats WHERE tablename = :table_name AND attname = :column_name",
+        [
+            ParameterManifest(
+                name="table_name", type="string", description="Table name", required=True
+            ),
+            ParameterManifest(
+                name="column_name", type="string", description="Column name", required=True
+            ),
+        ],
+    ),
 ]
 
 
@@ -350,7 +415,10 @@ _PG_PARAM_TOOLS: list[tuple[str, str, str, list[ParameterManifest]]] = [
 # Dynamic registration — create a ToolConfig for each list tool
 # ---------------------------------------------------------------------------
 
-def _make_list_tool_config(tool_type: str, desc: str, sql: str, param_defs: list[ParameterManifest]):
+
+def _make_list_tool_config(
+    tool_type: str, desc: str, sql: str, param_defs: list[ParameterManifest]
+):
     """Factory: create a ToolConfig class for a PostgreSQL list-type tool."""
     _default_desc = desc
 
@@ -369,7 +437,11 @@ def _make_list_tool_config(tool_type: str, desc: str, sql: str, param_defs: list
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _PgListToolConfig:
             """从字典创建配置实例。"""
-            return cls(_name=name, source=data.get("source", ""), description=data.get("description", _default_desc))
+            return cls(
+                _name=name,
+                source=data.get("source", ""),
+                description=data.get("description", _default_desc),
+            )
 
         async def initialize(self) -> PgListTool:
             """创建并初始化工具实例。"""
@@ -390,6 +462,7 @@ for _tool_type, _desc, _sql, _params in _PG_LIST_TOOLS + _PG_PARAM_TOOLS:
 # postgres-database-overview — complex multi-query tool
 # ---------------------------------------------------------------------------
 
+
 class PgDatabaseOverviewTool(BaseTool):
     """Get a comprehensive overview of the PostgreSQL database."""
 
@@ -405,14 +478,28 @@ class PgDatabaseOverviewTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
-            tables = await source.execute_sql("SELECT count(*) as table_count FROM pg_tables WHERE schemaname = 'public'")
-            views = await source.execute_sql("SELECT count(*) as view_count FROM pg_views WHERE schemaname = 'public'")
-            indexes = await source.execute_sql("SELECT count(*) as index_count FROM pg_indexes WHERE schemaname = 'public'")
-            schemas = await source.execute_sql("SELECT count(*) as schema_count FROM information_schema.schemata")
-            extensions = await source.execute_sql("SELECT count(*) as extension_count FROM pg_extension")
-            size = await source.execute_sql("SELECT pg_database_size(current_database()) as db_size")
+            tables = await source.execute_sql(
+                "SELECT count(*) as table_count FROM pg_tables WHERE schemaname = 'public'"
+            )
+            views = await source.execute_sql(
+                "SELECT count(*) as view_count FROM pg_views WHERE schemaname = 'public'"
+            )
+            indexes = await source.execute_sql(
+                "SELECT count(*) as index_count FROM pg_indexes WHERE schemaname = 'public'"
+            )
+            schemas = await source.execute_sql(
+                "SELECT count(*) as schema_count FROM information_schema.schemata"
+            )
+            extensions = await source.execute_sql(
+                "SELECT count(*) as extension_count FROM pg_extension"
+            )
+            size = await source.execute_sql(
+                "SELECT pg_database_size(current_database()) as db_size"
+            )
             return {
                 "tables": tables,
                 "views": views,
@@ -448,7 +535,11 @@ class PgDatabaseOverviewToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> PgDatabaseOverviewToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "获取 PostgreSQL 数据库的全面概览"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "获取 PostgreSQL 数据库的全面概览"),
+        )
 
     async def initialize(self) -> PgDatabaseOverviewTool:
         """创建并初始化工具实例。"""

@@ -82,12 +82,16 @@ class FirestoreSource(Source):
         for doc_id in doc_ids:
             await self._client.collection(collection).document(doc_id).delete()
 
-    async def query(self, collection: str, field_path: str, op: str, value: Any, limit: int = 100) -> list[dict[str, Any]]:
+    async def query(
+        self, collection: str, field_path: str, op: str, value: Any, limit: int = 100
+    ) -> list[dict[str, Any]]:
         """按条件查询集合中的文档。"""
         query = self._client.collection(collection).where(field_path, op, value).limit(limit)
         return await _stream_to_dicts(query.stream())
 
-    async def query_collection(self, collection: str, queries: list[dict[str, Any]], limit: int = 100) -> list[dict[str, Any]]:
+    async def query_collection(
+        self, collection: str, queries: list[dict[str, Any]], limit: int = 100
+    ) -> list[dict[str, Any]]:
         """按多条件组合查询集合中的文档。"""
         col_ref = self._client.collection(collection)
         for q in queries:

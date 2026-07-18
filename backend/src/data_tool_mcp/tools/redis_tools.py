@@ -26,16 +26,19 @@ from data_tool_mcp.tools.base import (
 # Redis 命令分发表 — handler 签名 (source, params) -> dict
 # ---------------------------------------------------------------------------
 
+
 async def _rd_get(source: RedisSource, params: dict[str, Any]) -> dict[str, Any]:
     """获取 Redis 键值。"""
     key = params.get("key", "")
     return {"key": key, "value": await source.get(key)}
+
 
 async def _rd_set(source: RedisSource, params: dict[str, Any]) -> dict[str, Any]:
     """设置 Redis 键值。"""
     key = params.get("key", "")
     await source.set(key, params.get("value", ""), ex=params.get("ex"))
     return {"key": key, "status": "OK"}
+
 
 async def _rd_delete(source: RedisSource, params: dict[str, Any]) -> dict[str, Any]:
     """删除 Redis 键。"""
@@ -61,7 +64,9 @@ class RedisTool(BaseTool):
 
     def __init__(self, cfg: ConfigBase, source_name: str):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, open_world_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, open_world_hint=True)
+        )
         self._source_name = source_name
 
     async def invoke(
@@ -71,12 +76,16 @@ class RedisTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, RedisSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, RedisSource
+        )
         try:
             command = params.get("command", "").lower()
             handler = _REDIS_DISPATCH.get(command)
             if handler is None:
-                raise ValueError(f"unsupported redis command: {command!r}. Supported: get, set, delete")
+                raise ValueError(
+                    f"unsupported redis command: {command!r}. Supported: get, set, delete"
+                )
             return await handler(source, params)
         finally:
             await source_provider.release_source(self._source_name)
@@ -86,11 +95,33 @@ class RedisTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="command", type="string", description="Redis command to execute (get, set, delete)", required=True),
-                ParameterManifest(name="key", type="string", description="Redis key (for get/set)", required=False),
-                ParameterManifest(name="value", type="string", description="Value to set (for set)", required=False),
-                ParameterManifest(name="keys", type="array", description="Keys to delete (for delete)", required=False),
-                ParameterManifest(name="ex", type="integer", description="Expiry in seconds (for set)", required=False),
+                ParameterManifest(
+                    name="command",
+                    type="string",
+                    description="Redis command to execute (get, set, delete)",
+                    required=True,
+                ),
+                ParameterManifest(
+                    name="key", type="string", description="Redis key (for get/set)", required=False
+                ),
+                ParameterManifest(
+                    name="value",
+                    type="string",
+                    description="Value to set (for set)",
+                    required=False,
+                ),
+                ParameterManifest(
+                    name="keys",
+                    type="array",
+                    description="Keys to delete (for delete)",
+                    required=False,
+                ),
+                ParameterManifest(
+                    name="ex",
+                    type="integer",
+                    description="Expiry in seconds (for set)",
+                    required=False,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -111,7 +142,11 @@ class RedisToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> RedisToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "执行 Redis 键值操作"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "执行 Redis 键值操作"),
+        )
 
     async def initialize(self) -> RedisTool:
         """创建并初始化工具实例。"""

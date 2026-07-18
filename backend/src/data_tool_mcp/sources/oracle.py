@@ -38,7 +38,9 @@ class OracleSource(SQLSource):
         """关闭数据库连接。"""
         await self._engine.dispose()
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
@@ -51,20 +53,23 @@ class OracleSource(SQLSource):
     async def list_tables(self) -> list[str]:
         """列出数据库中所有表。"""
         async with self._session_factory() as session:
-            result = await session.execute(text(
-                "SELECT table_name FROM user_tables ORDER BY table_name"
-            ))
+            result = await session.execute(
+                text("SELECT table_name FROM user_tables ORDER BY table_name")
+            )
             return [row[0] for row in result.fetchall()]
 
     async def describe_table(self, table_name: str) -> list[dict[str, Any]]:
         """描述表结构，返回列信息列表。"""
         async with self._session_factory() as session:
-            result = await session.execute(text(
-                "SELECT column_name, data_type, nullable AS is_nullable, data_default AS column_default "
-                "FROM user_tab_columns "
-                "WHERE table_name = :table_name "
-                "ORDER BY column_id"
-            ), {"table_name": table_name.upper()})
+            result = await session.execute(
+                text(
+                    "SELECT column_name, data_type, nullable AS is_nullable, data_default AS column_default "
+                    "FROM user_tab_columns "
+                    "WHERE table_name = :table_name "
+                    "ORDER BY column_id"
+                ),
+                {"table_name": table_name.upper()},
+            )
             return [dict(row) for row in result.mappings().all()]
 
 
@@ -75,6 +80,7 @@ class OracleSourceConfig(SourceConfig):
 
     Maps to Go: internal/sources/oracle/ Config struct
     """
+
     _name: str = field(init=True, repr=False)
     connection_string: str = ""
     host: str = "localhost"
@@ -116,10 +122,14 @@ class OracleSourceConfig(SourceConfig):
         """创建并初始化数据源实例。"""
         url = self._build_url()
         engine = create_async_engine(
-            url, pool_size=self.max_open_conns,
-            pool_recycle=3600, pool_pre_ping=True, echo=False,
+            url,
+            pool_size=self.max_open_conns,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            echo=False,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         source = OracleSource(name=self._name, engine=engine, session_factory=session_factory)
         await source.connect()

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
 from typing import AsyncGenerator
 
 from starlette.responses import StreamingResponse
@@ -98,9 +97,7 @@ class SSETransport:
     async def _next_event(self, ping_interval: float):
         """获取下一个事件。None 表示会话应关闭。"""
         try:
-            message = await asyncio.wait_for(
-                self.session.event_queue.get(), timeout=ping_interval
-            )
+            message = await asyncio.wait_for(self.session.event_queue.get(), timeout=ping_interval)
         except asyncio.TimeoutError:
             # No message in ping_interval — send a keepalive ping
             return {"event": "ping", "data": ""}

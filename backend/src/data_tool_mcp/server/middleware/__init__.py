@@ -5,14 +5,20 @@ Maps to Go: internal/server/server.go middleware functions.
 
 from __future__ import annotations
 
+import logging
+import time
+import uuid
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
+
+logger = logging.getLogger(__name__)
 
 
 class HostCheckMiddleware(BaseHTTPMiddleware):
     """Check the Host header to prevent DNS rebinding attacks.
-    
+
     Maps to Go: hostCheck middleware in server.go.
     """
 
@@ -45,7 +51,7 @@ class HostCheckMiddleware(BaseHTTPMiddleware):
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
     """Limit the size of request bodies.
-    
+
     Maps to Go: MaxBytesReader in server.go.
 
     Enforces the limit by wrapping the ASGI receive callable to count bytes
@@ -117,6 +123,75 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
                 content="Request body too large",
                 status_code=413,
             )
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """记录每个 HTTP 请求的方法、路径、状态码和耗时。
+
+    跳过健康检查端点与 SSE/长连接端点以减少日志噪声。
+    错误响应(>=500)用 ERROR,4xx 用 WARNING,其他用 INFO。
+    """
+
+    # 健康检查端点,跳过以减少日志噪声
+    _HEALTH_PATHS = frozenset({"/live", "/ready"})
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        """处理请求,记录请求日志。"""
+        if self._should_skip(request.url.path):
+            return await call_next(request)
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        self._log_request(request, response, duration_ms)
+        return response
+
+    def _should_skip(self, path: str) -> bool:
+        """判断是否跳过日志记录(健康检查与 SSE/长连接端点)。"""
+        if path in self._HEALTH_PATHS:
+            return True
+        return "sse" in path or "message" in path
+
+    def _log_request(self, request: Request, response: Response, duration_ms: int) -> None:
+        """按状态码选择日志级别并输出请求日志。"""
+        method = request.method
+        path = request.url.path
+        status_code = response.status_code
+        message = f"{method} {path} -> {status_code} ({duration_ms}ms)"
+        logger.log(self._level_for(status_code), message)
+
+    def _level_for(self, status_code: int) -> int:
+        """根据状态码返回日志级别。"""
+        if status_code >= 500:
+            return logging.ERROR
+        if status_code >= 400:
+            return logging.WARNING
+        return logging.INFO
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """为每个请求生成或传递请求 ID。
+
+    读取入站 X-Request-ID header,若缺失则生成 8 位短 UUID。
+    将请求 ID 放入 request.state.request_id 供后续使用,
+    并在响应 header 中回写 X-Request-ID。
+    """
+
+    _HEADER = "X-Request-ID"
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        """处理请求,注入请求 ID 并回写响应 header。"""
+        request_id = self._resolve_request_id(request)
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers[self._HEADER] = request_id
+        return response
+
+    def _resolve_request_id(self, request: Request) -> str:
+        """从入站 header 读取请求 ID,若缺失则生成新的短 UUID。"""
+        incoming = request.headers.get(self._HEADER)
+        if incoming:
+            return incoming
+        return uuid.uuid4().hex[:8]
 
 
 class _BodyTooLargeError(Exception):

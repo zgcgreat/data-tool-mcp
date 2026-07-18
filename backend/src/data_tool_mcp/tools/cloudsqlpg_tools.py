@@ -43,39 +43,111 @@ from data_tool_mcp.tools.base import (
 # ---------------------------------------------------------------------------
 
 _VA_TOOLS: list[tuple[str, str, list[ParameterManifest], bool]] = [
-    ("vector-assist-define-spec", "Define a Vector Assist specification",
-     [ParameterManifest(name="spec", type="object", description="Vector Assist spec definition", required=True)], False),
-    ("vector-assist-get-spec", "Get a Vector Assist specification",
-     [ParameterManifest(name="spec_id", type="string", description="Spec ID", required=True)], True),
+    (
+        "vector-assist-define-spec",
+        "Define a Vector Assist specification",
+        [
+            ParameterManifest(
+                name="spec",
+                type="object",
+                description="Vector Assist spec definition",
+                required=True,
+            )
+        ],
+        False,
+    ),
+    (
+        "vector-assist-get-spec",
+        "Get a Vector Assist specification",
+        [ParameterManifest(name="spec_id", type="string", description="Spec ID", required=True)],
+        True,
+    ),
     ("vector-assist-list-specs", "List all Vector Assist specifications", [], True),
-    ("vector-assist-modify-spec", "Modify a Vector Assist specification",
-     [ParameterManifest(name="spec_id", type="string", description="Spec ID", required=True),
-      ParameterManifest(name="spec", type="object", description="Updated spec definition", required=True)], False),
-    ("vector-assist-delete-spec", "Delete a Vector Assist specification",
-     [ParameterManifest(name="spec_id", type="string", description="Spec ID", required=True)], False),
-    ("vector-assist-generate-query", "Generate a query using Vector Assist",
-     [ParameterManifest(name="question", type="string", description="Natural language question", required=True)], True),
-    ("vector-assist-improve-query-recall", "Improve query recall using Vector Assist",
-     [ParameterManifest(name="query", type="string", description="Query to improve", required=True)], True),
-    ("vector-assist-apply-spec", "Apply a Vector Assist specification",
-     [ParameterManifest(name="spec_id", type="string", description="Spec ID to apply", required=True)], False),
+    (
+        "vector-assist-modify-spec",
+        "Modify a Vector Assist specification",
+        [
+            ParameterManifest(name="spec_id", type="string", description="Spec ID", required=True),
+            ParameterManifest(
+                name="spec", type="object", description="Updated spec definition", required=True
+            ),
+        ],
+        False,
+    ),
+    (
+        "vector-assist-delete-spec",
+        "Delete a Vector Assist specification",
+        [ParameterManifest(name="spec_id", type="string", description="Spec ID", required=True)],
+        False,
+    ),
+    (
+        "vector-assist-generate-query",
+        "Generate a query using Vector Assist",
+        [
+            ParameterManifest(
+                name="question",
+                type="string",
+                description="Natural language question",
+                required=True,
+            )
+        ],
+        True,
+    ),
+    (
+        "vector-assist-improve-query-recall",
+        "Improve query recall using Vector Assist",
+        [
+            ParameterManifest(
+                name="query", type="string", description="Query to improve", required=True
+            )
+        ],
+        True,
+    ),
+    (
+        "vector-assist-apply-spec",
+        "Apply a Vector Assist specification",
+        [
+            ParameterManifest(
+                name="spec_id", type="string", description="Spec ID to apply", required=True
+            )
+        ],
+        False,
+    ),
 ]
 
 
 class VectorAssistGenericTool(BaseTool):
     """Generic Vector Assist tool — dispatches to CloudSQLPGSource SQL execution."""
 
-    def __init__(self, cfg: ConfigBase, source_name: str, tool_type: str, param_defs: list[ParameterManifest], read_only: bool):
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        tool_type: str,
+        param_defs: list[ParameterManifest],
+        read_only: bool,
+    ):
         """初始化工具配置。"""
-        ann = ToolAnnotations(read_only_hint=True) if read_only else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        ann = (
+            ToolAnnotations(read_only_hint=True)
+            if read_only
+            else ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         super().__init__(cfg, annotations=ann)
         self._source_name = source_name
         self._tool_type = tool_type
         self._param_defs = param_defs
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, CloudSQLPGSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, CloudSQLPGSource
+        )
         try:
             # Vector Assist operations are SQL-driven; dispatch to execute_sql
             sql = params.get("sql", params.get("query", params.get("question", "")))
@@ -88,11 +160,18 @@ class VectorAssistGenericTool(BaseTool):
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
-        return ToolManifest(description=self.description, parameters=self._param_defs, auth_required=self.auth_required)
+        return ToolManifest(
+            description=self.description,
+            parameters=self._param_defs,
+            auth_required=self.auth_required,
+        )
 
 
-def _make_va_tool_config(tool_type: str, description: str, param_defs: list[ParameterManifest], read_only: bool):
+def _make_va_tool_config(
+    tool_type: str, description: str, param_defs: list[ParameterManifest], read_only: bool
+):
     """构造Cloud SQL Postgres工具配置。"""
+
     @register_tool(tool_type)
     @dataclass
     class _VAToolConfig(ToolConfig):
@@ -108,12 +187,22 @@ def _make_va_tool_config(tool_type: str, description: str, param_defs: list[Para
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _VAToolConfig:
             """从字典创建配置实例。"""
-            return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
+            return cls(
+                _name=name,
+                source=data.get("source", ""),
+                description=data.get("description", description),
+            )
 
         async def initialize(self) -> VectorAssistGenericTool:
             """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
-            return VectorAssistGenericTool(cfg=cfg, source_name=self.source, tool_type=tool_type, param_defs=param_defs, read_only=read_only)
+            return VectorAssistGenericTool(
+                cfg=cfg,
+                source_name=self.source,
+                tool_type=tool_type,
+                param_defs=param_defs,
+                read_only=read_only,
+            )
 
     _VAToolConfig.__name__ = f"{tool_type.replace('-', '_').title().replace('_', '')}ToolConfig"
     _VAToolConfig.__qualname__ = _VAToolConfig.__name__

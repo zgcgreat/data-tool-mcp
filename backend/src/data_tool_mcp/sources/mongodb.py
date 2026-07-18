@@ -89,9 +89,7 @@ class MongoDBSource(NoSQLSource):
 
         return await loop.run_in_executor(None, _run)
 
-    async def insert_one(
-        self, collection: str, document: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def insert_one(self, collection: str, document: dict[str, Any]) -> dict[str, Any]:
         """向集合插入单个文档。"""
         loop = asyncio.get_event_loop()
 
@@ -102,9 +100,7 @@ class MongoDBSource(NoSQLSource):
 
         return await loop.run_in_executor(None, _run)
 
-    async def insert_many(
-        self, collection: str, documents: list[dict[str, Any]]
-    ) -> dict[str, Any]:
+    async def insert_many(self, collection: str, documents: list[dict[str, Any]]) -> dict[str, Any]:
         """向集合批量插入多个文档。"""
         loop = asyncio.get_event_loop()
 
@@ -119,9 +115,7 @@ class MongoDBSource(NoSQLSource):
 
         return await loop.run_in_executor(None, _run)
 
-    async def delete_one(
-        self, collection: str, query: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def delete_one(self, collection: str, query: dict[str, Any]) -> dict[str, Any]:
         """删除集合中单个匹配文档。"""
         loop = asyncio.get_event_loop()
 
@@ -132,9 +126,7 @@ class MongoDBSource(NoSQLSource):
 
         return await loop.run_in_executor(None, _run)
 
-    async def delete_many(
-        self, collection: str, query: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def delete_many(self, collection: str, query: dict[str, Any]) -> dict[str, Any]:
         """删除集合中所有匹配文档。"""
         loop = asyncio.get_event_loop()
 
@@ -220,9 +212,7 @@ class MongoDBSourceConfig(SourceConfig):
         try:
             from pymongo import MongoClient
         except ImportError as e:
-            raise ImportError(
-                "pymongo is required for MongoDB support: pip install pymongo"
-            ) from e
+            raise ImportError("pymongo is required for MongoDB support: pip install pymongo") from e
 
         loop = asyncio.get_event_loop()
 

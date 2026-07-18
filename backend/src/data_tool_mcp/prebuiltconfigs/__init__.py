@@ -55,9 +55,7 @@ def get_prebuilt_config(name: str) -> str:
     path = directory / f"{name}.yaml"
     if not path.exists():
         available = list_prebuilt_configs()
-        raise FileNotFoundError(
-            f"prebuilt config {name!r} not found. Available: {available}"
-        )
+        raise FileNotFoundError(f"prebuilt config {name!r} not found. Available: {available}")
     return path.read_text(encoding="utf-8")
 
 

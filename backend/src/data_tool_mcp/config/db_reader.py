@@ -170,7 +170,9 @@ async def _load_configs_from_session(
 ) -> None:
     """根据 search_system 加载单个或全部系统配置。"""
     if search_system:
-        await _load_system(session, search_system, sources, tools, toolsets, env_passwords, search_env)
+        await _load_system(
+            session, search_system, sources, tools, toolsets, env_passwords, search_env
+        )
         return
     await _load_all_systems(session, sources, tools, toolsets, env_passwords, search_env)
 
@@ -296,7 +298,9 @@ def _populate_source_optional_fields(
     _populate_source_password(src_config, password, env_passwords)
 
 
-def _build_source_config(row: tuple, system_id: str, env_passwords: dict[str, str]) -> tuple[str, dict[str, Any]]:
+def _build_source_config(
+    row: tuple, system_id: str, env_passwords: dict[str, str]
+) -> tuple[str, dict[str, Any]]:
     """从 sources 表行构造 (name, config_dict)。"""
     name, src_type, host, port, database, username, password, params_json, environment_val = row
     src_config: dict[str, Any] = {

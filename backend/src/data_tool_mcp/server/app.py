@@ -8,8 +8,10 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 
 from data_tool_mcp.config.models import ServerConfig
 from data_tool_mcp.resources import ResourceManager
@@ -19,6 +21,8 @@ from data_tool_mcp.admin.router import router as admin_router
 from data_tool_mcp.server.middleware import (
     HostCheckMiddleware,
     MaxBodySizeMiddleware,
+    RequestIdMiddleware,
+    RequestLoggingMiddleware,
 )
 from data_tool_mcp.server.mcp.session import SSEManager
 
@@ -43,11 +47,13 @@ def create_app(config: ServerConfig, resource_manager: ResourceManager) -> FastA
     _add_middleware(app, config)
     _add_server_name_middleware(app)
     _register_routers(app, config)
+    _register_exception_handlers(app)
     return app
 
 
 def _build_lifespan(sse_manager: SSEManager, resource_manager: ResourceManager):
     """构建应用 lifespan 上下文管理器。"""
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Manage application lifecycle — start/stop SSEManager cleanup routine."""
@@ -57,6 +63,7 @@ def _build_lifespan(sse_manager: SSEManager, resource_manager: ResourceManager):
         await sse_manager.stop()
         logger.info("SSEManager cleanup routine stopped")
         await _close_resources(resource_manager)
+
     return lifespan
 
 
@@ -76,6 +83,7 @@ async def _close_resources(resource_manager: ResourceManager) -> None:
 async def _close_config_store() -> None:
     """关闭 config store(若存在)。"""
     from data_tool_mcp.config.store import get_store
+
     store = get_store()
     if store is None:
         return
@@ -85,8 +93,9 @@ async def _close_config_store() -> None:
         logger.warning("error closing config store: %s", exc)
 
 
-def _init_app_state(app: FastAPI, config: ServerConfig,
-                    resource_manager: ResourceManager, sse_manager: SSEManager) -> None:
+def _init_app_state(
+    app: FastAPI, config: ServerConfig, resource_manager: ResourceManager, sse_manager: SSEManager
+) -> None:
     """初始化 app.state。"""
     app.state.config = config
     app.state.resource_manager = resource_manager
@@ -94,7 +103,11 @@ def _init_app_state(app: FastAPI, config: ServerConfig,
 
 
 def _add_middleware(app: FastAPI, config: ServerConfig) -> None:
-    """添加中间件(安全 + CORS)。"""
+    """添加中间件(请求 ID + 日志 + 安全 + CORS)。"""
+    # Starlette 中间件是洋葱模型:先添加的在最外层(inbound 最先执行,outbound 最后执行)。
+    # RequestIdMiddleware 必须在最外层,确保所有后续中间件和异常处理器都能访问 request.state.request_id。
+    app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(RequestLoggingMiddleware)
     # Security middleware — maps to Go: hostCheck + MaxBytesReader
     # Applied before CORS so that invalid hosts are rejected early
     app.add_middleware(HostCheckMiddleware, allowed_hosts=config.allowed_hosts or None)
@@ -128,6 +141,7 @@ def _add_cors_middleware(app: FastAPI, config: ServerConfig) -> None:
 
 def _add_server_name_middleware(app: FastAPI) -> None:
     """添加 X-Server-Name 响应 header 中间件。"""
+
     # 项目标识 header — 所有响应携带 X-Server-Name,便于客户端识别服务来源
     @app.middleware("http")
     async def add_server_name_header(request: Request, call_next):
@@ -137,8 +151,36 @@ def _add_server_name_middleware(app: FastAPI) -> None:
         return response
 
 
+def _register_exception_handlers(app: FastAPI) -> None:
+    """注册全局异常处理器,捕获所有未处理异常。"""
+
+    @app.exception_handler(Exception)
+    async def handle_unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+        """捕获未处理异常,返回 500 并记录 ERROR 日志(含异常堆栈)。"""
+        # FastAPI 内置 HTTPException 与 RequestValidationError 的处理器优先级更高,
+        # 通常不会进入此 handler;此处显式排除以防万一。
+        if isinstance(exc, (HTTPException, RequestValidationError)):
+            raise exc
+        request_id = getattr(request.state, "request_id", "")
+        logger.exception(
+            "unhandled exception | request_id=%s method=%s path=%s",
+            request_id,
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "internal_server_error",
+                "message": "内部服务器错误",
+                "request_id": request_id,
+            },
+        )
+
+
 def _register_routers(app: FastAPI, config: ServerConfig) -> None:
     """注册路由。"""
+
     # Health check — 兼容旧端点,等价于 /live (轻量级探针,不查依赖)
     @app.get("/health")
     async def health() -> dict:
@@ -162,6 +204,7 @@ def _register_routers(app: FastAPI, config: ServerConfig) -> None:
             return {"status": "not_ready", "reason": "resource_manager unavailable"}
 
         from data_tool_mcp.config.store import get_store
+
         store = get_store()
         if store is None:
             return {"status": "not_ready", "reason": "config_store not initialized"}

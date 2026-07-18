@@ -13,6 +13,7 @@ class ToolboxError(Exception):
 
     Maps to Go: ToolboxError interface.
     """
+
     def __init__(self, message: str, code: int = 0):
         """初始化实例。"""
         super().__init__(message)
@@ -34,6 +35,7 @@ class AgentError(ToolboxError):
     These are errors where the agent sent invalid or inappropriate input.
     The client should adjust its behavior and retry.
     """
+
     def __init__(self, message: str):
         """初始化实例。"""
         super().__init__(message, code=200)
@@ -48,6 +50,7 @@ class ClientServerError(ToolboxError):
       403 → FORBIDDEN (-403)
       429 → rate limited
     """
+
     def __init__(self, message: str, http_status: int, details: Any = None):
         """初始化实例。"""
         self.http_status = http_status
@@ -84,6 +87,7 @@ class JSONRPCError:
     Standard codes: -32700 to -32603
     Extended codes: -32001 to -32004, -401, -403
     """
+
     # Standard JSON-RPC 2.0 error codes
     PARSE_ERROR = -32700
     INVALID_REQUEST = -32600

@@ -37,6 +37,7 @@ from data_tool_mcp.tools.base import (
 # Maps to Go: sqlite-sql (internal/tools/sqlite/sqlitesql/)
 # ---------------------------------------------------------------------------
 
+
 class SQLiteSQLTool(BaseTool):
     """Run a read-only SQL query on SQLite."""
 
@@ -60,7 +61,9 @@ class SQLiteSQLTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             rows = await _execute_sql_with_modes(
                 source, self._statement, self._template_parameters, [], params
@@ -74,7 +77,11 @@ class SQLiteSQLTool(BaseTool):
         if self._template_parameters:
             parameters = _manifests_from_dicts(self._template_parameters)
         else:
-            parameters = [ParameterManifest(name="sql", type="string", description="SQL query to execute", required=True)]
+            parameters = [
+                ParameterManifest(
+                    name="sql", type="string", description="SQL query to execute", required=True
+                )
+            ]
         return ToolManifest(
             description=self.description,
             parameters=parameters,
@@ -123,6 +130,7 @@ class SQLiteSQLToolConfig(ToolConfig):
 # Maps to Go: sqlite-execute-sql (internal/tools/sqlite/sqliteexecutesql/)
 # ---------------------------------------------------------------------------
 
+
 class SQLiteExecuteSQLTool(BaseTool):
     """Execute a SQL statement on SQLite."""
 
@@ -134,7 +142,9 @@ class SQLiteExecuteSQLTool(BaseTool):
         template_parameters: list[dict[str, Any]] | None = None,
     ):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         self._source_name = source_name
         self._statement = statement
         self._template_parameters = template_parameters or []
@@ -146,7 +156,9 @@ class SQLiteExecuteSQLTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             rows = await _execute_sql_with_modes(
                 source, self._statement, self._template_parameters, [], params
@@ -160,7 +172,11 @@ class SQLiteExecuteSQLTool(BaseTool):
         if self._template_parameters:
             parameters = _manifests_from_dicts(self._template_parameters)
         else:
-            parameters = [ParameterManifest(name="sql", type="string", description="SQL statement to execute", required=True)]
+            parameters = [
+                ParameterManifest(
+                    name="sql", type="string", description="SQL statement to execute", required=True
+                )
+            ]
         return ToolManifest(
             description=self.description,
             parameters=parameters,

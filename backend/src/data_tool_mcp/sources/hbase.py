@@ -131,7 +131,9 @@ class HBaseSource(NoSQLSource):
         encoded_data = {_encode_str(k): _encode_str(v) for k, v in data.items()}
         await loop.run_in_executor(None, lambda: table.put(row_key.encode("utf-8"), encoded_data))
 
-    async def delete_row(self, table_name: str, row_key: str, columns: list[str] | None = None) -> None:
+    async def delete_row(
+        self, table_name: str, row_key: str, columns: list[str] | None = None
+    ) -> None:
         """删除行或指定列。"""
         loop = asyncio.get_event_loop()
         table = self._connection.table(table_name)
@@ -149,6 +151,7 @@ class HBaseSourceConfig(SourceConfig):
 
     通过 Thrift 协议连接 HBase,默认端口 9090。
     """
+
     _name: str = field(init=True, repr=False)
     host: str = "localhost"
     port: int = 9090

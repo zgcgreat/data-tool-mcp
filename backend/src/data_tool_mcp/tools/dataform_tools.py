@@ -28,7 +28,12 @@ class DataformCompileLocalTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         # Dataform compilation is typically local and doesn't require a live source
         """执行工具调用，返回查询结果。"""
         project_dir = params.get("project_dir", "")
@@ -42,7 +47,12 @@ class DataformCompileLocalTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="project_dir", type="string", description="Path to Dataform project directory", required=True),
+                ParameterManifest(
+                    name="project_dir",
+                    type="string",
+                    description="Path to Dataform project directory",
+                    required=True,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -63,7 +73,11 @@ class DataformCompileLocalToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> DataformCompileLocalToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "在本地编译 Dataform 项目"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "在本地编译 Dataform 项目"),
+        )
 
     async def initialize(self) -> DataformCompileLocalTool:
         """创建并初始化工具实例。"""

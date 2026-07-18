@@ -36,7 +36,9 @@ def _extract_col_names(columns: list) -> list[str]:
 
 def _rows_to_dicts(rows: list, col_names: list[str]) -> list[dict[str, Any]]:
     """将行数据转换为 list[dict],有列名用列名,无列名用索引。"""
-    key_fn = (lambda row: dict(zip(col_names, row))) if col_names else (lambda row: dict(enumerate(row)))
+    key_fn = (
+        (lambda row: dict(zip(col_names, row))) if col_names else (lambda row: dict(enumerate(row)))
+    )
     return [key_fn(row) for row in rows]
 
 
@@ -74,7 +76,9 @@ class ClickHouseSource(SQLSource):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: self._client.close())
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         loop = asyncio.get_event_loop()
 
@@ -87,7 +91,9 @@ class ClickHouseSource(SQLSource):
             return _rows_to_dicts(limited, col_names)
 
         try:
-            return await asyncio.wait_for(loop.run_in_executor(None, _run), timeout=self.query_timeout)
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, _run), timeout=self.query_timeout
+            )
         except asyncio.TimeoutError as e:
             raise TimeoutError(f"ClickHouse query exceeded {self.query_timeout}s timeout") from e
 
@@ -136,6 +142,7 @@ class ClickHouseSourceConfig(SourceConfig):
 
     Maps to Go: internal/sources/clickhouse/ Config struct
     """
+
     _name: str = field(init=True, repr=False)
     connection_string: str = ""
     host: str = "localhost"

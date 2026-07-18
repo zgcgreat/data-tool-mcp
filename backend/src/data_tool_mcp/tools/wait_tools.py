@@ -58,7 +58,12 @@ class WaitTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="seconds", type="integer", description="Number of seconds to wait", required=True),
+                ParameterManifest(
+                    name="seconds",
+                    type="integer",
+                    description="Number of seconds to wait",
+                    required=True,
+                ),
             ],
             auth_required=self.auth_required,
         )

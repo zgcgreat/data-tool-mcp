@@ -55,7 +55,9 @@ class BigQuerySource(Source):
     async def list_table_ids(self, dataset_id: str) -> list[str]:
         """列出指定数据集下所有表 ID。"""
         loop = asyncio.get_event_loop()
-        tables = await loop.run_in_executor(None, lambda: list(self._client.list_tables(dataset_id)))
+        tables = await loop.run_in_executor(
+            None, lambda: list(self._client.list_tables(dataset_id))
+        )
         return [t.table_id for t in tables]
 
     async def get_dataset_info(self, dataset_id: str) -> dict[str, Any]:
@@ -67,8 +69,13 @@ class BigQuerySource(Source):
     async def get_table_info(self, dataset_id: str, table_id: str) -> dict[str, Any]:
         """获取指定表的元数据和 schema。"""
         loop = asyncio.get_event_loop()
-        tbl = await loop.run_in_executor(None, lambda: self._client.get_table(f"{dataset_id}.{table_id}"))
-        return {"table_id": tbl.table_id, "schema": [f"{s.name}:{s.field_type}" for s in tbl.schema]}
+        tbl = await loop.run_in_executor(
+            None, lambda: self._client.get_table(f"{dataset_id}.{table_id}")
+        )
+        return {
+            "table_id": tbl.table_id,
+            "schema": [f"{s.name}:{s.field_type}" for s in tbl.schema],
+        }
 
     async def search_catalog(self, query: str) -> list[dict[str, Any]]:
         """在数据目录中搜索并执行查询。"""
@@ -103,7 +110,9 @@ class BigQuerySourceConfig(SourceConfig):
         try:
             from google.cloud import bigquery
         except ImportError as e:
-            raise ImportError("google-cloud-bigquery is required: pip install google-cloud-bigquery") from e
+            raise ImportError(
+                "google-cloud-bigquery is required: pip install google-cloud-bigquery"
+            ) from e
 
         client = bigquery.Client(project=self.project_id, location=self.location)
         source = BigQuerySource(name=self._name, client=client, project_id=self.project_id)

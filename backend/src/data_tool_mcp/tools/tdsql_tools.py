@@ -31,6 +31,7 @@ from data_tool_mcp.tools.base import (
 # TDSQL list-type / param-type diagnostic tools
 # ---------------------------------------------------------------------------
 
+
 class TDSQLListTool(BaseTool):
     """Generic TDSQL diagnostic tool that executes a fixed SQL query.
 
@@ -38,7 +39,13 @@ class TDSQLListTool(BaseTool):
     与 MySQLListTool 行为一致。
     """
 
-    def __init__(self, cfg: ConfigBase, source_name: str, sql: str, param_defs: list[ParameterManifest] | None = None):
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        sql: str,
+        param_defs: list[ParameterManifest] | None = None,
+    ):
         """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
@@ -52,7 +59,9 @@ class TDSQLListTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, SQLSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, SQLSource
+        )
         try:
             rows = await source.execute_sql(self._sql, params if params else None)
             return {"rows": rows, "rowCount": len(rows)}
@@ -74,48 +83,64 @@ class TDSQLListTool(BaseTool):
 # ---------------------------------------------------------------------------
 
 _TDSQL_LIST_TOOLS: list[tuple[str, str, str, list[ParameterManifest]]] = [
-    ("tdsql-list-tables",
-     "列出 TDSQL 数据库中的所有表",
-     "SHOW TABLES",
-     []),
-    ("tdsql-list-table-stats",
-     "List table statistics in the TDSQL database",
-     "SELECT TABLE_NAME, TABLE_ROWS, DATA_LENGTH, INDEX_LENGTH FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()",
-     []),
-    ("tdsql-list-active-queries",
-     "List active queries in the TDSQL database",
-     "SELECT ID, USER, HOST, DB, COMMAND, TIME, STATE, INFO FROM information_schema.PROCESSLIST WHERE COMMAND != 'Sleep'",
-     []),
-    ("tdsql-list-all-locks",
-     "List all locks in the TDSQL database",
-     "SELECT * FROM information_schema.INNODB_LOCKS",
-     []),
-    ("tdsql-list-table-fragmentation",
-     "List table fragmentation in the TDSQL database",
-     "SELECT TABLE_NAME, DATA_FREE, DATA_LENGTH, ROUND(DATA_FREE / (DATA_LENGTH + 1), 2) AS fragmentation_ratio FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND DATA_FREE > 0",
-     []),
-    ("tdsql-list-tables-missing-unique-indexes",
-     "List tables missing unique indexes in the TDSQL database",
-     "SELECT T.TABLE_NAME FROM information_schema.TABLES T LEFT JOIN information_schema.TABLE_CONSTRAINTS C ON T.TABLE_NAME = C.TABLE_NAME AND C.CONSTRAINT_TYPE = 'UNIQUE' WHERE T.TABLE_SCHEMA = DATABASE() AND C.CONSTRAINT_NAME IS NULL",
-     []),
-    ("tdsql-show-query-stats",
-     "Show query statistics in the TDSQL database",
-     "SELECT * FROM performance_schema.events_statements_summary_by_digest ORDER BY COUNT_STAR DESC LIMIT 20",
-     []),
+    ("tdsql-list-tables", "列出 TDSQL 数据库中的所有表", "SHOW TABLES", []),
+    (
+        "tdsql-list-table-stats",
+        "List table statistics in the TDSQL database",
+        "SELECT TABLE_NAME, TABLE_ROWS, DATA_LENGTH, INDEX_LENGTH FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()",
+        [],
+    ),
+    (
+        "tdsql-list-active-queries",
+        "List active queries in the TDSQL database",
+        "SELECT ID, USER, HOST, DB, COMMAND, TIME, STATE, INFO FROM information_schema.PROCESSLIST WHERE COMMAND != 'Sleep'",
+        [],
+    ),
+    (
+        "tdsql-list-all-locks",
+        "List all locks in the TDSQL database",
+        "SELECT * FROM information_schema.INNODB_LOCKS",
+        [],
+    ),
+    (
+        "tdsql-list-table-fragmentation",
+        "List table fragmentation in the TDSQL database",
+        "SELECT TABLE_NAME, DATA_FREE, DATA_LENGTH, ROUND(DATA_FREE / (DATA_LENGTH + 1), 2) AS fragmentation_ratio FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND DATA_FREE > 0",
+        [],
+    ),
+    (
+        "tdsql-list-tables-missing-unique-indexes",
+        "List tables missing unique indexes in the TDSQL database",
+        "SELECT T.TABLE_NAME FROM information_schema.TABLES T LEFT JOIN information_schema.TABLE_CONSTRAINTS C ON T.TABLE_NAME = C.TABLE_NAME AND C.CONSTRAINT_TYPE = 'UNIQUE' WHERE T.TABLE_SCHEMA = DATABASE() AND C.CONSTRAINT_NAME IS NULL",
+        [],
+    ),
+    (
+        "tdsql-show-query-stats",
+        "Show query statistics in the TDSQL database",
+        "SELECT * FROM performance_schema.events_statements_summary_by_digest ORDER BY COUNT_STAR DESC LIMIT 20",
+        [],
+    ),
 ]
 
 _TDSQL_PARAM_TOOLS: list[tuple[str, str, str, list[ParameterManifest]]] = [
-    ("tdsql-get-query-plan",
-     "Get the query execution plan for a SQL statement on TDSQL",
-     "EXPLAIN :sql",
-     [
-         ParameterManifest(name="sql", type="string", description="SQL statement to explain", required=True),
-     ]),
+    (
+        "tdsql-get-query-plan",
+        "Get the query execution plan for a SQL statement on TDSQL",
+        "EXPLAIN :sql",
+        [
+            ParameterManifest(
+                name="sql", type="string", description="SQL statement to explain", required=True
+            ),
+        ],
+    ),
 ]
 
 
-def _make_tdsql_list_tool_config(tool_type: str, description: str, sql: str, param_defs: list[ParameterManifest]):
+def _make_tdsql_list_tool_config(
+    tool_type: str, description: str, sql: str, param_defs: list[ParameterManifest]
+):
     """构造TDSQL 列表工具配置。"""
+
     @register_tool(tool_type)
     @dataclass
     class _TDSQLListToolConfig(ToolConfig):
@@ -131,14 +156,20 @@ def _make_tdsql_list_tool_config(tool_type: str, description: str, sql: str, par
         @classmethod
         def from_dict(cls, name: str, data: dict[str, Any]) -> _TDSQLListToolConfig:
             """从字典创建配置实例。"""
-            return cls(_name=name, source=data.get("source", ""), description=data.get("description", description))
+            return cls(
+                _name=name,
+                source=data.get("source", ""),
+                description=data.get("description", description),
+            )
 
         async def initialize(self) -> TDSQLListTool:
             """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
             return TDSQLListTool(cfg=cfg, source_name=self.source, sql=sql, param_defs=param_defs)
 
-    _TDSQLListToolConfig.__name__ = f"{tool_type.replace('-', '_').title().replace('_', '')}ToolConfig"
+    _TDSQLListToolConfig.__name__ = (
+        f"{tool_type.replace('-', '_').title().replace('_', '')}ToolConfig"
+    )
     _TDSQLListToolConfig.__qualname__ = _TDSQLListToolConfig.__name__
     return _TDSQLListToolConfig
 

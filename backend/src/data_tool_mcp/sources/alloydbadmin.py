@@ -53,7 +53,11 @@ class AlloyDBAdminSource(Source):
 
     async def create_cluster(self, cluster_id: str, cluster: dict) -> Any:
         """创建 AlloyDB 集群。"""
-        return await self._execute(lambda: self._client.create_cluster(parent=self._parent, cluster_id=cluster_id, cluster=cluster))
+        return await self._execute(
+            lambda: self._client.create_cluster(
+                parent=self._parent, cluster_id=cluster_id, cluster=cluster
+            )
+        )
 
     async def list_instances(self, cluster_id: str) -> list[dict[str, Any]]:
         """列出指定集群下所有实例。"""
@@ -69,7 +73,11 @@ class AlloyDBAdminSource(Source):
     async def create_instance(self, cluster_id: str, instance_id: str, instance: dict) -> Any:
         """在指定集群下创建实例。"""
         parent = f"{self._parent}/clusters/{cluster_id}"
-        return await self._execute(lambda: self._client.create_instance(parent=parent, instance_id=instance_id, instance=instance))
+        return await self._execute(
+            lambda: self._client.create_instance(
+                parent=parent, instance_id=instance_id, instance=instance
+            )
+        )
 
     async def list_users(self, cluster_id: str) -> list[dict[str, Any]]:
         """列出指定集群下所有用户。"""
@@ -85,7 +93,9 @@ class AlloyDBAdminSource(Source):
     async def create_user(self, cluster_id: str, user_id: str, user: dict) -> Any:
         """在指定集群下创建用户。"""
         parent = f"{self._parent}/clusters/{cluster_id}"
-        return await self._execute(lambda: self._client.create_user(parent=parent, user_id=user_id, user=user))
+        return await self._execute(
+            lambda: self._client.create_user(parent=parent, user_id=user_id, user=user)
+        )
 
     async def wait_for_operation(self, operation_name: str) -> Any:
         """等待指定操作完成。"""
@@ -118,9 +128,13 @@ class AlloyDBAdminSourceConfig(SourceConfig):
         try:
             from google.cloud import alloydb_v1
         except ImportError as e:
-            raise ImportError("google-cloud-alloydb is required: pip install google-cloud-alloydb") from e
+            raise ImportError(
+                "google-cloud-alloydb is required: pip install google-cloud-alloydb"
+            ) from e
 
         client = alloydb_v1.AlloyDBAdminClient()
-        source = AlloyDBAdminSource(name=self._name, client=client, project_id=self.project_id, location=self.location)
+        source = AlloyDBAdminSource(
+            name=self._name, client=client, project_id=self.project_id, location=self.location
+        )
         await source.connect()
         return source

@@ -23,7 +23,9 @@ def _import_cassandra() -> tuple[Any, Any]:
 
 
 def _build_auth_provider(
-    username: str, password: str, PlainTextAuthProvider: Any,
+    username: str,
+    password: str,
+    PlainTextAuthProvider: Any,
 ) -> Any:
     """根据用户名密码构造 PlainTextAuthProvider,空则返回 None。"""
     if username and password:
@@ -48,7 +50,9 @@ class CassandraSource(NoSQLSource):
     async def connect(self) -> None:
         """建立数据库连接。"""
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: self._session.execute("SELECT release_version FROM system.local"))
+        await loop.run_in_executor(
+            None, lambda: self._session.execute("SELECT release_version FROM system.local")
+        )
 
     async def close(self) -> None:
         """关闭数据库连接。"""

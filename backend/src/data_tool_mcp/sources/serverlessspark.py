@@ -75,7 +75,9 @@ class ServerlessSparkSource(Source):
         """创建 Spark 批处理作业。"""
         return await self._request("POST", f"batches?batchId={batch_id}", batch)
 
-    async def create_pyspark_batch(self, batch_id: str, main_python_file_uri: str, args: list[str] | None = None) -> Any:
+    async def create_pyspark_batch(
+        self, batch_id: str, main_python_file_uri: str, args: list[str] | None = None
+    ) -> Any:
         """创建 PySpark 批处理作业。"""
         body = {
             "pysparkBatch": {
@@ -113,6 +115,8 @@ class ServerlessSparkSourceConfig(SourceConfig):
 
     async def initialize(self, tracer=None) -> ServerlessSparkSource:
         """创建并初始化数据源实例。"""
-        source = ServerlessSparkSource(name=self._name, project_id=self.project_id, region=self.region)
+        source = ServerlessSparkSource(
+            name=self._name, project_id=self.project_id, region=self.region
+        )
         await source.connect()
         return source

@@ -88,6 +88,7 @@ class ToolsetManifest:
 
     Maps to Go: ToolsetManifest / PromptsetManifest
     """
+
     server_version: str
     tool_names: list[str] = field(default_factory=list)
 
@@ -131,6 +132,7 @@ class ResourceManager:
         self._init_locks_guard = asyncio.Lock()
         # Thread lock for set_resources (called from watchdog thread)
         import threading
+
         self._lock = threading.Lock()
 
     # -- Sources (cache-aside + LRU) --
@@ -194,14 +196,19 @@ class ResourceManager:
         if source is None:
             return None
         self._replace_cached_source(name, source)
-        logger.debug("数据源 %r 惰性初始化成功,已存入 LRU 缓存(当前 %d/%d)",
-                     name, self._source_cache.size(), self._source_cache._maxsize)
+        logger.debug(
+            "数据源 %r 惰性初始化成功,已存入 LRU 缓存(当前 %d/%d)",
+            name,
+            self._source_cache.size(),
+            self._source_cache._maxsize,
+        )
         return source
 
     async def _decode_and_initialize_source(self, name: str, cfg: dict[str, Any]) -> Source | None:
         """解码并初始化 source，失败时返回 None。"""
         try:
             from data_tool_mcp.sources import decode_source_config
+
             src_type = cfg.get("type", "")
             source_config = decode_source_config(src_type, name, cfg)
             return await source_config.initialize()
@@ -238,7 +245,9 @@ class ResourceManager:
             self._source_configs.clear()
             self._init_locks.clear()
 
-    async def add_source(self, name: str, source: Source, config: dict[str, Any] | None = None) -> None:
+    async def add_source(
+        self, name: str, source: Source, config: dict[str, Any] | None = None
+    ) -> None:
         """添加(或替换)一个已初始化的 source 到缓存。
 
         用于 YAML 配置加载路径和 Admin create/update(需立即测试连接)。
@@ -428,7 +437,9 @@ class ResourceManager:
             return []
         return _filter_by_names(self._tools, toolset.tool_names)
 
-    def get_toolset_manifest(self, toolset_name: str, server_version: str = "0.1.0") -> ToolsetManifest | None:
+    def get_toolset_manifest(
+        self, toolset_name: str, server_version: str = "0.1.0"
+    ) -> ToolsetManifest | None:
         """Get the manifest for a specific toolset."""
         toolset = self._toolsets.get(toolset_name)
         if not toolset:
@@ -499,8 +510,13 @@ class ResourceManager:
                 # 替换 LRU 缓存内容(不关闭旧项,调用方负责)
                 self._source_cache.reset(sources)
             self._apply_config_updates(
-                source_configs, tools, toolsets, prompts,
-                promptsets, embedding_models, tool_types,
+                source_configs,
+                tools,
+                toolsets,
+                prompts,
+                promptsets,
+                embedding_models,
+                tool_types,
             )
             self._ensure_default_toolset_if_needed()
             self._ensure_default_promptset_if_needed()
@@ -540,4 +556,5 @@ class ResourceManager:
         if self._promptsets or not self._prompts:
             return
         from data_tool_mcp.prompts.base import Promptset
+
         self._promptsets[""] = Promptset(name="", prompt_names=list(self._prompts.keys()))

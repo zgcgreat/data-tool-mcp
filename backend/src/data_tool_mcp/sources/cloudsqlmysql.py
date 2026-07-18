@@ -42,7 +42,9 @@ class CloudSQLMySQLSource(Source):
         """关闭数据库连接。"""
         await self._engine.dispose()
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
@@ -102,14 +104,20 @@ class CloudSQLMySQLSourceConfig(SourceConfig):
         engine = create_async_engine(
             "mysql+aiomysql://",
             async_creator=lambda: connector.connect(
-                instance_conn, "aiomysql",
-                user=self.user, password=self.password, db=self.database,
+                instance_conn,
+                "aiomysql",
+                user=self.user,
+                password=self.password,
+                db=self.database,
             ),
             pool_recycle=3600,
             pool_pre_ping=True,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        source = CloudSQLMySQLSource(name=self._name, engine=engine, session_factory=session_factory)
+        source = CloudSQLMySQLSource(
+            name=self._name, engine=engine, session_factory=session_factory
+        )
         await source.connect()
         return source

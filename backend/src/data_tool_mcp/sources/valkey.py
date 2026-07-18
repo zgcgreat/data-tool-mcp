@@ -14,8 +14,12 @@ from data_tool_mcp.sources.base import NoSQLSource, SourceConfig, register_sourc
 def _make_redis_client(module: Any, host: str, port: int, password: str, db: int, ssl: bool) -> Any:
     """使用给定模块构造异步 Redis 兼容客户端。"""
     return module.Redis(
-        host=host, port=port, password=password or None,
-        db=db, ssl=ssl, decode_responses=True,
+        host=host,
+        port=port,
+        password=password or None,
+        db=db,
+        ssl=ssl,
+        decode_responses=True,
     )
 
 
@@ -23,14 +27,18 @@ def _import_redis_asyncio() -> Any:
     """优先导入 valkey.asyncio,失败则回退到 redis.asyncio,两者均不可用时报错。"""
     try:
         import valkey.asyncio as aiovalkey
+
         return aiovalkey
     except ImportError:
         pass
     try:
         import redis.asyncio as aioredis
+
         return aioredis
     except ImportError as e:
-        raise ImportError("valkey or redis is required: pip install valkey or pip install redis") from e
+        raise ImportError(
+            "valkey or redis is required: pip install valkey or pip install redis"
+        ) from e
 
 
 class ValkeySource(NoSQLSource):

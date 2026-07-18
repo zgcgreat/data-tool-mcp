@@ -151,8 +151,13 @@ SOURCE_TYPE_SCHEMAS: dict[str, list[dict[str, Any]]] = {
         {"name": "password", "label": "密码", "type": "password"},
     ],
     "sqlite": [
-        {"name": "path", "label": "数据库路径", "type": "text", "required": True,
-         "placeholder": "例如 /data/test.db 或 :memory:"},
+        {
+            "name": "path",
+            "label": "数据库路径",
+            "type": "text",
+            "required": True,
+            "placeholder": "例如 /data/test.db 或 :memory:",
+        },
     ],
     "clickhouse": [
         {"name": "host", "label": "主机", "type": "text", "default": "localhost"},
@@ -162,7 +167,13 @@ SOURCE_TYPE_SCHEMAS: dict[str, list[dict[str, Any]]] = {
         {"name": "password", "label": "密码", "type": "password"},
     ],
     "snowflake": [
-        {"name": "account", "label": "账户", "type": "text", "required": True, "placeholder": "xy12345"},
+        {
+            "name": "account",
+            "label": "账户",
+            "type": "text",
+            "required": True,
+            "placeholder": "xy12345",
+        },
         {"name": "database", "label": "数据库名", "type": "text", "required": True},
         {"name": "user", "label": "用户名", "type": "text", "required": True},
         {"name": "password", "label": "密码", "type": "password"},
@@ -256,8 +267,13 @@ SOURCE_TYPE_SCHEMAS: dict[str, list[dict[str, Any]]] = {
         {"name": "db", "label": "DB", "type": "number", "default": 0},
     ],
     "mongodb": [
-        {"name": "uri", "label": "连接 URI", "type": "text", "required": True,
-         "placeholder": "mongodb://user:pass@host:27017/db"},
+        {
+            "name": "uri",
+            "label": "连接 URI",
+            "type": "text",
+            "required": True,
+            "placeholder": "mongodb://user:pass@host:27017/db",
+        },
         {"name": "database", "label": "数据库名", "type": "text", "required": True},
     ],
     "cassandra": [
@@ -275,20 +291,36 @@ SOURCE_TYPE_SCHEMAS: dict[str, list[dict[str, Any]]] = {
         {"name": "password", "label": "密码", "type": "password"},
     ],
     "neo4j": [
-        {"name": "uri", "label": "URI", "type": "text", "required": True, "default": "bolt://localhost:7687"},
+        {
+            "name": "uri",
+            "label": "URI",
+            "type": "text",
+            "required": True,
+            "default": "bolt://localhost:7687",
+        },
         {"name": "user", "label": "用户名", "type": "text", "default": "neo4j"},
         {"name": "password", "label": "密码", "type": "password"},
     ],
     "elasticsearch": [
-        {"name": "addresses", "label": "地址", "type": "text", "required": True,
-         "placeholder": "http://localhost:9200"},
+        {
+            "name": "addresses",
+            "label": "地址",
+            "type": "text",
+            "required": True,
+            "placeholder": "http://localhost:9200",
+        },
         {"name": "username", "label": "用户名", "type": "text"},
         {"name": "password", "label": "密码", "type": "password"},
         {"name": "apiKey", "label": "API Key", "type": "password"},
     ],
     "couchbase": [
-        {"name": "connectionString", "label": "连接字符串", "type": "text", "required": True,
-         "placeholder": "couchbase://localhost"},
+        {
+            "name": "connectionString",
+            "label": "连接字符串",
+            "type": "text",
+            "required": True,
+            "placeholder": "couchbase://localhost",
+        },
         {"name": "bucket", "label": "Bucket", "type": "text", "required": True},
         {"name": "username", "label": "用户名", "type": "text"},
         {"name": "password", "label": "密码", "type": "password"},
@@ -299,17 +331,30 @@ SOURCE_TYPE_SCHEMAS: dict[str, list[dict[str, Any]]] = {
     "hbase": [
         {"name": "host", "label": "主机", "type": "text", "default": "localhost"},
         {"name": "port", "label": "端口", "type": "number", "default": 9090},
-        {"name": "tablePrefix", "label": "表名前缀", "type": "text",
-         "placeholder": "可选,用于多租户隔离"},
+        {
+            "name": "tablePrefix",
+            "label": "表名前缀",
+            "type": "text",
+            "placeholder": "可选,用于多租户隔离",
+        },
         {"name": "protocol", "label": "协议", "type": "text", "default": "binary"},
         {"name": "transport", "label": "传输方式", "type": "text", "default": "buffered"},
     ],
     "http": [
-        {"name": "url", "label": "URL", "type": "text", "required": True,
-         "placeholder": "https://api.example.com"},
+        {
+            "name": "url",
+            "label": "URL",
+            "type": "text",
+            "required": True,
+            "placeholder": "https://api.example.com",
+        },
         {"name": "method", "label": "方法", "type": "text", "default": "GET"},
-        {"name": "headers", "label": "Headers (JSON)", "type": "text",
-         "placeholder": '{"Authorization": "Bearer ..."}'},
+        {
+            "name": "headers",
+            "label": "Headers (JSON)",
+            "type": "text",
+            "placeholder": '{"Authorization": "Bearer ..."}',
+        },
     ],
 }
 
@@ -379,13 +424,14 @@ def _build_persist_config(tool_data: dict[str, Any]) -> tuple[str, dict[str, Any
     """从 tool_data 中拆出 description 与剩余 config_data,供持久化使用。"""
     description = tool_data.get("description", "")
     config_data = {
-        k: v for k, v in tool_data.items()
-        if k not in ("name", "type", "source", "description")
+        k: v for k, v in tool_data.items() if k not in ("name", "type", "source", "description")
     }
     return description, config_data
 
 
-async def _persist_tool(tool_name: str, tool_type: str, source: str, tool_data: dict[str, Any]) -> None:
+async def _persist_tool(
+    tool_name: str, tool_type: str, source: str, tool_data: dict[str, Any]
+) -> None:
     """将工具持久化到 ConfigStore（仅在持久化模式下生效）。"""
     store = get_store()
     if not _is_store_usable(store):
@@ -480,9 +526,7 @@ async def _try_create_prebuilt_tool(
     environment: str,
 ) -> str | None:
     """尝试基于单个 prebuilt doc 创建工具,返回创建的工具名(或 None)。"""
-    tool_name, tool_type, tool_data = _build_prebuilt_tool_doc(
-        doc, name, system_id, environment
-    )
+    tool_name, tool_type, tool_data = _build_prebuilt_tool_doc(doc, name, system_id, environment)
     if _tool_already_exists(tool_name, rm):
         return None
     if await _try_add_tool(rm, tool_name, tool_type, tool_data, name, persist=True):
@@ -553,7 +597,9 @@ async def _create_default_tools(
     """Fallback: 为无 prebuilt yaml 的数据源类型创建最小工具集。"""
     created: list[str] = []
     for suffix, tool_type in _SOURCE_DEFAULT_TOOLS.get(src_type, []):
-        tool_name = await _try_create_default_tool(rm, name, suffix, tool_type, system_id, environment)
+        tool_name = await _try_create_default_tool(
+            rm, name, suffix, tool_type, system_id, environment
+        )
         if tool_name:
             created.append(tool_name)
     return created
@@ -606,7 +652,9 @@ async def _load_all_source_configs(rm, store) -> dict[str, dict[str, Any]]:
         return rm.get_all_source_configs()
 
 
-def _convert_sources_list_to_configs(sources_list: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _convert_sources_list_to_configs(
+    sources_list: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     """将 store 返回的 list 形式转为 {name: cfg} dict。"""
     configs: dict[str, dict[str, Any]] = {}
     for s in sources_list:
@@ -638,8 +686,7 @@ def _get_source_env_keys_from_cfg(src_cfg: dict[str, Any]) -> tuple[str, str]:
 def _get_tools_for_source_from_rm(rm, name: str) -> list[str]:
     """从 rm 内存中查询绑定到指定数据源的工具名列表。"""
     return [
-        tname for tname, t in rm.get_tools_map().items()
-        if getattr(t, "source_name", None) == name
+        tname for tname, t in rm.get_tools_map().items() if getattr(t, "source_name", None) == name
     ]
 
 
@@ -662,10 +709,7 @@ async def _get_tools_for_source(rm, store, name: str) -> list[str]:
 
 def _compute_tool_count_from_rm(rm, name: str) -> int:
     """从 rm 内存计算绑定到指定数据源的工具数量。"""
-    return sum(
-        1 for t in rm.get_tools_map().values()
-        if getattr(t, "source_name", None) == name
-    )
+    return sum(1 for t in rm.get_tools_map().values() if getattr(t, "source_name", None) == name)
 
 
 def _needs_sqlite_normalize(src_type: str, config_data: dict[str, Any]) -> bool:
@@ -806,7 +850,9 @@ def _redact_password(value: Any, password_ciphertext: str) -> Any:
     return "********"
 
 
-def _build_source_base_dict(name: str, source_config: dict[str, Any], tool_count: int) -> dict[str, Any]:
+def _build_source_base_dict(
+    name: str, source_config: dict[str, Any], tool_count: int
+) -> dict[str, Any]:
     """构造数据源响应的基础字段。"""
     return {
         "name": name,
@@ -897,6 +943,7 @@ def _validate_required_fields(name: str, src_type: str) -> None:
 def _validate_system_id(system_id: str) -> None:
     """校验 systemId 必填、长度不超过 10 位、仅含字母数字下划线横线。"""
     import re
+
     if not system_id:
         raise HTTPException(status_code=400, detail="systemId is required")
     if len(system_id) > 10:
@@ -962,15 +1009,14 @@ def _validate_name_param(name: str) -> None:
     防止特殊字符注入日志、文件路径等非 SQL 场景。
     """
     from data_tool_mcp.config.loader import validate_resource_name
+
     try:
         validate_resource_name(name, "source")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-def _validate_update_source_input(
-    body: dict[str, Any], config, old_cfg: dict[str, Any]
-) -> str:
+def _validate_update_source_input(body: dict[str, Any], config, old_cfg: dict[str, Any]) -> str:
     """校验 update_source 入参,返回 src_type。
 
     name 来自路径参数(已在路由入口校验),type 可选(不传则沿用旧值)。
@@ -1024,7 +1070,9 @@ async def _check_source_uniqueness(rm, store, name: str, system_id: str, environ
         )
 
 
-async def _save_source_to_store(store, name: str, src_type: str, config_data: dict[str, Any]) -> bool:
+async def _save_source_to_store(
+    store, name: str, src_type: str, config_data: dict[str, Any]
+) -> bool:
     """保存数据源到 store,ValueError 转为 409,其他异常仅告警。返回是否成功。"""
     try:
         await store.save_source(name, src_type, config_data)
@@ -1180,7 +1228,9 @@ def _extract_system_ids(items) -> set[str]:
     return result
 
 
-def _extract_source_and_system_names(sources_list: list[dict[str, Any]]) -> tuple[set[str], set[str]]:
+def _extract_source_and_system_names(
+    sources_list: list[dict[str, Any]],
+) -> tuple[set[str], set[str]]:
     """从 sources_list 中提取 (source_names, system_ids) 集合。"""
     source_names = set(_extract_source_names(sources_list))
     system_ids = _extract_system_ids(sources_list)
@@ -1206,6 +1256,7 @@ async def _query_today_requests_from_store(store) -> int:
         return 0
     try:
         from datetime import date
+
         today_str = date.today().isoformat()
         stats = await store.query_mcp_stats(start_date=today_str, end_date=today_str)
         return stats.get("summary", {}).get("total", 0)
@@ -1349,6 +1400,7 @@ def _build_input_schema(manifest) -> dict[str, Any] | None:
 async def _execute_sql_with_timing(source, statement: str) -> tuple[list[dict[str, Any]], int]:
     """执行 SQL 并返回 (rows, duration_ms)。"""
     import time
+
     start = time.monotonic()
     rows = await source.execute_sql(statement)
     duration_ms = int((time.monotonic() - start) * 1000)
@@ -1424,6 +1476,7 @@ def _validate_toolset_exists(rm, effective_toolset: str) -> None:
 def _get_default_date_range() -> tuple[str, str]:
     """返回默认日期范围 (start_date, end_date): 今天往前 29 天 ~ 今天。"""
     from datetime import date, timedelta
+
     today = date.today()
     end_date = today.strftime("%Y-%m-%d")
     start_date = (today - timedelta(days=29)).strftime("%Y-%m-%d")
@@ -1483,6 +1536,7 @@ async def dashboard(request: Request) -> dict[str, Any]:
     today_requests = await _query_today_requests_from_store(store)
     if today_requests == 0:
         from data_tool_mcp.server.stats import get_request_counter
+
         today_requests = get_request_counter().get_today_count()
     # 数据源/工具计数 — 优先从数据库查询（多实例一致性），回退到 rm 内存
     source_count, tool_count = await _query_dashboard_counts(store, rm)
@@ -1759,12 +1813,11 @@ async def delete_source(request: Request, name: str):
 
 
 async def _persist_delete_source(store, name: str, sid: str, env: str) -> None:
-    """持久化删除数据源及其工具到 ConfigStore。"""
+    """持久化删除数据源及其工具到 ConfigStore（单事务原子删除）。"""
     if not _is_store_usable(store):
         return
     try:
-        await store.delete_source(name, sid, env)
-        await store.delete_tools_by_source(name, sid, env)
+        await store.delete_source_and_tools(name, sid, env)
     except Exception as exc:
         logger.warning("持久化删除数据源 %r 失败: %s", name, exc)
 
@@ -1789,6 +1842,7 @@ async def test_source(request: Request, name: str) -> dict[str, Any]:
 async def _measure_source_connect_latency(source) -> dict[str, Any]:
     """测量 source.connect() 延迟,返回 ok/latency/error。"""
     import time
+
     try:
         start = time.monotonic()
         if hasattr(source, "connect"):
@@ -1913,7 +1967,9 @@ def _validate_query_input(source_name: str, statement: str) -> None:
 def _validate_source_sql_support(source, source_name: str) -> None:
     """校验数据源是否支持 SQL 查询。"""
     if not hasattr(source, "execute_sql"):
-        raise HTTPException(status_code=400, detail=f"source {source_name!r} does not support SQL queries")
+        raise HTTPException(
+            status_code=400, detail=f"source {source_name!r} does not support SQL queries"
+        )
 
 
 @router.post("/query")
@@ -1964,7 +2020,9 @@ async def list_source_tables(request: Request, name: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
     try:
         if not hasattr(source, "execute_sql"):
-            raise HTTPException(status_code=400, detail=f"source {name!r} does not support SQL queries")
+            raise HTTPException(
+                status_code=400, detail=f"source {name!r} does not support SQL queries"
+            )
         return await _query_source_tables(source)
     finally:
         await rm.release_source(name)
@@ -2022,6 +2080,7 @@ async def mcp_test(request: Request) -> dict[str, Any]:
     _validate_toolset_exists(rm, effective_toolset)
 
     from data_tool_mcp.server.mcp.protocol import MCPProtocol
+
     protocol = MCPProtocol(rm, toolset_name=effective_toolset)
     result = await protocol.handle_tools_list({})
     return _build_mcp_test_response(result)

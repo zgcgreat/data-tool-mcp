@@ -130,10 +130,7 @@ def _build_input_schema_dict(manifest) -> dict[str, Any]:
 
 def _build_param_properties(manifest) -> dict[str, Any]:
     """构建参数 properties 映射。"""
-    return {
-        p.name: {"type": p.type, "description": p.description}
-        for p in manifest.parameters
-    }
+    return {p.name: {"type": p.type, "description": p.description} for p in manifest.parameters}
 
 
 def _build_required_params(manifest) -> list[str]:
@@ -148,18 +145,14 @@ def _check_tool_authorization(tool, rm, access_token: str) -> None:
     if not access_token:
         raise HTTPException(
             status_code=401,
-            detail="tool requires client authorization but access token is missing from the request header"
+            detail="tool requires client authorization but access token is missing from the request header",
         )
 
 
 async def _invoke_tool(tool, params, rm, access_token: str) -> dict[str, Any]:
     """调用工具并处理异常,返回 {"result": ...}。"""
     try:
-        result = await tool.invoke(
-            params,
-            source_provider=rm,
-            access_token=access_token
-        )
+        result = await tool.invoke(params, source_provider=rm, access_token=access_token)
         return {"result": str(result)}
     except ClientServerError as exc:
         # Maps to Go: error classification

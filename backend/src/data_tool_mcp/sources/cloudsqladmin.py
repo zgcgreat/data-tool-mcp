@@ -41,39 +41,77 @@ class CloudSQLAdminSource(Source):
 
     async def list_instances(self) -> list[dict[str, Any]]:
         """列出所有 Cloud SQL 实例。"""
-        resp = await self._execute(lambda: self._client.instances().list(project=self._project_id).execute())
+        resp = await self._execute(
+            lambda: self._client.instances().list(project=self._project_id).execute()
+        )
         return resp.get("items", [])
 
     async def get_instance(self, instance_id: str) -> dict[str, Any]:
         """获取指定实例的详细信息。"""
-        return dict(await self._execute(lambda: self._client.instances().get(project=self._project_id, instance=instance_id).execute()))
+        return dict(
+            await self._execute(
+                lambda: self._client.instances()
+                .get(project=self._project_id, instance=instance_id)
+                .execute()
+            )
+        )
 
     async def create_database(self, instance_id: str, database: str) -> Any:
         """在指定实例中创建数据库。"""
-        return await self._execute(lambda: self._client.databases().insert(project=self._project_id, instance=instance_id, body={"name": database}).execute())
+        return await self._execute(
+            lambda: self._client.databases()
+            .insert(project=self._project_id, instance=instance_id, body={"name": database})
+            .execute()
+        )
 
     async def list_databases(self, instance_id: str) -> list[dict[str, Any]]:
         """列出指定实例中所有数据库。"""
-        resp = await self._execute(lambda: self._client.databases().list(project=self._project_id, instance=instance_id).execute())
+        resp = await self._execute(
+            lambda: self._client.databases()
+            .list(project=self._project_id, instance=instance_id)
+            .execute()
+        )
         return resp.get("items", [])
 
     async def create_users(self, instance_id: str, name: str, password: str) -> Any:
         """在指定实例中创建用户。"""
-        return await self._execute(lambda: self._client.users().insert(project=self._project_id, instance=instance_id, body={"name": name, "password": password}).execute())
+        return await self._execute(
+            lambda: self._client.users()
+            .insert(
+                project=self._project_id,
+                instance=instance_id,
+                body={"name": name, "password": password},
+            )
+            .execute()
+        )
 
     async def clone_instance(self, instance_id: str, clone_body: dict) -> Any:
         """克隆指定实例。"""
-        return await self._execute(lambda: self._client.instances().clone(project=self._project_id, instance=instance_id, body=clone_body).execute())
+        return await self._execute(
+            lambda: self._client.instances()
+            .clone(project=self._project_id, instance=instance_id, body=clone_body)
+            .execute()
+        )
 
     async def create_backup(self, instance_id: str, body: dict) -> Any:
         """为指定实例创建备份。"""
-        return await self._execute(lambda: self._client.backupRuns().insert(project=self._project_id, instance=instance_id, body=body).execute())
+        return await self._execute(
+            lambda: self._client.backupRuns()
+            .insert(project=self._project_id, instance=instance_id, body=body)
+            .execute()
+        )
 
     async def restore_backup(self, instance_id: str, body: dict) -> Any:
         """从备份恢复指定实例。"""
-        return await self._execute(lambda: self._client.instances().restoreBackup(project=self._project_id, instance=instance_id, body=body).execute())
+        return await self._execute(
+            lambda: self._client.instances()
+            .restoreBackup(project=self._project_id, instance=instance_id, body=body)
+            .execute()
+        )
 
-    async def execute_sql(self, project: str, instance: str, database: str, sql: str, access_token: str = "") -> Any:
+    async def execute_sql(
+        self, project: str, instance: str, database: str, sql: str, access_token: str = ""
+    ) -> Any:
         """在指定实例上执行 SQL 语句。"""
         body = {"database": database, "sqlStatement": sql}
         if access_token:
@@ -88,12 +126,24 @@ class CloudSQLAdminSource(Source):
                 ) from e
             creds = Credentials(token=access_token)
             client = build("sqladmin", "v1", credentials=creds)
-            return await self._execute(lambda: client.instances().executeSql(project=project, instance=instance, body=body).execute())
-        return await self._execute(lambda: self._client.instances().executeSql(project=project, instance=instance, body=body).execute())
+            return await self._execute(
+                lambda: client.instances()
+                .executeSql(project=project, instance=instance, body=body)
+                .execute()
+            )
+        return await self._execute(
+            lambda: self._client.instances()
+            .executeSql(project=project, instance=instance, body=body)
+            .execute()
+        )
 
     async def wait_for_operation(self, operation_id: str) -> Any:
         """等待指定操作完成。"""
-        return await self._execute(lambda: self._client.operations().get(project=self._project_id, operation=operation_id).execute())
+        return await self._execute(
+            lambda: self._client.operations()
+            .get(project=self._project_id, operation=operation_id)
+            .execute()
+        )
 
 
 @register_source("cloud-sql-admin")
@@ -117,7 +167,9 @@ class CloudSQLAdminSourceConfig(SourceConfig):
         try:
             from googleapiclient.discovery import build
         except ImportError as e:
-            raise ImportError("google-api-python-client is required: pip install google-api-python-client") from e
+            raise ImportError(
+                "google-api-python-client is required: pip install google-api-python-client"
+            ) from e
 
         client = build("sqladmin", "v1")
         source = CloudSQLAdminSource(name=self._name, client=client, project_id=self.project_id)

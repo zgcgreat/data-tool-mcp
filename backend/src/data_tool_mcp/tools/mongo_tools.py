@@ -26,6 +26,7 @@ from data_tool_mcp.tools.base import (
 # mongodb-find
 # ---------------------------------------------------------------------------
 
+
 class MongodbFindTool(BaseTool):
     """Find documents in a MongoDB collection."""
 
@@ -41,7 +42,9 @@ class MongodbFindTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, MongoDBSource
+        )
         try:
             collection = params.get("collection", "")
             query = params.get("query")
@@ -56,9 +59,18 @@ class MongodbFindTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="collection", type="string", description="Collection name", required=True),
-                ParameterManifest(name="query", type="object", description="MongoDB query filter", required=False),
-                ParameterManifest(name="limit", type="integer", description="Max documents to return", required=False),
+                ParameterManifest(
+                    name="collection", type="string", description="Collection name", required=True
+                ),
+                ParameterManifest(
+                    name="query", type="object", description="MongoDB query filter", required=False
+                ),
+                ParameterManifest(
+                    name="limit",
+                    type="integer",
+                    description="Max documents to return",
+                    required=False,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -79,7 +91,11 @@ class MongodbFindToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbFindToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "查找文档"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "查找文档"),
+        )
 
     async def initialize(self) -> MongodbFindTool:
         """创建并初始化工具实例。"""
@@ -90,6 +106,7 @@ class MongodbFindToolConfig(ToolConfig):
 # ---------------------------------------------------------------------------
 # mongodb-find-one
 # ---------------------------------------------------------------------------
+
 
 class MongodbFindOneTool(BaseTool):
     """Find a single document in a MongoDB collection."""
@@ -106,7 +123,9 @@ class MongodbFindOneTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, MongoDBSource
+        )
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -121,9 +140,18 @@ class MongodbFindOneTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="collection", type="string", description="Collection name", required=True),
-                ParameterManifest(name="query", type="object", description="MongoDB query filter", required=True),
-                ParameterManifest(name="projection", type="object", description="Fields to include/exclude", required=False),
+                ParameterManifest(
+                    name="collection", type="string", description="Collection name", required=True
+                ),
+                ParameterManifest(
+                    name="query", type="object", description="MongoDB query filter", required=True
+                ),
+                ParameterManifest(
+                    name="projection",
+                    type="object",
+                    description="Fields to include/exclude",
+                    required=False,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -144,7 +172,11 @@ class MongodbFindOneToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbFindOneToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "查询单个文档"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "查询单个文档"),
+        )
 
     async def initialize(self) -> MongodbFindOneTool:
         """创建并初始化工具实例。"""
@@ -155,6 +187,7 @@ class MongodbFindOneToolConfig(ToolConfig):
 # ---------------------------------------------------------------------------
 # mongodb-aggregate
 # ---------------------------------------------------------------------------
+
 
 class MongodbAggregateTool(BaseTool):
     """Run an aggregation pipeline on a MongoDB collection."""
@@ -171,7 +204,9 @@ class MongodbAggregateTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, MongoDBSource
+        )
         try:
             collection = params.get("collection", "")
             pipeline = params.get("pipeline", [])
@@ -185,10 +220,15 @@ class MongodbAggregateTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="collection", type="string", description="Collection name", required=True),
                 ParameterManifest(
-                    name="pipeline", type="array", description="Aggregation pipeline stages",
-                    required=True, items={"type": "object"},
+                    name="collection", type="string", description="Collection name", required=True
+                ),
+                ParameterManifest(
+                    name="pipeline",
+                    type="array",
+                    description="Aggregation pipeline stages",
+                    required=True,
+                    items={"type": "object"},
                 ),
             ],
             auth_required=self.auth_required,
@@ -210,7 +250,11 @@ class MongodbAggregateToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbAggregateToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "聚合文档"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "聚合文档"),
+        )
 
     async def initialize(self) -> MongodbAggregateTool:
         """创建并初始化工具实例。"""
@@ -221,6 +265,7 @@ class MongodbAggregateToolConfig(ToolConfig):
 # ---------------------------------------------------------------------------
 # mongodb-insert-one
 # ---------------------------------------------------------------------------
+
 
 class MongodbInsertOneTool(BaseTool):
     """Insert a single document into a MongoDB collection."""
@@ -237,7 +282,9 @@ class MongodbInsertOneTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, MongoDBSource
+        )
         try:
             collection = params.get("collection", "")
             document = params.get("document", {})
@@ -251,8 +298,12 @@ class MongodbInsertOneTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="collection", type="string", description="Collection name", required=True),
-                ParameterManifest(name="document", type="object", description="Document to insert", required=True),
+                ParameterManifest(
+                    name="collection", type="string", description="Collection name", required=True
+                ),
+                ParameterManifest(
+                    name="document", type="object", description="Document to insert", required=True
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -273,7 +324,11 @@ class MongodbInsertOneToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbInsertOneToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "插入单个文档"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "插入单个文档"),
+        )
 
     async def initialize(self) -> MongodbInsertOneTool:
         """创建并初始化工具实例。"""
@@ -284,6 +339,7 @@ class MongodbInsertOneToolConfig(ToolConfig):
 # ---------------------------------------------------------------------------
 # mongodb-insert-many
 # ---------------------------------------------------------------------------
+
 
 class MongodbInsertManyTool(BaseTool):
     """Insert multiple documents into a MongoDB collection."""
@@ -300,7 +356,9 @@ class MongodbInsertManyTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, MongoDBSource
+        )
         try:
             collection = params.get("collection", "")
             documents = params.get("documents", [])
@@ -314,10 +372,15 @@ class MongodbInsertManyTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="collection", type="string", description="Collection name", required=True),
                 ParameterManifest(
-                    name="documents", type="array", description="Documents to insert",
-                    required=True, items={"type": "object"},
+                    name="collection", type="string", description="Collection name", required=True
+                ),
+                ParameterManifest(
+                    name="documents",
+                    type="array",
+                    description="Documents to insert",
+                    required=True,
+                    items={"type": "object"},
                 ),
             ],
             auth_required=self.auth_required,
@@ -339,7 +402,11 @@ class MongodbInsertManyToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbInsertManyToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "插入多个文档"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "插入多个文档"),
+        )
 
     async def initialize(self) -> MongodbInsertManyTool:
         """创建并初始化工具实例。"""
@@ -351,12 +418,15 @@ class MongodbInsertManyToolConfig(ToolConfig):
 # mongodb-delete-one
 # ---------------------------------------------------------------------------
 
+
 class MongodbDeleteOneTool(BaseTool):
     """Delete a single document from a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         self._source_name = source_name
 
     async def invoke(
@@ -366,7 +436,9 @@ class MongodbDeleteOneTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, MongoDBSource
+        )
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -380,8 +452,12 @@ class MongodbDeleteOneTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="collection", type="string", description="Collection name", required=True),
-                ParameterManifest(name="query", type="object", description="MongoDB query filter", required=True),
+                ParameterManifest(
+                    name="collection", type="string", description="Collection name", required=True
+                ),
+                ParameterManifest(
+                    name="query", type="object", description="MongoDB query filter", required=True
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -402,7 +478,11 @@ class MongodbDeleteOneToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbDeleteOneToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "删除单个文档"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "删除单个文档"),
+        )
 
     async def initialize(self) -> MongodbDeleteOneTool:
         """创建并初始化工具实例。"""
@@ -414,12 +494,15 @@ class MongodbDeleteOneToolConfig(ToolConfig):
 # mongodb-delete-many
 # ---------------------------------------------------------------------------
 
+
 class MongodbDeleteManyTool(BaseTool):
     """Delete multiple documents from a MongoDB collection."""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         self._source_name = source_name
 
     async def invoke(
@@ -429,7 +512,9 @@ class MongodbDeleteManyTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, MongoDBSource
+        )
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -443,8 +528,12 @@ class MongodbDeleteManyTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="collection", type="string", description="Collection name", required=True),
-                ParameterManifest(name="query", type="object", description="MongoDB query filter", required=True),
+                ParameterManifest(
+                    name="collection", type="string", description="Collection name", required=True
+                ),
+                ParameterManifest(
+                    name="query", type="object", description="MongoDB query filter", required=True
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -465,7 +554,11 @@ class MongodbDeleteManyToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbDeleteManyToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "删除多个文档"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "删除多个文档"),
+        )
 
     async def initialize(self) -> MongodbDeleteManyTool:
         """创建并初始化工具实例。"""
@@ -476,6 +569,7 @@ class MongodbDeleteManyToolConfig(ToolConfig):
 # ---------------------------------------------------------------------------
 # mongodb-update-one
 # ---------------------------------------------------------------------------
+
 
 class MongodbUpdateOneTool(BaseTool):
     """Update a single document in a MongoDB collection."""
@@ -492,7 +586,9 @@ class MongodbUpdateOneTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, MongoDBSource
+        )
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -507,9 +603,18 @@ class MongodbUpdateOneTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="collection", type="string", description="Collection name", required=True),
-                ParameterManifest(name="query", type="object", description="MongoDB query filter", required=True),
-                ParameterManifest(name="update", type="object", description="Update operations (e.g. {$set: {...}})", required=True),
+                ParameterManifest(
+                    name="collection", type="string", description="Collection name", required=True
+                ),
+                ParameterManifest(
+                    name="query", type="object", description="MongoDB query filter", required=True
+                ),
+                ParameterManifest(
+                    name="update",
+                    type="object",
+                    description="Update operations (e.g. {$set: {...}})",
+                    required=True,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -530,7 +635,11 @@ class MongodbUpdateOneToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbUpdateOneToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "更新单个文档"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "更新单个文档"),
+        )
 
     async def initialize(self) -> MongodbUpdateOneTool:
         """创建并初始化工具实例。"""
@@ -541,6 +650,7 @@ class MongodbUpdateOneToolConfig(ToolConfig):
 # ---------------------------------------------------------------------------
 # mongodb-update-many
 # ---------------------------------------------------------------------------
+
 
 class MongodbUpdateManyTool(BaseTool):
     """Update multiple documents in a MongoDB collection."""
@@ -557,7 +667,9 @@ class MongodbUpdateManyTool(BaseTool):
         access_token: str = "",
     ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, MongoDBSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, MongoDBSource
+        )
         try:
             collection = params.get("collection", "")
             query = params.get("query", {})
@@ -572,9 +684,18 @@ class MongodbUpdateManyTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="collection", type="string", description="Collection name", required=True),
-                ParameterManifest(name="query", type="object", description="MongoDB query filter", required=True),
-                ParameterManifest(name="update", type="object", description="Update operations (e.g. {$set: {...}})", required=True),
+                ParameterManifest(
+                    name="collection", type="string", description="Collection name", required=True
+                ),
+                ParameterManifest(
+                    name="query", type="object", description="MongoDB query filter", required=True
+                ),
+                ParameterManifest(
+                    name="update",
+                    type="object",
+                    description="Update operations (e.g. {$set: {...}})",
+                    required=True,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -595,7 +716,11 @@ class MongodbUpdateManyToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> MongodbUpdateManyToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "更新多个文档"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "更新多个文档"),
+        )
 
     async def initialize(self) -> MongodbUpdateManyTool:
         """创建并初始化工具实例。"""

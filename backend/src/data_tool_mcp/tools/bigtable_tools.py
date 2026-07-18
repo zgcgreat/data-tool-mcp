@@ -30,9 +30,16 @@ class BigtableSQLTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, BigtableSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, BigtableSource
+        )
         try:
             sql = params.get("sql", "")
             if not sql:
@@ -46,7 +53,11 @@ class BigtableSQLTool(BaseTool):
         """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
-            parameters=[ParameterManifest(name="sql", type="string", description="SQL query to execute", required=True)],
+            parameters=[
+                ParameterManifest(
+                    name="sql", type="string", description="SQL query to execute", required=True
+                )
+            ],
             auth_required=self.auth_required,
         )
 
@@ -66,7 +77,11 @@ class BigtableSQLToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> BigtableSQLToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "在 Bigtable 上执行联邦 SQL 查询"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "在 Bigtable 上执行联邦 SQL 查询"),
+        )
 
     async def initialize(self) -> BigtableSQLTool:
         """创建并初始化工具实例。"""

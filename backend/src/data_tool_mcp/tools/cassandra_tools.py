@@ -26,6 +26,7 @@ from data_tool_mcp.tools.base import (
 # cassandra-cql
 # ---------------------------------------------------------------------------
 
+
 class CassandraCQLTool(BaseTool):
     """Run a CQL query on Cassandra."""
 
@@ -34,9 +35,16 @@ class CassandraCQLTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, Source)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, Source
+        )
         try:
             cql = params.get("cql", "")
             if not cql:
@@ -50,7 +58,11 @@ class CassandraCQLTool(BaseTool):
         """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
-            parameters=[ParameterManifest(name="cql", type="string", description="CQL query to execute", required=True)],
+            parameters=[
+                ParameterManifest(
+                    name="cql", type="string", description="CQL query to execute", required=True
+                )
+            ],
             auth_required=self.auth_required,
         )
 
@@ -70,7 +82,11 @@ class CassandraCQLToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> CassandraCQLToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "在 Cassandra 上执行 CQL 查询"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "在 Cassandra 上执行 CQL 查询"),
+        )
 
     async def initialize(self) -> CassandraCQLTool:
         """创建并初始化工具实例。"""
@@ -82,6 +98,7 @@ class CassandraCQLToolConfig(ToolConfig):
 # scylladb-cql
 # ---------------------------------------------------------------------------
 
+
 class ScyllaDBCQLTool(BaseTool):
     """Run a CQL query on ScyllaDB."""
 
@@ -90,9 +107,16 @@ class ScyllaDBCQLTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, Source)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, Source
+        )
         try:
             cql = params.get("cql", "")
             if not cql:
@@ -106,7 +130,11 @@ class ScyllaDBCQLTool(BaseTool):
         """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
-            parameters=[ParameterManifest(name="cql", type="string", description="CQL query to execute", required=True)],
+            parameters=[
+                ParameterManifest(
+                    name="cql", type="string", description="CQL query to execute", required=True
+                )
+            ],
             auth_required=self.auth_required,
         )
 
@@ -126,7 +154,11 @@ class ScyllaDBCQLToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> ScyllaDBCQLToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "在 ScyllaDB 上执行 CQL 查询"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "在 ScyllaDB 上执行 CQL 查询"),
+        )
 
     async def initialize(self) -> ScyllaDBCQLTool:
         """创建并初始化工具实例。"""
@@ -138,6 +170,7 @@ class ScyllaDBCQLToolConfig(ToolConfig):
 # dgraph-dql
 # ---------------------------------------------------------------------------
 
+
 class DgraphDQLTool(BaseTool):
     """Run a DQL query on Dgraph."""
 
@@ -146,9 +179,16 @@ class DgraphDQLTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, Source)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, Source
+        )
         try:
             query = params.get("query", "")
             if not query:
@@ -164,8 +204,12 @@ class DgraphDQLTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="query", type="string", description="DQL query to execute", required=True),
-                ParameterManifest(name="variables", type="object", description="Query variables", required=False),
+                ParameterManifest(
+                    name="query", type="string", description="DQL query to execute", required=True
+                ),
+                ParameterManifest(
+                    name="variables", type="object", description="Query variables", required=False
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -186,7 +230,11 @@ class DgraphDQLToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> DgraphDQLToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "在 Dgraph 上执行 DQL 查询"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "在 Dgraph 上执行 DQL 查询"),
+        )
 
     async def initialize(self) -> DgraphDQLTool:
         """创建并初始化工具实例。"""

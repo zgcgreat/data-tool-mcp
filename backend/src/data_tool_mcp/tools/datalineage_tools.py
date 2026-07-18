@@ -30,9 +30,16 @@ class DataLineageSearchTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, DataLineageSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, DataLineageSource
+        )
         try:
             query = params.get("query", "")
             if not query:
@@ -47,8 +54,12 @@ class DataLineageSearchTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="query", type="string", description="Lineage search query", required=True),
-                ParameterManifest(name="page_size", type="integer", description="Max results", required=False),
+                ParameterManifest(
+                    name="query", type="string", description="Lineage search query", required=True
+                ),
+                ParameterManifest(
+                    name="page_size", type="integer", description="Max results", required=False
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -69,7 +80,11 @@ class DataLineageSearchToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> DataLineageSearchToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "搜索数据血缘事件"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "搜索数据血缘事件"),
+        )
 
     async def initialize(self) -> DataLineageSearchTool:
         """创建并初始化工具实例。"""

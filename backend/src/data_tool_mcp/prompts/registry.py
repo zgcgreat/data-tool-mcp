@@ -56,18 +56,22 @@ def _decode_custom_prompt(name: str, data: dict[str, Any]) -> CustomPromptConfig
     description = data.get("description", "")
     messages = []
     for msg_data in data.get("messages", []):
-        messages.append(Message(
-            role=msg_data.get("role", "user"),
-            content=msg_data.get("content", ""),
-        ))
+        messages.append(
+            Message(
+                role=msg_data.get("role", "user"),
+                content=msg_data.get("content", ""),
+            )
+        )
 
     arguments = []
     for arg_data in data.get("arguments", []):
-        arguments.append(Argument(
-            name=arg_data.get("name", ""),
-            description=arg_data.get("description", ""),
-            required=arg_data.get("required", True),
-        ))
+        arguments.append(
+            Argument(
+                name=arg_data.get("name", ""),
+                description=arg_data.get("description", ""),
+                required=arg_data.get("required", True),
+            )
+        )
 
     return CustomPromptConfig(
         name=name,

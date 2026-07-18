@@ -18,6 +18,7 @@ from data_tool_mcp.sources.base import SQLSource, SourceConfig, register_source
 def _build_auth_part(user: str, password: str) -> str:
     """构造 SQLAlchemy URL 的认证部分 (user:password),无用户名则返回空字符串。"""
     from urllib.parse import quote_plus
+
     if not user:
         return ""
     quoted_user = quote_plus(user)
@@ -48,7 +49,9 @@ class MySQLSource(SQLSource):
         """关闭数据库连接。"""
         await self._engine.dispose()
 
-    async def execute_sql(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_sql(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """执行 SQL 查询并返回结果。"""
         async with self._session_factory() as session:
             result = await asyncio.wait_for(
@@ -116,10 +119,14 @@ class MySQLSourceConfig(SourceConfig):
         """创建并初始化数据源实例。"""
         url = self._build_url()
         engine = create_async_engine(
-            url, pool_size=self.max_open_conns,
-            pool_recycle=3600, pool_pre_ping=True, echo=False,
+            url,
+            pool_size=self.max_open_conns,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            echo=False,
         )
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         source = MySQLSource(name=self._name, engine=engine, session_factory=session_factory)
         await source.connect()

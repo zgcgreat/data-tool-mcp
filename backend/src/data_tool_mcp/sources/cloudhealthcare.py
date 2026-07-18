@@ -44,40 +44,85 @@ class CloudHealthcareSource(Source):
     # FHIR methods
     async def fhir_get_patient(self, fhir_store_id: str, patient_id: str) -> dict[str, Any]:
         """获取 FHIR 患者资源。"""
-        return dict(await self._exec(lambda: self._client.fhir_stores().fhir.Patient.read(
-            name=f"{self._dataset_path}/fhirStores/{fhir_store_id}/fhir/Patient/{patient_id}").execute()))
+        return dict(
+            await self._exec(
+                lambda: self._client.fhir_stores()
+                .fhir.Patient.read(
+                    name=f"{self._dataset_path}/fhirStores/{fhir_store_id}/fhir/Patient/{patient_id}"
+                )
+                .execute()
+            )
+        )
 
-    async def fhir_search(self, fhir_store_id: str, resource_type: str, params: dict | None = None) -> list[dict[str, Any]]:
+    async def fhir_search(
+        self, fhir_store_id: str, resource_type: str, params: dict | None = None
+    ) -> list[dict[str, Any]]:
         """搜索 FHIR 资源。"""
-        resp = await self._exec(lambda: self._client.fhir_stores().fhir.search(
-            name=f"{self._dataset_path}/fhirStores/{fhir_store_id}/fhir/{resource_type}",
-            body=params or {}).execute())
+        resp = await self._exec(
+            lambda: self._client.fhir_stores()
+            .fhir.search(
+                name=f"{self._dataset_path}/fhirStores/{fhir_store_id}/fhir/{resource_type}",
+                body=params or {},
+            )
+            .execute()
+        )
         return resp.get("entry", [])
 
-    async def fhir_create_resource(self, fhir_store_id: str, resource_type: str, body: dict) -> dict[str, Any]:
+    async def fhir_create_resource(
+        self, fhir_store_id: str, resource_type: str, body: dict
+    ) -> dict[str, Any]:
         """创建 FHIR 资源。"""
-        return dict(await self._exec(lambda: self._client.fhir_stores().fhir.create(
-            name=f"{self._dataset_path}/fhirStores/{fhir_store_id}/fhir/{resource_type}",
-            body=body).execute()))
+        return dict(
+            await self._exec(
+                lambda: self._client.fhir_stores()
+                .fhir.create(
+                    name=f"{self._dataset_path}/fhirStores/{fhir_store_id}/fhir/{resource_type}",
+                    body=body,
+                )
+                .execute()
+            )
+        )
 
-    async def fhir_update_resource(self, fhir_store_id: str, resource_type: str, resource_id: str, body: dict) -> dict[str, Any]:
+    async def fhir_update_resource(
+        self, fhir_store_id: str, resource_type: str, resource_id: str, body: dict
+    ) -> dict[str, Any]:
         """更新 FHIR 资源。"""
-        return dict(await self._exec(lambda: self._client.fhir_stores().fhir.update(
-            name=f"{self._dataset_path}/fhirStores/{fhir_store_id}/fhir/{resource_type}/{resource_id}",
-            body=body).execute()))
+        return dict(
+            await self._exec(
+                lambda: self._client.fhir_stores()
+                .fhir.update(
+                    name=f"{self._dataset_path}/fhirStores/{fhir_store_id}/fhir/{resource_type}/{resource_id}",
+                    body=body,
+                )
+                .execute()
+            )
+        )
 
     # DICOM methods
-    async def dicom_search_studies(self, dicom_store_id: str, params: dict | None = None) -> list[dict[str, Any]]:
+    async def dicom_search_studies(
+        self, dicom_store_id: str, params: dict | None = None
+    ) -> list[dict[str, Any]]:
         """搜索 DICOM 研究。"""
-        resp = await self._exec(lambda: self._client.dicom_stores().studies.search(
-            parent=f"{self._dataset_path}/dicomStores/{dicom_store_id}",
-            body=params or {}).execute())
+        resp = await self._exec(
+            lambda: self._client.dicom_stores()
+            .studies.search(
+                parent=f"{self._dataset_path}/dicomStores/{dicom_store_id}", body=params or {}
+            )
+            .execute()
+        )
         return resp if isinstance(resp, list) else [resp]
 
     async def dicom_get_study(self, dicom_store_id: str, study_uid: str) -> dict[str, Any]:
         """获取 DICOM 研究详情。"""
-        return dict(await self._exec(lambda: self._client.dicom_stores().studies.get(
-            name=f"{self._dataset_path}/dicomStores/{dicom_store_id}/dicomWeb/studies/{study_uid}").execute()))
+        return dict(
+            await self._exec(
+                lambda: self._client.dicom_stores()
+                .studies.get(
+                    name=f"{self._dataset_path}/dicomStores/{dicom_store_id}/dicomWeb/studies/{study_uid}"
+                )
+                .execute()
+            )
+        )
 
 
 @register_source("cloud-healthcare")
@@ -108,12 +153,17 @@ class CloudHealthcareSourceConfig(SourceConfig):
         try:
             from googleapiclient.discovery import build
         except ImportError as e:
-            raise ImportError("google-api-python-client is required: pip install google-api-python-client") from e
+            raise ImportError(
+                "google-api-python-client is required: pip install google-api-python-client"
+            ) from e
 
         client = build("healthcare", "v1")
         source = CloudHealthcareSource(
-            name=self._name, client=client,
-            project_id=self.project_id, location=self.location, dataset_id=self.dataset_id,
+            name=self._name,
+            client=client,
+            project_id=self.project_id,
+            location=self.location,
+            dataset_id=self.dataset_id,
         )
         await source.connect()
         return source

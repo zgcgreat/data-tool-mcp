@@ -46,6 +46,7 @@ def _require_param(params: dict[str, Any], name: str) -> Any:
 # hbase-list-tables
 # ---------------------------------------------------------------------------
 
+
 class HBaseListTablesTool(BaseTool):
     """列出 HBase 中的所有表。"""
 
@@ -54,9 +55,16 @@ class HBaseListTablesTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, HBaseSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, HBaseSource
+        )
         try:
             tables = await source.list_tables()
             return {"tables": tables, "count": len(tables)}
@@ -65,7 +73,9 @@ class HBaseListTablesTool(BaseTool):
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
-        return ToolManifest(description=self.description, parameters=[], auth_required=self.auth_required)
+        return ToolManifest(
+            description=self.description, parameters=[], auth_required=self.auth_required
+        )
 
 
 @register_tool("hbase-list-tables")
@@ -83,7 +93,11 @@ class HBaseListTablesToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> HBaseListTablesToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "列出 HBase 中的所有表"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "列出 HBase 中的所有表"),
+        )
 
     async def initialize(self) -> HBaseListTablesTool:
         """创建并初始化工具实例。"""
@@ -95,6 +109,7 @@ class HBaseListTablesToolConfig(ToolConfig):
 # hbase-describe-table
 # ---------------------------------------------------------------------------
 
+
 class HBaseDescribeTableTool(BaseTool):
     """描述 HBase 表的列族结构。"""
 
@@ -103,9 +118,16 @@ class HBaseDescribeTableTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, HBaseSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, HBaseSource
+        )
         try:
             table_name = params.get("table_name", "")
             if not table_name:
@@ -119,7 +141,11 @@ class HBaseDescribeTableTool(BaseTool):
         """返回工具清单，包含名称、描述和参数定义。"""
         return ToolManifest(
             description=self.description,
-            parameters=[ParameterManifest(name="table_name", type="string", description="HBase 表名", required=True)],
+            parameters=[
+                ParameterManifest(
+                    name="table_name", type="string", description="HBase 表名", required=True
+                )
+            ],
             auth_required=self.auth_required,
         )
 
@@ -139,7 +165,11 @@ class HBaseDescribeTableToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> HBaseDescribeTableToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "描述 HBase 表的列族结构"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "描述 HBase 表的列族结构"),
+        )
 
     async def initialize(self) -> HBaseDescribeTableTool:
         """创建并初始化工具实例。"""
@@ -151,6 +181,7 @@ class HBaseDescribeTableToolConfig(ToolConfig):
 # hbase-scan
 # ---------------------------------------------------------------------------
 
+
 class HBaseScanTool(BaseTool):
     """扫描 HBase 表数据(只读)。"""
 
@@ -159,9 +190,16 @@ class HBaseScanTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, HBaseSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, HBaseSource
+        )
         try:
             table_name = params.get("table_name", "")
             if not table_name:
@@ -179,10 +217,25 @@ class HBaseScanTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="table_name", type="string", description="HBase 表名", required=True),
-                ParameterManifest(name="prefix", type="string", description="行键前缀过滤(可选)", required=False),
-                ParameterManifest(name="limit", type="integer", description="返回行数上限(默认 100)", required=False, default=100),
-                ParameterManifest(name="columns", type="array", description="要返回的列(格式: cf:qualifier),省略则返回全部", required=False),
+                ParameterManifest(
+                    name="table_name", type="string", description="HBase 表名", required=True
+                ),
+                ParameterManifest(
+                    name="prefix", type="string", description="行键前缀过滤(可选)", required=False
+                ),
+                ParameterManifest(
+                    name="limit",
+                    type="integer",
+                    description="返回行数上限(默认 100)",
+                    required=False,
+                    default=100,
+                ),
+                ParameterManifest(
+                    name="columns",
+                    type="array",
+                    description="要返回的列(格式: cf:qualifier),省略则返回全部",
+                    required=False,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -203,7 +256,11 @@ class HBaseScanToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> HBaseScanToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "扫描 HBase 表数据"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "扫描 HBase 表数据"),
+        )
 
     async def initialize(self) -> HBaseScanTool:
         """创建并初始化工具实例。"""
@@ -215,6 +272,7 @@ class HBaseScanToolConfig(ToolConfig):
 # hbase-get-row
 # ---------------------------------------------------------------------------
 
+
 class HBaseGetRowTool(BaseTool):
     """获取 HBase 表中指定行键的数据(只读)。"""
 
@@ -223,9 +281,16 @@ class HBaseGetRowTool(BaseTool):
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, HBaseSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, HBaseSource
+        )
         try:
             table_name = params.get("table_name", "")
             row_key = params.get("row_key", "")
@@ -241,8 +306,12 @@ class HBaseGetRowTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="table_name", type="string", description="HBase 表名", required=True),
-                ParameterManifest(name="row_key", type="string", description="行键(Row Key)", required=True),
+                ParameterManifest(
+                    name="table_name", type="string", description="HBase 表名", required=True
+                ),
+                ParameterManifest(
+                    name="row_key", type="string", description="行键(Row Key)", required=True
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -263,7 +332,11 @@ class HBaseGetRowToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> HBaseGetRowToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "获取 HBase 表中指定行键的数据"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "获取 HBase 表中指定行键的数据"),
+        )
 
     async def initialize(self) -> HBaseGetRowTool:
         """创建并初始化工具实例。"""
@@ -275,23 +348,35 @@ class HBaseGetRowToolConfig(ToolConfig):
 # hbase-put-row
 # ---------------------------------------------------------------------------
 
+
 class HBasePutRowTool(BaseTool):
     """向 HBase 表写入一行数据(可能修改数据)。"""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, HBaseSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, HBaseSource
+        )
         try:
             table_name = _require_param(params, "table_name")
             row_key = _require_param(params, "row_key")
             data = _require_param(params, "data")
             if not isinstance(data, dict):
-                raise ValueError("'data' must be an object mapping column_family:qualifier -> value")
+                raise ValueError(
+                    "'data' must be an object mapping column_family:qualifier -> value"
+                )
             await source.put_row(table_name, row_key, data)
             return {"ok": True, "table_name": table_name, "row_key": row_key}
         finally:
@@ -302,9 +387,18 @@ class HBasePutRowTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="table_name", type="string", description="HBase 表名", required=True),
-                ParameterManifest(name="row_key", type="string", description="行键(Row Key)", required=True),
-                ParameterManifest(name="data", type="object", description="列数据映射,格式: {\"cf:qualifier\": \"value\"}", required=True),
+                ParameterManifest(
+                    name="table_name", type="string", description="HBase 表名", required=True
+                ),
+                ParameterManifest(
+                    name="row_key", type="string", description="行键(Row Key)", required=True
+                ),
+                ParameterManifest(
+                    name="data",
+                    type="object",
+                    description='列数据映射,格式: {"cf:qualifier": "value"}',
+                    required=True,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -325,7 +419,11 @@ class HBasePutRowToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> HBasePutRowToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "向 HBase 表写入一行数据"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "向 HBase 表写入一行数据"),
+        )
 
     async def initialize(self) -> HBasePutRowTool:
         """创建并初始化工具实例。"""
@@ -337,23 +435,38 @@ class HBasePutRowToolConfig(ToolConfig):
 # hbase-delete-row
 # ---------------------------------------------------------------------------
 
+
 class HBaseDeleteRowTool(BaseTool):
     """删除 HBase 表中的行或指定列(破坏性操作)。"""
 
     def __init__(self, cfg: ConfigBase, source_name: str):
         """初始化工具配置。"""
-        super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True))
+        super().__init__(
+            cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True)
+        )
         self._source_name = source_name
 
-    async def invoke(self, params: dict[str, Any], source_provider: SourceProvider | None = None, access_token: str = "") -> Any:
+    async def invoke(
+        self,
+        params: dict[str, Any],
+        source_provider: SourceProvider | None = None,
+        access_token: str = "",
+    ) -> Any:
         """执行工具调用，返回查询结果。"""
-        source = await _get_typed_source_async(source_provider, self._source_name, self.name, HBaseSource)
+        source = await _get_typed_source_async(
+            source_provider, self._source_name, self.name, HBaseSource
+        )
         try:
             table_name = _require_param(params, "table_name")
             row_key = _require_param(params, "row_key")
             columns = _parse_columns(params.get("columns"))
             await source.delete_row(table_name, row_key, columns=columns)
-            return {"ok": True, "table_name": table_name, "row_key": row_key, "deleted_columns": columns}
+            return {
+                "ok": True,
+                "table_name": table_name,
+                "row_key": row_key,
+                "deleted_columns": columns,
+            }
         finally:
             await source_provider.release_source(self._source_name)
 
@@ -362,9 +475,18 @@ class HBaseDeleteRowTool(BaseTool):
         return ToolManifest(
             description=self.description,
             parameters=[
-                ParameterManifest(name="table_name", type="string", description="HBase 表名", required=True),
-                ParameterManifest(name="row_key", type="string", description="行键(Row Key)", required=True),
-                ParameterManifest(name="columns", type="array", description="要删除的列(格式: cf:qualifier),省略则删除整行", required=False),
+                ParameterManifest(
+                    name="table_name", type="string", description="HBase 表名", required=True
+                ),
+                ParameterManifest(
+                    name="row_key", type="string", description="行键(Row Key)", required=True
+                ),
+                ParameterManifest(
+                    name="columns",
+                    type="array",
+                    description="要删除的列(格式: cf:qualifier),省略则删除整行",
+                    required=False,
+                ),
             ],
             auth_required=self.auth_required,
         )
@@ -385,7 +507,11 @@ class HBaseDeleteRowToolConfig(ToolConfig):
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any]) -> HBaseDeleteRowToolConfig:
         """从字典创建配置实例。"""
-        return cls(_name=name, source=data.get("source", ""), description=data.get("description", "删除 HBase 表中的行或指定列"))
+        return cls(
+            _name=name,
+            source=data.get("source", ""),
+            description=data.get("description", "删除 HBase 表中的行或指定列"),
+        )
 
     async def initialize(self) -> HBaseDeleteRowTool:
         """创建并初始化工具实例。"""

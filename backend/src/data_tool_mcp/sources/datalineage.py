@@ -77,9 +77,13 @@ class DataLineageSourceConfig(SourceConfig):
         try:
             from google.cloud import datalineage_v1
         except ImportError as e:
-            raise ImportError("google-cloud-datalineage is required: pip install google-cloud-datalineage") from e
+            raise ImportError(
+                "google-cloud-datalineage is required: pip install google-cloud-datalineage"
+            ) from e
 
         client = datalineage_v1.LineageClient()
-        source = DataLineageSource(name=self._name, client=client, project_id=self.project_id, location=self.location)
+        source = DataLineageSource(
+            name=self._name, client=client, project_id=self.project_id, location=self.location
+        )
         await source.connect()
         return source

@@ -78,10 +78,12 @@ _embedding_model_registry: dict[str, type[EmbeddingModelConfig]] = {}
 
 def register_embedding_model(model_type: str):
     """Decorator: register an EmbeddingModelConfig class for a given type."""
+
     def decorator(cls: type[EmbeddingModelConfig]) -> type[EmbeddingModelConfig]:
         """将配置类注册到全局 registry。"""
         _embedding_model_registry[model_type] = cls
         return cls
+
     return decorator
 
 
@@ -93,7 +95,9 @@ def get_embedding_model_config_class(model_type: str) -> type[EmbeddingModelConf
     return cls
 
 
-def decode_embedding_model_config(model_type: str, name: str, config_data: dict[str, Any]) -> EmbeddingModelConfig:
+def decode_embedding_model_config(
+    model_type: str, name: str, config_data: dict[str, Any]
+) -> EmbeddingModelConfig:
     """Decode an embedding model config from raw dict data."""
     cls = get_embedding_model_config_class(model_type)
     return cls.from_dict(name, config_data)

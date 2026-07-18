@@ -55,8 +55,10 @@ def _client_host(request: Request) -> str:
 
 
 def _verify_source_belongs_to_system(
-    rm: ResourceManager, source_name: str,
-    system_id: str | None = None, environment: str | None = None,
+    rm: ResourceManager,
+    source_name: str,
+    system_id: str | None = None,
+    environment: str | None = None,
 ) -> str | None:
     """校验数据源归属:URL 中的 systemId/environment 必须与 source 配置一致。
 
@@ -82,7 +84,7 @@ def _verify_source_belongs_to_system(
 
 def register_routes(app: FastAPI) -> None:
     """Register all MCP routes on the FastAPI app.
-    
+
     Maps to Go routes:
       GET  /sse          → SSE handler
       POST /message      → SSE message endpoint
@@ -95,7 +97,7 @@ def register_routes(app: FastAPI) -> None:
     @app.get("/sse")
     async def sse_endpoint(request: Request):
         """SSE transport endpoint.
-        
+
         Go: r.Get("/sse", func(...) { sseHandler(s, w, r) })
         """
         rm: ResourceManager = request.app.state.resource_manager
@@ -154,7 +156,9 @@ def register_routes(app: FastAPI) -> None:
         # Detect protocol version from header
         version = request.headers.get("mcp-protocol-version", "2025-06-18")
         access_token = _extract_access_token(request)
-        protocol = MCPProtocol(rm, version=version, access_token=access_token, client_addr=_get_client_addr(request))
+        protocol = MCPProtocol(
+            rm, version=version, access_token=access_token, client_addr=_get_client_addr(request)
+        )
         transport = StreamableHTTPTransport(protocol)
         body = await request.body()
         response = await transport.handle_request(body)
@@ -180,7 +184,12 @@ def register_routes(app: FastAPI) -> None:
             )
         base_url = _get_base_url(request)
         access_token = _extract_access_token(request)
-        protocol = MCPProtocol(rm, toolset_name=toolsetName, access_token=access_token, client_addr=_get_client_addr(request))
+        protocol = MCPProtocol(
+            rm,
+            toolset_name=toolsetName,
+            access_token=access_token,
+            client_addr=_get_client_addr(request),
+        )
         transport = SSETransport(
             protocol, base_url=base_url, toolset_name=toolsetName, sse_manager=sse_manager
         )
@@ -210,7 +219,12 @@ def register_routes(app: FastAPI) -> None:
                 content={"error": f"session not found: {session_id}"},
             )
         access_token = _extract_access_token(request)
-        protocol = MCPProtocol(rm, toolset_name=toolsetName, access_token=access_token, client_addr=_get_client_addr(request))
+        protocol = MCPProtocol(
+            rm,
+            toolset_name=toolsetName,
+            access_token=access_token,
+            client_addr=_get_client_addr(request),
+        )
         transport = SSETransport(protocol, toolset_name=toolsetName, session=session)
         body = await request.body()
         response = await transport.handle_post(body)
@@ -233,7 +247,13 @@ def register_routes(app: FastAPI) -> None:
             )
         version = request.headers.get("mcp-protocol-version", "2025-06-18")
         access_token = _extract_access_token(request)
-        protocol = MCPProtocol(rm, version=version, toolset_name=toolsetName, access_token=access_token, client_addr=_get_client_addr(request))
+        protocol = MCPProtocol(
+            rm,
+            version=version,
+            toolset_name=toolsetName,
+            access_token=access_token,
+            client_addr=_get_client_addr(request),
+        )
         transport = StreamableHTTPTransport(protocol)
         body = await request.body()
         response = await transport.handle_request(body)
@@ -254,7 +274,9 @@ def register_routes(app: FastAPI) -> None:
     # 三段式路由必须注册在两段式路由之前,避免被 /{toolsetName}/... 误匹配。
 
     @app.get("/{systemId}/{environment}/{sourceName}/sse")
-    async def system_env_source_sse_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
+    async def system_env_source_sse_endpoint(
+        systemId: str, environment: str, sourceName: str, request: Request
+    ):
         """SSE endpoint scoped to a specific source within a system+environment.
 
         URL: /{systemId}/{environment}/{sourceName}/sse
@@ -262,7 +284,9 @@ def register_routes(app: FastAPI) -> None:
         """
         rm: ResourceManager = request.app.state.resource_manager
         # 校验 source 归属:防止跨系统访问
-        err = _verify_source_belongs_to_system(rm, sourceName, system_id=systemId, environment=environment)
+        err = _verify_source_belongs_to_system(
+            rm, sourceName, system_id=systemId, environment=environment
+        )
         if err:
             return JSONResponse(status_code=404, content={"error": err})
         toolset = rm.get_toolset(sourceName)
@@ -274,8 +298,11 @@ def register_routes(app: FastAPI) -> None:
         base_url = _get_base_url(request)
         access_token = _extract_access_token(request)
         protocol = MCPProtocol(
-            rm, toolset_name=sourceName, access_token=access_token,
-            system_id=systemId, environment=environment,
+            rm,
+            toolset_name=sourceName,
+            access_token=access_token,
+            system_id=systemId,
+            environment=environment,
             client_addr=_get_client_addr(request),
         )
         # toolset_name 使用复合路径,确保 message endpoint URL 为 /{systemId}/{environment}/{sourceName}/message
@@ -289,11 +316,15 @@ def register_routes(app: FastAPI) -> None:
         return transport.create_sse_response()
 
     @app.post("/{systemId}/{environment}/{sourceName}/message")
-    async def system_env_source_message_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
+    async def system_env_source_message_endpoint(
+        systemId: str, environment: str, sourceName: str, request: Request
+    ):
         """Message endpoint for system+environment+source-scoped SSE transport."""
         rm: ResourceManager = request.app.state.resource_manager
         # 校验 source 归属:防止跨系统访问
-        err = _verify_source_belongs_to_system(rm, sourceName, system_id=systemId, environment=environment)
+        err = _verify_source_belongs_to_system(
+            rm, sourceName, system_id=systemId, environment=environment
+        )
         if err:
             return JSONResponse(status_code=404, content={"error": err})
         toolset = rm.get_toolset(sourceName)
@@ -316,8 +347,11 @@ def register_routes(app: FastAPI) -> None:
             )
         access_token = _extract_access_token(request)
         protocol = MCPProtocol(
-            rm, toolset_name=sourceName, access_token=access_token,
-            system_id=systemId, environment=environment,
+            rm,
+            toolset_name=sourceName,
+            access_token=access_token,
+            system_id=systemId,
+            environment=environment,
             client_addr=_get_client_addr(request),
         )
         transport = SSETransport(
@@ -330,11 +364,15 @@ def register_routes(app: FastAPI) -> None:
         return JSONResponse(content={}, status_code=202)
 
     @app.post("/{systemId}/{environment}/{sourceName}/")
-    async def system_env_source_streamable_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
+    async def system_env_source_streamable_endpoint(
+        systemId: str, environment: str, sourceName: str, request: Request
+    ):
         """Streamable HTTP endpoint scoped to a specific source within a system+environment."""
         rm: ResourceManager = request.app.state.resource_manager
         # 校验 source 归属:防止跨系统访问
-        err = _verify_source_belongs_to_system(rm, sourceName, system_id=systemId, environment=environment)
+        err = _verify_source_belongs_to_system(
+            rm, sourceName, system_id=systemId, environment=environment
+        )
         if err:
             return JSONResponse(status_code=404, content={"error": err})
         toolset = rm.get_toolset(sourceName)
@@ -346,8 +384,12 @@ def register_routes(app: FastAPI) -> None:
         version = request.headers.get("mcp-protocol-version", "2025-06-18")
         access_token = _extract_access_token(request)
         protocol = MCPProtocol(
-            rm, version=version, toolset_name=sourceName, access_token=access_token,
-            system_id=systemId, environment=environment,
+            rm,
+            version=version,
+            toolset_name=sourceName,
+            access_token=access_token,
+            system_id=systemId,
+            environment=environment,
             client_addr=_get_client_addr(request),
         )
         transport = StreamableHTTPTransport(protocol)
@@ -358,7 +400,9 @@ def register_routes(app: FastAPI) -> None:
         return JSONResponse(content=response.to_dict())
 
     @app.get("/{systemId}/{environment}/{sourceName}/")
-    async def system_env_source_get_endpoint(systemId: str, environment: str, sourceName: str, request: Request):
+    async def system_env_source_get_endpoint(
+        systemId: str, environment: str, sourceName: str, request: Request
+    ):
         """GET on system+environment+source — method not allowed."""
         return JSONResponse(
             status_code=405,
@@ -389,8 +433,11 @@ def register_routes(app: FastAPI) -> None:
         base_url = _get_base_url(request)
         access_token = _extract_access_token(request)
         protocol = MCPProtocol(
-            rm, toolset_name=sourceName, access_token=access_token,
-            system_id=systemId, client_addr=_get_client_addr(request),
+            rm,
+            toolset_name=sourceName,
+            access_token=access_token,
+            system_id=systemId,
+            client_addr=_get_client_addr(request),
         )
         # toolset_name 使用复合路径,确保 message endpoint URL 为 /{systemId}/{sourceName}/message
         transport = SSETransport(
@@ -430,12 +477,13 @@ def register_routes(app: FastAPI) -> None:
             )
         access_token = _extract_access_token(request)
         protocol = MCPProtocol(
-            rm, toolset_name=sourceName, access_token=access_token,
-            system_id=systemId, client_addr=_get_client_addr(request),
+            rm,
+            toolset_name=sourceName,
+            access_token=access_token,
+            system_id=systemId,
+            client_addr=_get_client_addr(request),
         )
-        transport = SSETransport(
-            protocol, toolset_name=f"{systemId}/{sourceName}", session=session
-        )
+        transport = SSETransport(protocol, toolset_name=f"{systemId}/{sourceName}", session=session)
         body = await request.body()
         response = await transport.handle_post(body)
         if response is None:
@@ -459,8 +507,12 @@ def register_routes(app: FastAPI) -> None:
         version = request.headers.get("mcp-protocol-version", "2025-06-18")
         access_token = _extract_access_token(request)
         protocol = MCPProtocol(
-            rm, version=version, toolset_name=sourceName, access_token=access_token,
-            system_id=systemId, client_addr=_get_client_addr(request),
+            rm,
+            version=version,
+            toolset_name=sourceName,
+            access_token=access_token,
+            system_id=systemId,
+            client_addr=_get_client_addr(request),
         )
         transport = StreamableHTTPTransport(protocol)
         body = await request.body()

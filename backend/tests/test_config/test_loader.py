@@ -1,11 +1,8 @@
 """Tests for configuration loading and ENV substitution."""
 
-import os
-from pathlib import Path
-
 import pytest
 
-from data_tool_mcp.config.loader import load_yaml_file, substitute_env_vars
+from data_tool_mcp.config.loader import substitute_env_vars
 from data_tool_mcp.config.models import ServerConfig
 
 
@@ -24,11 +21,13 @@ class TestEnvSubstitution:
 
     def test_nested_dict_substitution(self, monkeypatch):
         monkeypatch.setenv("DB_PASS", "secret123")
-        result = substitute_env_vars({
-            "host": "localhost",
-            "password": "${DB_PASS}",
-            "nested": {"key": "${DB_PASS}"},
-        })
+        result = substitute_env_vars(
+            {
+                "host": "localhost",
+                "password": "${DB_PASS}",
+                "nested": {"key": "${DB_PASS}"},
+            }
+        )
         assert result["password"] == "secret123"
         assert result["nested"]["key"] == "secret123"
 

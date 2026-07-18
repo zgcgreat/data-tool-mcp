@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from typing import Any
 
 
 class SSESession:
@@ -114,9 +113,7 @@ class SSEManager:
     def _collect_stale_session_ids(self, now: float) -> list[str]:
         """收集已过期的会话 ID。"""
         return [
-            sid
-            for sid, sess in self._sessions.items()
-            if now - sess.last_active > self._timeout
+            sid for sid, sess in self._sessions.items() if now - sess.last_active > self._timeout
         ]
 
     def _close_and_remove_sessions(self, stale: list[str]) -> None:

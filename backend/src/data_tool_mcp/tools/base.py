@@ -18,12 +18,14 @@ from data_tool_mcp.tools.template import render_sql_template
 # Manifest
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ParameterManifest:
     """Parameter description sent to MCP clients.
 
     Maps to Go: internal/util/parameters/parameters.go ParameterManifest
     """
+
     name: str
     type: str  # "string", "number", "integer", "boolean", "array", "object"
     description: str = ""
@@ -41,6 +43,7 @@ class ToolAnnotations:
     MCP 2025-06-18+ specification: clients use these hints to decide
     whether to require user confirmation before invoking a tool.
     """
+
     destructive_hint: bool | None = None
     idempotent_hint: bool | None = None
     open_world_hint: bool | None = None
@@ -87,6 +90,7 @@ class ToolManifest:
 
     Maps to Go Manifest struct.
     """
+
     description: str
     parameters: list[ParameterManifest]
     auth_required: list[str] = field(default_factory=list)
@@ -112,11 +116,13 @@ def validate_name(name: str) -> bool:
 # ToolMeta (read-only view of config)
 # ---------------------------------------------------------------------------
 
+
 class ToolMeta(Protocol):
     """Protocol for the config fields that BaseTool reads.
 
     Maps to Go ToolMeta interface.
     """
+
     name: str
     description: str
     auth_required: list[str]
@@ -127,12 +133,14 @@ class ToolMeta(Protocol):
 # ConfigBase
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ConfigBase:
     """Shared YAML fields that every tool's Config has.
 
     Maps to Go ConfigBase struct.
     """
+
     name: str
     description: str = ""
     auth_required: list[str] = field(default_factory=list)
@@ -142,6 +150,7 @@ class ConfigBase:
 # ---------------------------------------------------------------------------
 # Tool interface
 # ---------------------------------------------------------------------------
+
 
 class Tool(ABC):
     """Tool interface.
@@ -238,7 +247,9 @@ class Tool(ABC):
         """
         return []
 
-    def requires_client_authorization(self, source_provider: "SourceProvider | None" = None) -> bool:
+    def requires_client_authorization(
+        self, source_provider: "SourceProvider | None" = None
+    ) -> bool:
         """Check if the tool requires client-provided authorization.
 
         Maps to Go: RequiresClientAuthorization(SourceProvider) (bool, error)
@@ -266,6 +277,7 @@ class Tool(ABC):
 # ToolConfig interface
 # ---------------------------------------------------------------------------
 
+
 class ToolConfig(ABC):
     """Tool configuration interface.
 
@@ -287,6 +299,7 @@ class ToolConfig(ABC):
 # ---------------------------------------------------------------------------
 # BaseTool — default implementations
 # ---------------------------------------------------------------------------
+
 
 class BaseTool(Tool):
     """Provides default implementations of Tool methods.
@@ -370,6 +383,7 @@ class BaseTool(Tool):
 # SourceProvider
 # ---------------------------------------------------------------------------
 
+
 class SourceProvider(Protocol):
     """Minimal view of ResourceManager that Tool package needs.
 
@@ -378,9 +392,11 @@ class SourceProvider(Protocol):
     方案 C: get_source 改为 async(cache-aside + 惰性初始化)。
     调用方必须 try/finally release_source 释放引用计数。
     """
+
     async def get_source(self, source_name: str) -> Source | None:
         """根据名称获取 source 实例。"""
         ...
+
     async def release_source(self, source_name: str) -> None:
         """释放 source 的引用计数。"""
         ...
@@ -406,6 +422,7 @@ def register_tool(tool_type: str):
         class ExecSQLToolConfig(ToolConfig):
             ...
     """
+
     def decorator(cls: type[ToolConfig]) -> type[ToolConfig]:
         """将 ToolConfig 子类注册到全局注册表。"""
         if tool_type in _tool_registry:
@@ -416,6 +433,7 @@ def register_tool(tool_type: str):
             )
         _tool_registry[tool_type] = cls
         return cls
+
     return decorator
 
 
@@ -427,9 +445,7 @@ def _check_tool_alias_conflict(alias: str) -> None:
         )
     if alias in _tool_aliases:
         existing_target = _tool_aliases[alias]
-        raise ValueError(
-            f"alias {alias!r} already registered -> {existing_target!r}"
-        )
+        raise ValueError(f"alias {alias!r} already registered -> {existing_target!r}")
 
 
 def register_tool_alias(alias: str, canonical: str):
@@ -473,7 +489,10 @@ def decode_tool_config(tool_type: str, name: str, config_data: dict[str, Any]) -
 # 共享辅助函数 — 供各 tool 模块复用,降低圈复杂度
 # ---------------------------------------------------------------------------
 
-def _source_resolution_error(source_name: str, tool_name: str, source: Any, expected_type: type | None = None) -> Exception:
+
+def _source_resolution_error(
+    source_name: str, tool_name: str, source: Any, expected_type: type | None = None
+) -> Exception:
     """根据 source 解析结果构造对应的异常对象。"""
     if source is None:
         return ValueError(f"source {source_name!r} not found for tool {tool_name!r}")
@@ -481,7 +500,9 @@ def _source_resolution_error(source_name: str, tool_name: str, source: Any, expe
     return TypeError(f"source {source_name!r} is not a {type_hint} source")
 
 
-async def _release_and_raise(source_provider: "SourceProvider", source_name: str, exc: Exception) -> None:
+async def _release_and_raise(
+    source_provider: "SourceProvider", source_name: str, exc: Exception
+) -> None:
     """释放 source 引用并抛出指定异常。"""
     await source_provider.release_source(source_name)
     raise exc
@@ -528,7 +549,9 @@ def _build_sql_tool_parameters(
     if param_defs:
         return _manifests_from_dicts(param_defs)
     if not statement:
-        return [ParameterManifest(name="sql", type="string", description=sql_description, required=True)]
+        return [
+            ParameterManifest(name="sql", type="string", description=sql_description, required=True)
+        ]
     return []
 
 

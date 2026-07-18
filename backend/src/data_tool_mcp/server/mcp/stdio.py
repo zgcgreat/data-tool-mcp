@@ -31,9 +31,7 @@ class STDIOTransport:
         """初始化 stdin reader。"""
         reader = asyncio.StreamReader()
         protocol_reader = asyncio.StreamReaderProtocol(reader)
-        await asyncio.get_event_loop().connect_read_pipe(
-            lambda: protocol_reader, sys.stdin
-        )
+        await asyncio.get_event_loop().connect_read_pipe(lambda: protocol_reader, sys.stdin)
         return reader
 
     async def _loop(self, reader: asyncio.StreamReader) -> None:
