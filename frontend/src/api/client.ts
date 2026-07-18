@@ -12,13 +12,99 @@ import type {
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE || '/mcp-api', timeout: 30000 });
 
+// 从后端 detail 中提取友好的错误消息
+// 支持字符串、{code, fields}、[{msg, param}] 等多种格式
+function parseDetailMessage(detail: unknown): string {
+  if (!detail) return '';
+  // 字符串直接返回
+  if (typeof detail === 'string') return detail;
+  // 数组：通常是 FastAPI 422 校验错误 [{msg, loc, param}, ...]
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        if (!item || typeof item !== 'object') return '';
+        // 优先使用 msg 字段
+        const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : item.param || item.field;
+        const text = item.msg || item.message || '';
+        return field ? `${field}: ${text}` : text;
+      })
+      .filter(Boolean);
+    return parts.join('；');
+  }
+  // 对象：可能是 {code, fields}, {message}, {msg} 等
+  if (typeof detail === 'object') {
+    const obj = detail as Record<string, any>;
+    // 显式 message/msg 字段优先
+    if (typeof obj.message === 'string') return obj.message;
+    if (typeof obj.msg === 'string') return obj.msg;
+    // {code, fields} 形式：拼接字段错误
+    if (obj.code && obj.fields && typeof obj.fields === 'object') {
+      const fieldParts = Object.entries(obj.fields).map(([k, v]) => `${k}: ${v}`);
+      return `${obj.code}${fieldParts.length ? '（' + fieldParts.join('；') + '）' : ''}`;
+    }
+    // 兜底：转成可读字符串
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return '未知错误';
+    }
+  }
+  return String(detail);
+}
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const detail = error.response?.data?.detail || error.response?.data?.message;
-    const msg = typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : error.message;
-    console.error(`[API] ${error.config?.url}: ${msg}`);
-    return Promise.reject(new Error(msg));
+    const status: number = error.response?.status ?? 0;
+    const code: string = error.code || '';
+    const rawDetail: unknown = error.response?.data?.detail ?? error.response?.data?.message ?? null;
+    let message = '';
+
+    // 按状态码/错误类型分类处理
+    if (status === 0 || code === 'ERR_NETWORK') {
+      message = '网络连接失败，请检查网络';
+    } else if (code === 'ECONNABORTED') {
+      message = '请求超时，请稍后重试';
+    } else {
+      switch (status) {
+        case 400:
+          message = parseDetailMessage(rawDetail) || '请求参数有误';
+          break;
+        case 401:
+          message = '未授权，请检查认证信息';
+          break;
+        case 403:
+          message = '没有权限执行此操作';
+          break;
+        case 404:
+          message = '请求的资源不存在';
+          break;
+        case 409:
+          message = '资源已存在或存在冲突';
+          break;
+        case 422:
+          message = parseDetailMessage(rawDetail) || '请求数据校验失败';
+          break;
+        default:
+          if (status >= 500 && status < 600) {
+            message = '服务异常，请稍后重试';
+          } else {
+            message = '请求失败，请稍后重试';
+          }
+      }
+    }
+
+    // 记录完整错误信息供开发者调试
+    console.error(`[API] ${error.config?.url} status=${status} code=${code}`, {
+      status,
+      code,
+      detail: rawDetail,
+      message,
+    });
+
+    // reject 结构化对象，message 供 UI 直接展示，detail 保留原始数据供调试
+    return Promise.reject({ message, status, detail: rawDetail });
   },
 );
 

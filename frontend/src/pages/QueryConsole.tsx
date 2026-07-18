@@ -381,6 +381,7 @@ export default function QueryConsole() {
                 onClick={handleRun}
                 disabled={loading}
                 title="Ctrl + Enter"
+                aria-label="执行查询"
               >
                 {loading ? (
                   <>

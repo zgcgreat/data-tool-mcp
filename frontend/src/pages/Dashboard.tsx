@@ -326,15 +326,6 @@ export default function Dashboard() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="page-loading">
-        <div className="spinner" />
-        <div className="loading-text">加载中...</div>
-      </div>
-    );
-  }
-
   // 指标定义
   const metrics = [
     { kind: 'source' as const, label: '数据源', value: stats?.sourceCount ?? 0, onClick: () => navigate('/sources'), tone: 'blue' },
@@ -355,6 +346,13 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {loading ? (
+        <div className="page-loading page-loading-inline">
+          <div className="spinner" />
+          <div className="loading-text">加载中...</div>
+        </div>
+      ) : (
+      <>
       {isFirstTime && (
         <div className="welcome-banner">
           <div className="welcome-eyebrow">开始使用</div>
@@ -515,6 +513,7 @@ export default function Dashboard() {
                     className="btn-secondary btn-sm"
                     onClick={copyUrl}
                     title="复制 URL"
+                    aria-label="复制 URL"
                   >
                     {urlCopied ? <CheckIcon /> : <CopyIcon />}
                     {urlCopied ? '已复制' : '复制'}
@@ -553,6 +552,7 @@ export default function Dashboard() {
                           className="icon-btn danger"
                           onClick={() => removeHeader(i)}
                           title="删除"
+                          aria-label={`删除第 ${i + 1} 个 Header`}
                         >
                           <TrashIcon />
                         </button>
@@ -571,6 +571,7 @@ export default function Dashboard() {
                   className="btn-primary btn-sm"
                   onClick={copyConfig}
                   title="复制 JSON 配置"
+                  aria-label="复制 JSON 配置"
                 >
                   {copied ? <CheckIcon /> : <CopyIcon />}
                   {copied ? '已复制' : '一键复制'}
@@ -616,6 +617,8 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

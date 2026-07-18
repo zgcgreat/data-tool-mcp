@@ -89,6 +89,16 @@
   top: 0;
 }
 
+.sources-table thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--transition-fast);
+}
+
+.sources-table thead th.sortable:hover {
+  color: var(--accent);
+}
+
 .sources-table tbody tr {
   border-bottom: 1px solid var(--border-subtle);
   transition: background var(--transition-fast);
@@ -293,56 +303,7 @@
 
 /* --- 分页（右下角） --- */
 
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
-  padding: var(--space-3) var(--space-2);
-}
-
-.pagination-info {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
-.pagination-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.page-btn {
-  min-width: 32px;
-  height: 30px;
-  padding: 0 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
-}
-
-.page-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-subtle);
-}
-
-.page-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+/* --- Pagination（共享样式见 global.css） --- */
 
 /* --- Empty state button --- */
 
@@ -469,10 +430,6 @@
 @media (max-width: 768px) {
   .page-eyebrow {
     margin-left: 0;
-  }
-  .pagination {
-    flex-wrap: wrap;
-    justify-content: center;
   }
 }
 

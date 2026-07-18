@@ -249,15 +249,6 @@ export default function QuickConnect() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="page-loading">
-        <div className="spinner" />
-        <div className="loading-text">加载中...</div>
-      </div>
-    );
-  }
-
   return (
     <div className="quick-connect fade-in">
       {/* 步骤指示器 */}
@@ -278,6 +269,13 @@ export default function QuickConnect() {
         </div>
       </div>
 
+      {loading ? (
+        <div className="page-loading page-loading-inline">
+          <div className="spinner" />
+          <div className="loading-text">加载中...</div>
+        </div>
+      ) : (
+      <>
       {/* 步骤 1: 选择类型 */}
       {step === 1 && (
         <div className="step-content">
@@ -437,6 +435,7 @@ export default function QuickConnect() {
                           required={field.required}
                           maxLength={field.maxLength}
                           autoFocus={field.autoFocus}
+                          autoComplete={field.isPassword ? 'new-password' : undefined}
                         />
                         {field.isPassword && (
                           <button
@@ -444,6 +443,7 @@ export default function QuickConnect() {
                             className="password-toggle"
                             onClick={() => setShowPassword(prev => !prev)}
                             title={showPassword ? '隐藏密码' : '显示密码'}
+                            aria-label={showPassword ? '隐藏密码' : '显示密码'}
                           >
                             {showPassword ? <EyeOffIcon /> : <EyeIcon />}
                           </button>
@@ -541,6 +541,8 @@ export default function QuickConnect() {
             </button>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

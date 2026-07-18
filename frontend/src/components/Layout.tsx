@@ -3,6 +3,10 @@ import { useState } from 'react';
 import ToastContainer from './Toast';
 import './Layout.css';
 
+// 检测当前是否为窄屏（与 CSS media query 保持一致）
+const isNarrowScreen = () =>
+  typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+
 const Icon = {
   Dashboard: () => (
     <svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
@@ -77,9 +81,13 @@ const pageNames: Record<string, string> = {
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState(false);
+  // 窄屏下 sidebar 默认收起，避免初次加载就覆盖 main 内容
+  const [collapsed, setCollapsed] = useState(isNarrowScreen);
 
   const currentName = pageNames[location.pathname] || '未知';
+
+  // 窄屏下点击遮罩收起 sidebar
+  const closeSidebar = () => setCollapsed(true);
 
   return (
     <div className="layout">
@@ -120,12 +128,16 @@ export default function AppLayout() {
             className="collapse-toggle"
             onClick={() => setCollapsed(!collapsed)}
             title={collapsed ? '展开' : '收起'}
+            aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
           >
             <Icon.Collapse dir={collapsed ? 'right' : 'left'} />
             {!collapsed && <span>收起侧栏</span>}
           </button>
         </div>
       </aside>
+
+      {/* sidebar 展开时渲染遮罩；宽屏下由 CSS 隐藏，仅窄屏可见 */}
+      {!collapsed && <div className="sidebar-overlay" onClick={closeSidebar} />}
 
       <main className="main">
         <header className="topbar">

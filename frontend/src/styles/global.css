@@ -272,6 +272,68 @@ ul, ol { list-style: none; }
 .icon-btn svg { width: 16px; height: 16px; }
 
 /* ==========================================================================
+   Common: Pagination (shared by Sources / Tools / etc.)
+   ========================================================================== */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-2);
+}
+
+.pagination-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.pagination-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.page-btn {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.page-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+/* ==========================================================================
    Common: Badges
    ========================================================================== */
 
@@ -420,6 +482,11 @@ ul, ol { list-style: none; }
   justify-content: center;
   height: 60vh;
   gap: var(--space-4);
+}
+
+/* 内联加载：保留页面骨架（标题/筛选栏），仅在内容区显示加载态 */
+.page-loading-inline {
+  height: 320px;
 }
 
 .spinner {

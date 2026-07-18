@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchTools, getTool, invokeTool, deleteTool, fetchSystems, fetchEnvironments } from '../api/client';
 import type { SystemInfo } from '../api/client';
 import { toast } from '../components/Toast';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import type { ToolInfo, ToolParam } from '../api/types';
 import './Tools.css';
 
@@ -71,6 +72,10 @@ export default function Tools() {
   const [querying, setQuerying] = useState(false);
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  // 分页: 工具列表默认每页 20 条
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 20;
 
   useEffect(() => {
     loadTools();
@@ -142,8 +147,14 @@ export default function Tools() {
     }
   };
 
-  const handleDelete = async (name: string) => {
-    if (!confirm(`确定要删除工具 "${name}" 吗？`)) return;
+  const handleDelete = (name: string) => {
+    setDeleteTarget(name);
+  };
+
+  const confirmDelete = async () => {
+    const name = deleteTarget;
+    setDeleteTarget(null);
+    if (!name) return;
     try {
       await deleteTool(name);
       setTools(prev => prev.filter(t => t.name !== name));
@@ -203,20 +214,25 @@ export default function Tools() {
     setFilterSource('');
   };
 
+  // 应用筛选条件后重置到第 1 页
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [appliedFilters]);
+
+  // 分页: 先对 filteredTools 排序(按名称),再分页,最后对当前页工具分组
+  const sortedFilteredTools = [...filteredTools].sort((a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''))
+  );
+  const totalToolPages = Math.max(1, Math.ceil(sortedFilteredTools.length / pageSize));
+  const safeToolPage = Math.min(currentPage, totalToolPages);
+  const toolPageStart = (safeToolPage - 1) * pageSize;
+  const pagedTools = sortedFilteredTools.slice(toolPageStart, toolPageStart + pageSize);
+
   const grouped: Record<ToolCategory, ToolInfo[]> = { oneclick: [], parameterized: [], sql: [] };
-  filteredTools.forEach(t => {
+  pagedTools.forEach(t => {
     const cat = (t.category || 'parameterized') as ToolCategory;
     grouped[cat].push(t);
   });
-
-  if (loading) {
-    return (
-      <div className="page-loading">
-        <div className="spinner" />
-        <div className="loading-text">加载中...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="tools-page fade-in">
@@ -280,6 +296,12 @@ export default function Tools() {
         </div>
       </div>
 
+      {loading ? (
+        <div className="page-loading page-loading-inline">
+          <div className="spinner" />
+          <div className="loading-text">加载中...</div>
+        </div>
+      ) : (
       <div className="tools-layout">
         <div className="tools-list">
           {filteredTools.length === 0 ? (
@@ -336,6 +358,29 @@ export default function Tools() {
               })}
             </>
           )}
+          {sortedFilteredTools.length > pageSize && (
+            <div className="pagination">
+              <span className="pagination-info">
+                共 {totalToolPages} 页，当前第 {safeToolPage}/{totalToolPages} 页
+              </span>
+              <div className="pagination-controls">
+                <button
+                  className="page-btn"
+                  onClick={() => setCurrentPage(Math.max(1, safeToolPage - 1))}
+                  disabled={safeToolPage === 1}
+                >
+                  上一页
+                </button>
+                <button
+                  className="page-btn"
+                  onClick={() => setCurrentPage(Math.min(totalToolPages, safeToolPage + 1))}
+                  disabled={safeToolPage === totalToolPages}
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="tool-detail">
@@ -376,6 +421,7 @@ export default function Tools() {
           )}
         </div>
       </div>
+      )}
       {querying && (
         <div className="query-loading-overlay" role="status" aria-live="polite">
           <div className="query-loading-box">
@@ -384,6 +430,15 @@ export default function Tools() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除工具"
+        message={`确定要删除工具 "${deleteTarget}" 吗？删除后不可恢复。`}
+        confirmText="删除"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

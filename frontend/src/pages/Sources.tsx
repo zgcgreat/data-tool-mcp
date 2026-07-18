@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchSources, fetchSource, fetchSourceTypes, createSource, updateSource, deleteSource, testSourceConnection, fetchSystems, fetchEnvironments } from '../api/client';
 import { toast } from '../components/Toast';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import type { SystemInfo } from '../api/client';
 import type { SourceInfo, SourceTypeSchema } from '../api/types';
 import './Sources.css';
@@ -105,8 +106,14 @@ export default function Sources() {
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [environments, setEnvironments] = useState<string[]>(['dev', 'st', 'uat', 'prd']);
   const [selectedEnvironment, setSelectedEnvironment] = useState('');
+  // 列表排序
+  type SortKey = 'name' | 'systemId' | 'environment' | 'toolCount' | 'type';
+  type SortDir = 'asc' | 'desc';
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
   // 分页: 列表展示，默认每页 10 条
   const [currentPage, setCurrentPage] = useState(1);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const pageSize = 10;
 
   useEffect(() => {
@@ -183,8 +190,14 @@ export default function Sources() {
     }
   };
 
-  const handleDelete = async (name: string) => {
-    if (!confirm(`确定要删除数据源 "${name}" 吗？关联的工具也会被删除。`)) return;
+  const handleDelete = (name: string) => {
+    setDeleteTarget(name);
+  };
+
+  const confirmDelete = async () => {
+    const name = deleteTarget;
+    setDeleteTarget(null);
+    if (!name) return;
     try {
       await deleteSource(name);
       setSources(prev => prev.filter(s => s.name !== name));
@@ -238,6 +251,42 @@ export default function Sources() {
     return true;
   });
 
+  // 排序后的数据源列表
+  const sortedSources = [...filteredSources].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    let av: string | number = '';
+    let bv: string | number = '';
+    switch (sortKey) {
+      case 'name':
+        av = String(a.name || ''); bv = String(b.name || ''); break;
+      case 'systemId':
+        av = String(a.systemId || ''); bv = String(b.systemId || ''); break;
+      case 'environment':
+        av = String(a.environment || ''); bv = String(b.environment || ''); break;
+      case 'toolCount':
+        av = Number(a.toolCount || 0); bv = Number(b.toolCount || 0); break;
+      case 'type':
+        av = String(a.type || ''); bv = String(b.type || ''); break;
+    }
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const sortIndicator = (key: SortKey) => {
+    if (sortKey !== key) return '';
+    return sortDir === 'asc' ? ' \u2191' : ' \u2193';
+  };
+
   // 点击"查询"按钮：短暂显示加载效果后应用筛选条件
   const handleSearch = () => {
     setQuerying(true);
@@ -252,23 +301,14 @@ export default function Sources() {
   };
 
   // 分页计算（边界保护：删除后当前页可能超出范围）
-  const totalPages = Math.max(1, Math.ceil(filteredSources.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(sortedSources.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
   const pageStart = (safePage - 1) * pageSize;
-  const pagedSources = filteredSources.slice(pageStart, pageStart + pageSize);
+  const pagedSources = sortedSources.slice(pageStart, pageStart + pageSize);
 
   const goToPage = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)));
   };
-
-  if (loading) {
-    return (
-      <div className="page-loading">
-        <div className="spinner" />
-        <div className="loading-text">加载中...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="sources-page fade-in">
@@ -319,7 +359,12 @@ export default function Sources() {
         </div>
       </div>
 
-      {filteredSources.length === 0 ? (
+      {loading ? (
+        <div className="page-loading page-loading-inline">
+          <div className="spinner" />
+          <div className="loading-text">加载中...</div>
+        </div>
+      ) : filteredSources.length === 0 ? (
         <div className="empty-state card">
           <div className="empty-icon"><DatabaseIcon /></div>
           <h3>还没有数据源</h3>
@@ -335,13 +380,13 @@ export default function Sources() {
               <table className="sources-table">
                 <thead>
                   <tr>
-                    <th className="col-type">类型</th>
-                    <th className="col-name">名称</th>
-                    <th className="col-system">系统</th>
-                    <th className="col-env">环境</th>
+                    <th className="col-type sortable" onClick={() => handleSort('type')}>类型{sortIndicator('type')}</th>
+                    <th className="col-name sortable" onClick={() => handleSort('name')}>名称{sortIndicator('name')}</th>
+                    <th className="col-system sortable" onClick={() => handleSort('systemId')}>系统{sortIndicator('systemId')}</th>
+                    <th className="col-env sortable" onClick={() => handleSort('environment')}>环境{sortIndicator('environment')}</th>
                     <th className="col-conn">连接</th>
                     <th className="col-status">状态</th>
-                    <th className="col-tools">工具</th>
+                    <th className="col-tools sortable" onClick={() => handleSort('toolCount')}>工具{sortIndicator('toolCount')}</th>
                     <th className="col-actions">操作</th>
                   </tr>
                 </thead>
@@ -411,6 +456,7 @@ export default function Sources() {
                               onClick={() => handleTest(source.name)}
                               disabled={testing === source.name}
                               title="测试连接"
+                              aria-label={`测试数据源 ${source.name} 的连接`}
                             >
                               {testing === source.name ? <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> : <PlayIcon />}
                             </button>
@@ -418,6 +464,7 @@ export default function Sources() {
                               className="icon-btn"
                               onClick={() => handleEditClick(source.name)}
                               title="编辑"
+                              aria-label={`编辑数据源 ${source.name}`}
                             >
                               <EditIcon />
                             </button>
@@ -425,6 +472,7 @@ export default function Sources() {
                               className="icon-btn danger"
                               onClick={() => handleDelete(source.name)}
                               title="删除"
+                              aria-label={`删除数据源 ${source.name}`}
                             >
                               <TrashIcon />
                             </button>
@@ -482,6 +530,17 @@ export default function Sources() {
           onSubmit={handleEdit}
         />
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除数据源"
+        message={`确定要删除数据源 "${deleteTarget}" 吗？关联的工具也会被删除。`}
+        confirmText="删除"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
       {querying && (
         <div className="query-loading-overlay" role="status" aria-live="polite">
           <div className="query-loading-box">
@@ -496,20 +555,6 @@ export default function Sources() {
 
 // --- 配置字段元信息：哪些字段不展示在表单中 ---
 const HIDDEN_FIELDS = new Set(['name', 'type', 'status', 'latency', 'error', 'toolCount', 'createdTools', 'systemId', 'environment']);
-
-// 密码部分脱敏: 前2位 + *** + 后2位
-// 用于编辑表单展示, 让用户知道密码已存在且大致内容, 但不暴露完整值
-// 保存时前端检测到 value 等于脱敏值, 则不提交该字段, 让后端保留原密码
-function maskPassword(value: string): string {
-  if (!value) return '';
-  const len = value.length;
-  if (len <= 4) return '****';
-  return `${value.slice(0, 2)}***${value.slice(-2)}`;
-}
-
-// 脱敏占位符前缀, 用于判断用户是否修改了密码
-// 密码字段在编辑模式下初始值为 maskPassword(原始密码), 用户修改后变为新明文
-// 提交时如果值仍是脱敏格式, 则不提交让后端保留原密码
 
 function SourceFormModal({
   mode,
@@ -530,11 +575,9 @@ function SourceFormModal({
   const [type, setType] = useState(source?.type || Object.keys(sourceTypes)[0] || 'postgres');
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
-  // 保留原始密码(编辑模式下从后端获取的真实值), 用于:
-  // 1. 初始化时显示部分脱敏格式 maskPassword(原始值)
-  // 2. 提交时如果用户未修改密码, 不提交 password 字段让后端保留原密码
-  const originalPasswordRef = useRef<string>('');
-  // 标记密码字段是否被用户修改过(从脱敏值切换为新明文)
+  // 标记密码字段是否被用户修改过
+  // 编辑模式下初始留空, 用户输入新值后标记为 true, 提交时发送新密码
+  // 未修改则不提交 password 字段, 让后端保留原密码
   const [passwordModified, setPasswordModified] = useState(false);
 
   // 初始化表单数据
@@ -546,10 +589,10 @@ function SourceFormModal({
       const configFields: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(source)) {
         if (!HIDDEN_FIELDS.has(key)) {
-          if (key === 'password' && typeof value === 'string') {
-            // 保留原始密码用于提交判断, 表单显示部分脱敏格式
-            originalPasswordRef.current = value;
-            configFields[key] = maskPassword(value);
+          if (key === 'password') {
+            // 编辑模式: 密码字段留空, 不回填任何值(安全考虑)
+            // 用户输入新值后提交, 不输入则保留原密码
+            continue;
           } else {
             configFields[key] = value;
           }
@@ -557,8 +600,7 @@ function SourceFormModal({
       }
       setFormData({ systemId: (source.systemId as string) || '', environment: (source.environment as string) || '', name: source.name, ...configFields });
     } else {
-      // 创建模式: 不保留密码
-      originalPasswordRef.current = '';
+      // 创建模式: 使用 schema 默认值
       const schema = sourceTypes[type];
       if (!schema) return;
       const defaults: Record<string, unknown> = {};
@@ -719,9 +761,9 @@ function SourceFormModal({
                 },
                 ...fields.map(f => {
                   const isPassword = f.type === 'password';
-                  // 编辑模式下密码字段显示部分脱敏值(如 ro***ot), type=text 让脱敏值可见
-                  // 用户开始输入后(passwordModified=true)切换为 type=password 隐藏新值
-                  const showMasked = isPassword && isEdit && !passwordModified;
+                  // 密码字段始终用 type=password, 编辑模式下留空不回填
+                  // 用户输入新值后提交, 不输入则保留原密码
+                  const showPasswordHint = isPassword && isEdit && !passwordModified;
                   return {
                     key: f.name,
                     label: f.label,
@@ -730,25 +772,20 @@ function SourceFormModal({
                       <>
                         <input
                           className="form-input"
-                          type={showMasked ? 'text' : (isPassword ? 'password' : f.type)}
+                          type={isPassword ? 'password' : f.type}
                           value={formData[f.name] !== undefined ? String(formData[f.name]) : ''}
                           onChange={e => {
                             const val = f.type === 'number' && e.target.value !== '' ? Number(e.target.value) : e.target.value;
                             handleFieldChange(f.name, val);
                           }}
-                          // 编辑模式下密码字段聚焦时清空脱敏值, 方便用户输入新密码
-                          onFocus={showMasked ? (e) => {
-                            // 自动选中全部, 用户可选择覆盖或保留
-                            e.target.select();
-                          } : undefined}
-                          placeholder={f.placeholder || (showMasked ? '修改密码请输入新值' : '')}
-                          required={f.required}
-                          // 密码字段自动完成关闭,避免浏览器填充干扰
-                          autoComplete={isPassword ? 'off' : undefined}
+                          placeholder={f.placeholder || (isPassword && isEdit ? '不修改请留空' : '')}
+                          required={f.required && !(isPassword && isEdit)}
+                          // 创建模式用 new-password, 编辑模式用 current-password
+                          autoComplete={isPassword ? (isEdit ? 'current-password' : 'new-password') : undefined}
                         />
-                        {showMasked && (
+                        {showPasswordHint && (
                           <span className="form-hint password-hint">
-                            已存在密文, 不修改请保持原样
+                            已存在密文, 不修改请留空
                           </span>
                         )}
                       </>

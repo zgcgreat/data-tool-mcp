@@ -695,14 +695,16 @@ async def _build_source_or_raise(
         raise HTTPException(status_code=400, detail=f"{error_prefix}: {exc}")
 
 
-async def _persist_source(store, name: str, src_type: str, config_data: dict[str, Any]) -> None:
-    """持久化数据源到 ConfigStore(仅在持久化模式下生效)。"""
+async def _persist_source(store, name: str, src_type: str, config_data: dict[str, Any]) -> bool:
+    """持久化数据源到 ConfigStore(仅在持久化模式下生效)。返回是否成功。"""
     if not _is_store_usable(store):
-        return
+        return True  # 无 store 视为成功(单机模式)
     try:
         await store.save_source(name, src_type, config_data)
+        return True
     except Exception as exc:
         logger.warning("持久化数据源 %r 失败: %s", name, exc)
+        return False
 
 
 async def _build_source_response(
@@ -893,11 +895,17 @@ def _validate_required_fields(name: str, src_type: str) -> None:
 
 
 def _validate_system_id(system_id: str) -> None:
-    """校验 systemId 必填且长度不超过 10 位。"""
+    """校验 systemId 必填、长度不超过 10 位、仅含字母数字下划线横线。"""
+    import re
     if not system_id:
         raise HTTPException(status_code=400, detail="systemId is required")
     if len(system_id) > 10:
         raise HTTPException(status_code=400, detail="systemId 长度不能超过 10 位")
+    if not re.match(r"^[a-zA-Z0-9_-]+$", system_id):
+        raise HTTPException(
+            status_code=400,
+            detail="systemId 只能包含字母、数字、下划线和横线",
+        )
 
 
 def _validate_environment(environment: str) -> None:
@@ -941,10 +949,41 @@ def _validate_create_source_input(body: dict[str, Any], config) -> tuple[str, st
     system_id = str(body.get("systemId", "") or "").strip()
     environment = str(body.get("environment", "") or "").strip()
     _validate_required_fields(name, src_type)
+    _validate_name_param(name)
     _validate_system_id(system_id)
     _validate_environment(environment)
     _validate_source_type_whitelist(config, src_type)
     return name, src_type, system_id, environment
+
+
+def _validate_name_param(name: str) -> None:
+    """校验路径参数 name 格式:1-128 字符,仅 [a-zA-Z0-9_.-]。
+
+    防止特殊字符注入日志、文件路径等非 SQL 场景。
+    """
+    from data_tool_mcp.config.loader import validate_resource_name
+    try:
+        validate_resource_name(name, "source")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+def _validate_update_source_input(
+    body: dict[str, Any], config, old_cfg: dict[str, Any]
+) -> str:
+    """校验 update_source 入参,返回 src_type。
+
+    name 来自路径参数(已在路由入口校验),type 可选(不传则沿用旧值)。
+    systemId / environment / type 白名单必须校验,防止绕过创建时的约束。
+    """
+    src_type = body.get("type", old_cfg.get("type", ""))
+    system_id = str(body.get("systemId", "") or "").strip()
+    environment = str(body.get("environment", "") or "").strip()
+    _validate_required_fields("", src_type)  # type 必填
+    _validate_system_id(system_id)
+    _validate_environment(environment)
+    _validate_source_type_whitelist(config, src_type)
+    return src_type
 
 
 async def _check_source_uniqueness_in_rm(rm, name: str, system_id: str, environment: str) -> None:
@@ -985,21 +1024,23 @@ async def _check_source_uniqueness(rm, store, name: str, system_id: str, environ
         )
 
 
-async def _save_source_to_store(store, name: str, src_type: str, config_data: dict[str, Any]) -> None:
-    """保存数据源到 store,ValueError 转为 409,其他异常仅告警。"""
+async def _save_source_to_store(store, name: str, src_type: str, config_data: dict[str, Any]) -> bool:
+    """保存数据源到 store,ValueError 转为 409,其他异常仅告警。返回是否成功。"""
     try:
         await store.save_source(name, src_type, config_data)
+        return True
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         logger.warning("持久化数据源 %r 失败: %s", name, exc)
+        return False
 
 
-async def _persist_new_source(store, name: str, src_type: str, config_data: dict[str, Any]) -> None:
-    """持久化新建数据源,ValueError 转为 409,其他异常仅告警。"""
+async def _persist_new_source(store, name: str, src_type: str, config_data: dict[str, Any]) -> bool:
+    """持久化新建数据源,ValueError 转为 409,其他异常仅告警。返回是否成功。"""
     if not _is_store_usable(store):
-        return
-    await _save_source_to_store(store, name, src_type, config_data)
+        return True  # 无 store 视为成功(单机模式)
+    return await _save_source_to_store(store, name, src_type, config_data)
 
 
 # ---------------------------------------------------------------------------
@@ -1598,16 +1639,18 @@ async def create_source(request: Request) -> dict[str, Any]:
     await rm.add_source(name, source, config=config_data)
     created_tools = await _auto_create_tools(rm, src_type, name)
     # 持久化到 ConfigStore（store 已在上方唯一性校验时获取）
-    await _persist_new_source(store, name, src_type, config_data)
+    persisted = await _persist_new_source(store, name, src_type, config_data)
     # 创建后从 store 读取配置（多实例一致性），回退到 config_data + rm
     result = await _build_source_response(rm, store, name, src_type, config_data)
     result["createdTools"] = created_tools
+    result["persisted"] = persisted
     return result
 
 
 @router.get("/sources/{name}")
 async def get_source(request: Request, name: str) -> dict[str, Any]:
     """获取指定数据源详情,支持编辑场景回填密文密码。"""
+    _validate_name_param(name)
     rm = _get_rm(request)
     store = get_store()
     # 存在性检查 + 配置读取: 优先用 store, 回退到 rm
@@ -1636,7 +1679,9 @@ def _build_config_data(body: dict[str, Any]) -> dict[str, Any]:
 @router.put("/sources/{name}")
 async def update_source(request: Request, name: str) -> dict[str, Any]:
     """更新数据源,清理旧工具后重新生成并持久化。"""
+    _validate_name_param(name)
     body = await request.json()
+    config = _get_config(request)
     rm = _get_rm(request)
     store = get_store()
     # 存在性检查: 优先用 store, 回退到 rm
@@ -1644,23 +1689,28 @@ async def update_source(request: Request, name: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
     # 失效旧 source 缓存(关闭旧连接池)
     old_cfg = _get_source_config_or_empty(rm, name)
+    # V1: 校验 systemId / environment / type 白名单,防止绕过创建时的约束
+    src_type = _validate_update_source_input(body, config, old_cfg)
     await rm.invalidate_source(name)
-    src_type = body.get("type", old_cfg.get("type", "unknown"))
     config_data = _build_config_data(body)
     _normalize_sqlite_config(src_type, config_data)
     # Remove old tools bound to this source before recreating
     old_tools = await _get_tools_for_source(rm, store, name)
     await _remove_tools_for_update(rm, store, name, old_cfg, old_tools)
-    # 若 system_id 或 environment 变更，需先删除旧 store 记录，否则 save_source
-    # 会按新 (system_id, environment) 插入新记录，旧记录成为孤儿数据。
-    await _delete_old_source_record(store, name, old_cfg, config_data)
     source = await _build_source_or_raise(src_type, name, config_data, "更新数据源失败")
     await rm.add_source(name, source, config=config_data)
     await _auto_create_tools(rm, src_type, name)
     # 持久化更新数据源到 ConfigStore（工具已在 _auto_create_tools 中持久化）
-    await _persist_source(store, name, src_type, config_data)
+    persisted = await _persist_source(store, name, src_type, config_data)
+    # T2: 仅在持久化成功后才删除旧 store 记录,防止中间异常导致数据丢失。
+    # save_source 以 (name, system_id, environment) 为复合键做 upsert,
+    # 当键值变更时会插入新记录而非更新,旧记录需手动清除。
+    if persisted:
+        await _delete_old_source_record(store, name, old_cfg, config_data)
     # 更新后从 store 读取配置（多实例一致性），回退到 config_data + rm
-    return await _build_source_response(rm, store, name, src_type, config_data)
+    result = await _build_source_response(rm, store, name, src_type, config_data)
+    result["persisted"] = persisted
+    return result
 
 
 async def _remove_tools_for_update(
@@ -1690,6 +1740,7 @@ async def _remove_source_tools(rm, store, name: str) -> None:
 @router.delete("/sources/{name}", status_code=204)
 async def delete_source(request: Request, name: str):
     """删除数据源及其绑定工具,并从默认 toolset 移除。"""
+    _validate_name_param(name)
     rm = _get_rm(request)
     store = get_store()
     # 存在性检查: 优先用 store, 回退到 rm
@@ -1721,6 +1772,7 @@ async def _persist_delete_source(store, name: str, sid: str, env: str) -> None:
 @router.post("/sources/{name}/test")
 async def test_source(request: Request, name: str) -> dict[str, Any]:
     """测试数据源连通性,返回 ok/latency/error。"""
+    _validate_name_param(name)
     rm = _get_rm(request)
     if not rm.has_source(name):
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
@@ -1905,6 +1957,7 @@ async def _run_sql_query(source, statement: str) -> dict[str, Any]:
 @router.get("/sources/{name}/tables")
 async def list_source_tables(request: Request, name: str) -> dict[str, Any]:
     """List tables in a SQL data source, for the query console sidebar."""
+    _validate_name_param(name)
     rm = _get_rm(request)
     source = await rm.get_source(name)
     if source is None:

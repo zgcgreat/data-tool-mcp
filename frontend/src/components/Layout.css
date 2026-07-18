@@ -222,8 +222,24 @@
   padding: var(--space-6);
 }
 
+/* --- 窄屏遮罩：覆盖 main 区域，点击收起 sidebar ---
+   默认隐藏，仅在窄屏 media query 内显示。
+   z-index 99 低于 sidebar 的 100，保证 sidebar 可点击。 */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 99;
+  display: none;
+}
+
 @media (max-width: 768px) {
   .sidebar { position: absolute; z-index: 100; height: 100%; }
   .sidebar.collapsed { transform: translateX(-100%); width: var(--sidebar-width); }
+  /* 窄屏下显示遮罩 */
+  .sidebar-overlay { display: block; }
   .content { padding: var(--space-4); }
 }

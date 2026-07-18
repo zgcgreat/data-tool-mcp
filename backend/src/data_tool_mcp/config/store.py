@@ -821,7 +821,10 @@ class ConfigStore:
                 existing.tool_names = row_params["tool_names"]
             else:
                 session.add(ToolsetRecord(**row_params))
-            await session.commit()
+            await self._commit_with_integrity_check(
+                session,
+                f"工具集 {name!r} 在系统 {row_params['system_id']} 环境 {row_params['environment']} 下已存在（并发冲突）",
+            )
 
     async def count_toolsets(self) -> int:
         """返回工具集总数。"""
