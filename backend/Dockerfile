@@ -5,6 +5,9 @@ FROM python:3.12-slim AS builder
 # 可选 extras: docker build --build-arg EXTRAS=postgres,mysql,redis .
 # 默认仅安装核心依赖(含 sqlite + mysql config store 驱动)
 ARG EXTRAS=""
+# 内网部署可指定私有 PyPI 镜像: --build-arg PIP_INDEX_URL=https://pypi.internal/simple/
+ARG PIP_INDEX_URL=""
+ARG PIP_TRUSTED_HOST=""
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
@@ -15,7 +18,14 @@ COPY pyproject.toml ./
 COPY src/ src/
 
 # 安装到独立 prefix /install,便于第二阶段拷贝
-RUN if [ -n "$EXTRAS" ]; then \
+# 内网部署时通过 PIP_INDEX_URL 指向私有 PyPI 镜像避免访问公网
+RUN if [ -n "$PIP_INDEX_URL" ]; then \
+        pip config set global.index-url "$PIP_INDEX_URL"; \
+        if [ -n "$PIP_TRUSTED_HOST" ]; then \
+            pip config set global.trusted-host "$PIP_TRUSTED_HOST"; \
+        fi; \
+    fi && \
+    if [ -n "$EXTRAS" ]; then \
         pip install --target=/install ".[${EXTRAS}]"; \
     else \
         pip install --target=/install .; \

@@ -1,15 +1,6 @@
 # data-tool-mcp
 
 <p align="center">
-  <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB.svg">
-  <img alt="MCP" src="https://img.shields.io/badge/MCP-SSE%20%7C%20Streamable%20HTTP%20%7C%20STDIO-green.svg">
-  <img alt="Data sources" src="https://img.shields.io/badge/data%20sources-45%2B-orange.svg">
-  <img alt="Docker" src="https://img.shields.io/badge/docker-ready-2496ED.svg">
-  <img alt="Based on" src="https://img.shields.io/badge/based%20on-googleapis%2Fmcp--toolbox-4285F4.svg">
-</p>
-
-<p align="center">
   <b>An open-source MCP (Model Context Protocol) Toolbox for Databases — in Python.</b><br/>
   Give your AI agents secure, unified, read/write access to <b>45+ databases</b> through one MCP server,
   with an optional web Admin UI for managing data sources, tools, and live SQL.

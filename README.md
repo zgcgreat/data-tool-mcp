@@ -1,15 +1,6 @@
 # data-tool-mcp
 
 <p align="center">
-  <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-3776AB.svg">
-  <img alt="MCP" src="https://img.shields.io/badge/MCP-SSE%20%7C%20Streamable%20HTTP%20%7C%20STDIO-green.svg">
-  <img alt="Data sources" src="https://img.shields.io/badge/data%20sources-45%2B-orange.svg">
-  <img alt="Docker" src="https://img.shields.io/badge/docker-ready-2496ED.svg">
-  <img alt="Based on" src="https://img.shields.io/badge/based%20on-googleapis%2Fmcp--toolbox-4285F4.svg">
-</p>
-
-<p align="center">
   <b>开源的 MCP（Model Context Protocol）数据库工具箱 —— Python 实现。</b><br/>
   通过一个 MCP 服务，让你的 AI 智能体安全、统一地读写 <b>45+ 种数据库</b>，
   并附带可选的 Web 管理后台，用于管理数据源、工具与实时 SQL。

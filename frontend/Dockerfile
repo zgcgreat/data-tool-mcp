@@ -1,8 +1,14 @@
 # ---- 构建阶段 ----
 FROM node:20-alpine AS build
+# 内网部署可指定私有 npm 镜像: --build-arg NPM_REGISTRY=https://npm.internal/
+ARG NPM_REGISTRY=""
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# 内网部署时通过 NPM_REGISTRY 指向私有 npm 镜像避免访问公网
+RUN if [ -n "$NPM_REGISTRY" ]; then \
+        npm config set registry "$NPM_REGISTRY"; \
+    fi && \
+    npm ci
 COPY . .
 RUN npm run build
 

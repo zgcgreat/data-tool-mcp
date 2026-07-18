@@ -11,6 +11,12 @@
 #
 # Build with extra DB drivers (postgres/redis/mongodb/etc.):
 #   docker compose build --build-arg EXTRAS=postgres,redis backend
+#
+# 内网隔离环境构建(指定私有 PyPI / npm 镜像):
+#   docker compose build \
+#     --build-arg PIP_INDEX_URL=https://pypi.internal/simple/ \
+#     --build-arg PIP_TRUSTED_HOST=pypi.internal \
+#     --build-arg NPM_REGISTRY=https://npm.internal/
 
 services:
   backend:
@@ -20,6 +26,9 @@ services:
         # 默认仅装核心依赖。需要更多驱动时通过环境变量传入:
         #   export BACKEND_EXTRAS=postgres,redis,mongodb
         EXTRAS: ${BACKEND_EXTRAS:-}
+        # 内网部署:指定私有 PyPI 镜像(留空则使用公网 PyPI)
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
     image: data-tool-mcp-backend:latest
     command: ["--prebuilt", "sqlite", "--address", "0.0.0.0", "--port", "5000"]
     environment:
@@ -55,7 +64,11 @@ services:
     restart: unless-stopped
 
   ui:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # 内网部署:指定私有 npm 镜像(留空则使用公网 npm)
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
     image: data-tool-mcp-ui:latest
     environment:
       # Reverse-proxies /mcp-api and MCP endpoints to the backend service on the compose network.
