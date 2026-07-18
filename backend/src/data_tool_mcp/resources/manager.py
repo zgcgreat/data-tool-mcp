@@ -50,6 +50,16 @@ def _extract_system_env(src_cfg: dict[str, Any]) -> tuple[str, str] | None:
     return sid, env
 
 
+def _extract_system(src_cfg: dict[str, Any]) -> str | None:
+    """从 source 配置中提取 system_id，缺失返回 None。
+
+    与 _extract_system_env 不同:仅要求 system_id 非空,environment 可空。
+    用于创建 system-only toolset({systemId}),支持 /{systemId}/sse 路径访问。
+    """
+    sid = _strip_str(src_cfg.get("systemId"))
+    return sid or None
+
+
 def _filter_by_names(items: dict[str, Any], names: list[str]) -> list[Any]:
     """根据名称列表过滤出存在的项。"""
     return [items[name] for name in names if name in items]
@@ -315,12 +325,13 @@ class ResourceManager:
             self._tool_types[name] = tool_type
 
     def _add_tool_to_all_toolsets(self, name: str, tool: Tool) -> None:
-        """将工具添加到默认、数据源同名、{system_id}-{environment} toolset。"""
+        """将工具添加到默认、数据源同名、{system_id}、{system_id}-{environment} toolset。"""
         self._add_tool_to_toolset("", name)
         src = self._tool_source_name(tool)
         if not src:
             return
         self._add_tool_to_toolset(src, name)
+        self._add_tool_to_system_toolset(src, name)
         self._add_tool_to_system_env_toolset(src, name)
 
     def _tool_source_name(self, tool: Tool) -> str | None:
@@ -341,6 +352,16 @@ class ResourceManager:
             return
         self._add_tool_to_toolset(f"{sid_env[0]}-{sid_env[1]}", name)
 
+    def _add_tool_to_system_toolset(self, src: str, name: str) -> None:
+        """添加工具到 {system_id} toolset(系统级聚合,不区分环境)。
+
+        支持 MCP 客户端通过 /{systemId}/sse 路径访问该系统全部工具。
+        """
+        sid = _extract_system(self._source_configs.get(src) or {})
+        if not sid:
+            return
+        self._add_tool_to_toolset(sid, name)
+
     def ensure_default_toolset(self) -> None:
         """确保默认 toolset（空名）存在，包含当前所有工具。
 
@@ -348,13 +369,15 @@ class ResourceManager:
         /{source-name}/sse 路由只访问该数据源的工具。
         从持久化存储加载工具后调用。
 
-        此外,按 {system_id}-{environment}(系统编号-环境)创建 toolset,使 MCP 客户端可以通过
-        /{systemId}/{environment}/{sourceName}/sse 路由访问该系统该环境下所有数据源的工具。
+        此外,按 {system_id}(系统编号)和 {system_id}-{environment}(系统编号-环境)创建 toolset,
+        使 MCP 客户端可以通过 /{systemId}/sse 或 /{systemId}/{environment}/{sourceName}/sse
+        路由访问该系统(及环境)下所有数据源的工具。
         """
         with self._lock:
             self._ensure_default_toolset_has_all_tools()
-            source_tool_map, system_env_tool_map = self._group_tools_by_source()
+            source_tool_map, system_tool_map, system_env_tool_map = self._group_tools_by_source()
             self._apply_toolset_groups(source_tool_map)
+            self._apply_toolset_groups(system_tool_map)
             self._apply_toolset_groups(system_env_tool_map)
 
     def _ensure_default_toolset_has_all_tools(self) -> None:
@@ -370,17 +393,30 @@ class ResourceManager:
             if tool_name not in self._toolsets[ts_name].tool_names:
                 self._toolsets[ts_name].tool_names.append(tool_name)
 
-    def _group_tools_by_source(self) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-        """按数据源和 {system_id}-{environment} 分组工具。"""
+    def _group_tools_by_source(
+        self,
+    ) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]]]:
+        """按数据源、{system_id}、{system_id}-{environment} 分组工具。"""
         source_tool_map: dict[str, list[str]] = {}
+        system_tool_map: dict[str, list[str]] = {}
         system_env_tool_map: dict[str, list[str]] = {}
         for tool_name, tool in self._tools.items():
             src = self._tool_source_name(tool)
             if not src:
                 continue
             source_tool_map.setdefault(src, []).append(tool_name)
+            self._add_to_system_group(src, tool_name, system_tool_map)
             self._add_to_system_env_group(src, tool_name, system_env_tool_map)
-        return source_tool_map, system_env_tool_map
+        return source_tool_map, system_tool_map, system_env_tool_map
+
+    def _add_to_system_group(
+        self, src: str, tool_name: str, system_tool_map: dict[str, list[str]]
+    ) -> None:
+        """将工具归入对应的 {system_id} 分组(系统级,不区分环境)。"""
+        sid = _extract_system(self._source_configs.get(src) or {})
+        if not sid:
+            return
+        system_tool_map.setdefault(sid, []).append(tool_name)
 
     def _add_to_system_env_group(
         self, src: str, tool_name: str, system_env_tool_map: dict[str, list[str]]

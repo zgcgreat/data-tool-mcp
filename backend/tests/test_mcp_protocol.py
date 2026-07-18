@@ -64,6 +64,37 @@ class TestMCPProtocol:
         assert resp.result["tools"] == []
 
     @pytest.mark.asyncio
+    async def test_tools_list_system_only_toolset(self, resource_manager):
+        """tools/list 用 {systemId} 作为 toolset_name 应返回该系统全部工具。
+
+        验证 system-only 访问路径(/{systemId}/sse)通过 MCPProtocol 层的正确性:
+        ResourceManager 创建 {systemId} toolset 后,protocol 用该 toolset 过滤工具。
+        """
+        from unittest.mock import MagicMock
+
+        rm = resource_manager
+        rm._source_configs["src1"] = {"systemId": "sys001", "environment": "dev"}
+        rm._source_configs["src2"] = {"systemId": "sys001", "environment": "prd"}
+
+        tool1 = MagicMock()
+        tool1.name = "tool1"
+        tool1.source_name = "src1"
+        tool1.manifest.return_value = MagicMock(description="dev tool")
+        tool2 = MagicMock()
+        tool2.name = "tool2"
+        tool2.source_name = "src2"
+        tool2.manifest.return_value = MagicMock(description="prd tool")
+        rm.add_tool("tool1", tool1, tool_type="sql")
+        rm.add_tool("tool2", tool2, tool_type="sql")
+
+        # 用 system-only toolset 过滤
+        protocol = MCPProtocol(rm, toolset_name="sys001", version="2025-06-18")
+        req = JSONRPCRequest(method="tools/list", id=10, params={})
+        resp = await protocol.handle_request(req)
+        tool_names = {t["name"] for t in resp.result["tools"]}
+        assert tool_names == {"tool1", "tool2"}
+
+    @pytest.mark.asyncio
     async def test_unknown_method(self, protocol):
         req = JSONRPCRequest(method="nonexistent", id=4, params={})
         resp = await protocol.handle_request(req)

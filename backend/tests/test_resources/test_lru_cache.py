@@ -251,3 +251,91 @@ class TestExecuteQueryRefcount:
 
         # release_source 应被调用(不泄漏 refcount)
         rm.release_source.assert_called_once_with("src1")
+
+
+class TestSystemOnlyToolset:
+    """系统级 toolset({systemId})创建 — 支持 /{systemId}/sse 路径访问。
+
+    验证 ResourceManager 在添加工具时,除默认/source/{systemId}-{environment} toolset 外,
+    也创建 {systemId} toolset(不区分环境),使 MCP 客户端可通过 system-only 路径访问。
+    """
+
+    def test_add_tool_creates_system_toolset(self):
+        """add_tool 后应存在 {systemId} toolset,包含该系统全部工具。"""
+        from data_tool_mcp.resources import ResourceManager
+
+        rm = ResourceManager()
+        rm._source_configs["src1"] = {"systemId": "sys001", "environment": "dev"}
+
+        tool = MagicMock()
+        tool.source_name = "src1"
+        rm.add_tool("tool1", tool, tool_type="sql")
+
+        # {systemId} toolset 应存在且包含 tool1
+        ts = rm.get_toolset("sys001")
+        assert ts is not None
+        assert "tool1" in ts.tool_names
+
+    def test_system_toolset_aggregates_across_environments(self):
+        """同一 systemId 下不同 environment 的工具都归入 {systemId} toolset。"""
+        from data_tool_mcp.resources import ResourceManager
+
+        rm = ResourceManager()
+        rm._source_configs["src1"] = {"systemId": "sys001", "environment": "dev"}
+        rm._source_configs["src2"] = {"systemId": "sys001", "environment": "prd"}
+
+        tool1 = MagicMock()
+        tool1.source_name = "src1"
+        tool2 = MagicMock()
+        tool2.source_name = "src2"
+        rm.add_tool("tool1", tool1, tool_type="sql")
+        rm.add_tool("tool2", tool2, tool_type="sql")
+
+        # {systemId} toolset 应包含两个环境的全部工具
+        ts = rm.get_toolset("sys001")
+        assert ts is not None
+        assert set(ts.tool_names) == {"tool1", "tool2"}
+
+        # {systemId}-{environment} toolset 仍按环境隔离
+        ts_dev = rm.get_toolset("sys001-dev")
+        assert ts_dev is not None
+        assert ts_dev.tool_names == ["tool1"]
+        ts_prd = rm.get_toolset("sys001-prd")
+        assert ts_prd is not None
+        assert ts_prd.tool_names == ["tool2"]
+
+    def test_ensure_default_toolset_creates_system_toolset(self):
+        """ensure_default_toolset 应创建 {systemId} toolset(从持久化加载场景)。"""
+        from data_tool_mcp.resources import ResourceManager
+
+        rm = ResourceManager()
+        rm._source_configs["src1"] = {"systemId": "sys001", "environment": "dev"}
+
+        tool = MagicMock()
+        tool.source_name = "src1"
+        # 直接注册到 _tools(模拟从持久化加载,绕过 add_tool 的 toolset 创建)
+        rm._tools["tool1"] = tool
+        rm._tool_types["tool1"] = "sql"
+        rm.ensure_default_toolset()
+
+        ts = rm.get_toolset("sys001")
+        assert ts is not None
+        assert "tool1" in ts.tool_names
+
+    def test_no_system_id_no_system_toolset(self):
+        """source 无 systemId 时不创建系统级 toolset。"""
+        from data_tool_mcp.resources import ResourceManager
+
+        rm = ResourceManager()
+        rm._source_configs["src1"] = {"environment": "dev"}  # 无 systemId
+
+        tool = MagicMock()
+        tool.source_name = "src1"
+        rm.add_tool("tool1", tool, tool_type="sql")
+
+        # 不应创建以空字符串为 key 的系统 toolset
+        # 默认 toolset("") 仍存在,但没有 {systemId} toolset
+        assert rm.get_toolset("") is not None  # 默认 toolset
+        # 遍历所有 toolset,不应有额外的系统级 toolset(只有默认 + source)
+        ts_names = set(rm.get_toolsets_map().keys())
+        assert ts_names == {"", "src1"}

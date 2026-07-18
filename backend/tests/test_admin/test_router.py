@@ -143,3 +143,47 @@ async def test_query_missing_params(client):
     assert resp.status_code == 400
     data = resp.json()
     assert "detail" in data
+
+
+@pytest.mark.asyncio
+async def test_mcp_test_system_only(app, client):
+    """system-only 访问(仅 systemId 无 environment/toolset)应返回该系统工具列表。
+
+    验证 /{systemId}/sse 路径对应的 mcp-test 调用不再返回 404。
+    ResourceManager 创建 {systemId} toolset 后,mcp-test 能正确解析并返回工具。
+    """
+    from data_tool_mcp.resources import Toolset
+
+    # 配置 mock:rm.get_toolset("sys001") 返回非 None,模拟系统级 toolset 已创建
+    rm = app.state.resource_manager
+    rm.get_toolset.return_value = Toolset(name="sys001", tools=["tool1", "tool2"])
+    # MCPProtocol.handle_tools_list 内部调用 get_toolset_tools,返回工具列表
+    # 用 MagicMock 模拟工具对象(有 name 和 manifest 方法)
+    mock_tool = MagicMock()
+    mock_tool.name = "tool1"
+    mock_tool.manifest.return_value = MagicMock(description="test tool")
+    rm.get_toolset_tools.return_value = [mock_tool]
+
+    resp = await client.post(
+        "/mcp-api/mcp-test",
+        json={"toolset": "", "systemId": "sys001", "environment": ""},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["count"] == 1
+    assert data["tools"][0]["name"] == "tool1"
+
+
+@pytest.mark.asyncio
+async def test_mcp_test_system_only_not_found(app, client):
+    """system-only 访问不存在的 systemId 应返回 404(而非误返回全部工具)。"""
+    rm = app.state.resource_manager
+    # get_toolset 默认返回 None(fixture 配置),无需额外设置
+
+    resp = await client.post(
+        "/mcp-api/mcp-test",
+        json={"toolset": "", "systemId": "nonexistent", "environment": ""},
+    )
+    assert resp.status_code == 404
+    assert "toolset 'nonexistent' not found" in resp.json()["detail"]
