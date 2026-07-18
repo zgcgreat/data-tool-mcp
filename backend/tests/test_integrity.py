@@ -1,43 +1,26 @@
-"""Quick integrity test — import all modules and verify registration counts."""
+"""Integrity test — import all modules and verify registration counts.
 
-import sys
-import os
+验证 source/tool 注册完整性,以及关键模块可正常导入。
+作为标准 pytest 测试运行,不再使用模块级 sys.exit。
+"""
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+from __future__ import annotations
 
-errors = []
 
-# 1. Import sources and verify source type registration
-try:
+def test_source_registration() -> None:
+    """验证 source 注册完整性:postgres 必须存在(不是 postgresql)。"""
     from data_tool_mcp.sources import list_source_types
 
-    print(f"✅ sources base imported. Registered sources: {len(list_source_types())}")
-
-    # Verify "postgres" exists (not "postgresql")
     src_types = list_source_types()
-    if "postgres" in src_types:
-        print("   ✅ 'postgres' source registered (not 'postgresql')")
-    else:
-        errors.append("ERROR: 'postgres' source not found in registry")
+    assert "postgres" in src_types, f"'postgres' source not found; got: {sorted(src_types)}"
 
-    # Print all registered source types
-    for st in src_types:
-        print(f"   - {st}")
-except Exception as e:
-    errors.append(f"FAIL: sources import: {e}")
 
-print()
+def test_key_tool_types_registered() -> None:
+    """验证关键 tool 类型均已注册。"""
+    from data_tool_mcp.tools import list_tool_types
 
-# 2. Import all tool modules to trigger @register_tool decorators
-try:
-    from data_tool_mcp.tools import list_tool_types, get_tool_config_class
-
-    tool_types = list_tool_types()
-    print(f"✅ tools package imported. Registered tool types: {len(tool_types)}")
-
-    # Verify key tools exist
-    key_tools = [
+    tool_types = set(list_tool_types())
+    key_tools = {
         "postgres-sql",
         "postgres-execute-sql",
         "postgres-list-tables",
@@ -66,56 +49,57 @@ try:
         "vector-assist-get-spec",
         "cloud-gemini-data-analytics-query",
         "alloydb-ai-nl",
-    ]
-    missing = [t for t in key_tools if t not in tool_types]
-    if missing:
-        errors.append(f"FAIL: Missing key tool types: {missing}")
-    else:
-        print(f"   ✅ All {len(key_tools)} key tool types verified")
+    }
+    missing = key_tools - tool_types
+    assert not missing, f"Missing key tool types: {sorted(missing)}"
 
-    for tt in tool_types:
+
+def test_tool_config_classes_resolvable() -> None:
+    """验证每个已注册的 tool type 都能解析出 config class,且 class 有效。"""
+    from data_tool_mcp.tools import get_tool_config_class, list_tool_types
+
+    failures: list[str] = []
+    for tt in list_tool_types():
         try:
             cls = get_tool_config_class(tt)
-            print(f"   - {tt}")
-        except Exception as e:
-            errors.append(f"   FAIL: {tt} -> {e}")
-except Exception as e:
-    errors.append(f"FAIL: tools import: {e}")
+            if cls is None:
+                failures.append(f"{tt} -> returned None")
+        except Exception as exc:
+            failures.append(f"{tt} -> {exc}")
+    assert not failures, "Tool config class resolution failures:\n  " + "\n  ".join(failures)
 
-print()
 
-# 3. Verify no duplicate tool registrations
-import data_tool_mcp.tools.base as base_mod
+def test_no_duplicate_tool_registrations() -> None:
+    """验证 tool 注册表无重复(装饰器在 import 时会抛错,这里交叉校验)。"""
+    from data_tool_mcp.tools import list_tool_types
 
-registry = base_mod._tool_registry
-print(f"✅ Tool registry size: {len(registry)} (no duplicate errors = no conflicts)")
+    tool_types = list(list_tool_types())
+    # list_tool_types 返回 dict keys,本身已去重;校验注册表尺寸一致
+    assert len(tool_types) == len(set(tool_types)), "Duplicate tool types detected"
 
-# 4. Verify no duplicate source registrations
-from data_tool_mcp.sources.base import _source_registry
 
-print(f"✅ Source registry size: {len(_source_registry)} (no duplicate errors = no conflicts)")
+def test_no_duplicate_source_registrations() -> None:
+    """验证 source 注册表无重复。"""
+    from data_tool_mcp.sources import list_source_types
 
-print()
+    src_types = list(list_source_types())
+    assert len(src_types) == len(set(src_types)), "Duplicate source types detected"
 
-# 5. Verify model entry import too
-try:
-    # Just import what we can
-    print("✅ config.models imported OK")
-    print("✅ config.loader imported OK")
-    print("✅ resources imported OK")
+
+def test_critical_modules_importable() -> None:
+    """验证关键模块可正常导入(此前用 print 假装通过,现改为真正导入)。"""
+    from data_tool_mcp.config import loader, models  # noqa: F401
+    from data_tool_mcp import resources  # noqa: F401
     from data_tool_mcp.server.mcp.protocol import MCP_VERSIONS
+    from data_tool_mcp.server.routes import mcp_routes  # noqa: F401
 
-    print(f"✅ server.mcp.protocol imported OK. Versions: {list(MCP_VERSIONS.keys())}")
-    print("✅ server.routes.mcp_routes imported OK")
-except Exception as e:
-    errors.append(f"FAIL: additional imports: {e}")
+    assert len(MCP_VERSIONS) > 0, "MCP_VERSIONS should not be empty"
 
-print()
 
-if errors:
-    print("❌ ERRORS FOUND:")
-    for e in errors:
-        print(f"   {e}")
-    sys.exit(1)
-else:
-    print("🎉 ALL INTEGRITY CHECKS PASSED")
+def test_tool_registry_size_positive() -> None:
+    """验证 tool 和 source 注册表非空。"""
+    from data_tool_mcp.tools import list_tool_types
+    from data_tool_mcp.sources import list_source_types
+
+    assert len(list_tool_types()) > 0, "Tool registry is empty"
+    assert len(list_source_types()) > 0, "Source registry is empty"

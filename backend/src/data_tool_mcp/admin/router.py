@@ -12,7 +12,7 @@ from data_tool_mcp.config.store import get_store
 from data_tool_mcp.sources import decode_source_config
 from data_tool_mcp.tools import decode_tool_config
 
-router = APIRouter(prefix="/mcp-api", tags=["admin"])
+router = APIRouter(prefix="/mcp-api", tags=["Admin"])
 
 logger = logging.getLogger(__name__)
 

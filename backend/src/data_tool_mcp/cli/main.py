@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
 import sys
 from pathlib import Path
@@ -18,6 +19,8 @@ if TYPE_CHECKING:
     # 仅用于类型注解,运行时避免循环导入
     from data_tool_mcp.config.models import ServerConfig
     from data_tool_mcp.resources import ResourceManager
+
+logger = logging.getLogger(__name__)
 
 
 def _load_dotenv() -> None:
@@ -417,13 +420,13 @@ def _warn_hosts_disabled(config: "ServerConfig") -> None:
 
 
 async def _close_source_quietly(src) -> None:
-    """静默关闭 source 连接（忽略异常）。"""
+    """静默关闭 source 连接（记录异常但不抛出,避免关闭流程中断）。"""
     if not hasattr(src, "close"):
         return
     try:
         await src.close()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — 关闭路径需兜底,不能因单个 source 失败中断其余
+        logger.debug("source close failed (ignored): %s", exc)
 
 
 async def _close_sources(sources_map: dict) -> None:

@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
+from data_tool_mcp import __version__
 from data_tool_mcp.config.models import ServerConfig
 from data_tool_mcp.resources import ResourceManager
 from data_tool_mcp.server.routes import mcp_routes
@@ -31,6 +32,14 @@ logger = logging.getLogger(__name__)
 # 项目标识 — 所有 HTTP 响应都会携带此 header,便于客户端识别服务来源
 _SERVER_NAME = "data-tool-mcp"
 
+# OpenAPI 文档分组标签 — /docs 页面按此分组展示端点
+_OPENAPI_TAGS = [
+    {"name": "Health", "description": "健康检查与探针（/health、/live、/ready）"},
+    {"name": "MCP-SSE", "description": "MCP SSE transport 端点（/sse、/message）"},
+    {"name": "MCP-Streamable", "description": "MCP Streamable HTTP transport 端点（POST /）"},
+    {"name": "Admin", "description": "管理后台 API（/mcp-api/...）"},
+]
+
 
 def create_app(config: ServerConfig, resource_manager: ResourceManager) -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -38,9 +47,14 @@ def create_app(config: ServerConfig, resource_manager: ResourceManager) -> FastA
     # Maps to Go: sseManager := newSseManager(ctx)
     sse_manager = SSEManager()
     app = FastAPI(
-        title="MCP Toolbox",
-        version="0.1.0",
-        description="MCP Toolbox for Databases",
+        title=_SERVER_NAME,
+        version=__version__,
+        description="MCP Toolbox for Databases — 多数据源 MCP 服务（Python 实现）",
+        license_info={
+            "name": "Apache-2.0",
+            "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        },
+        openapi_tags=_OPENAPI_TAGS,
         lifespan=_build_lifespan(sse_manager, resource_manager),
     )
     _init_app_state(app, config, resource_manager, sse_manager)
@@ -182,21 +196,21 @@ def _register_routers(app: FastAPI, config: ServerConfig) -> None:
     """注册路由。"""
 
     # Health check — 兼容旧端点,等价于 /live (轻量级探针,不查依赖)
-    @app.get("/health")
+    @app.get("/health", tags=["Health"])
     async def health() -> dict:
         """健康检查端点(向后兼容),返回服务存活状态。"""
         return {"status": "ok"}
 
     # Liveness — 进程存活探针。K8s/Docker 用于判断是否需要重启容器。
     # 永远返回 200(只要事件循环还在跑),不查任何依赖。
-    @app.get("/live")
+    @app.get("/live", tags=["Health"])
     async def live() -> dict:
         """Liveness probe — 进程存活即返回 ok。"""
         return {"status": "ok"}
 
     # Readiness — 就绪探针。K8s 用于判断是否可以把流量打到本实例。
     # 检查 ResourceManager 与 ConfigStore 是否已初始化。
-    @app.get("/ready")
+    @app.get("/ready", tags=["Health"])
     async def ready(request: Request) -> dict:
         """Readiness probe — 检查依赖是否就绪。"""
         rm: ResourceManager | None = getattr(request.app.state, "resource_manager", None)

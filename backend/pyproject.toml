@@ -170,7 +170,3 @@ strict = true
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-
-[tool.ruff.lint.per-file-ignores]
-# test_integrity.py 故意在注册 source/tool 后再导入对应 registry,需要延迟 import
-"tests/test_integrity.py" = ["E402"]

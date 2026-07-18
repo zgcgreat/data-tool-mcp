@@ -786,10 +786,8 @@ class ConfigStore:
 
         try:
             await session.commit()
-        except Exception as exc:
-            if isinstance(exc, IntegrityError):
-                raise ValueError(error_msg) from exc
-            raise
+        except IntegrityError as exc:
+            raise ValueError(error_msg) from exc
 
     # --- Source CRUD ---
 

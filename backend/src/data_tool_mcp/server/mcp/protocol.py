@@ -7,6 +7,7 @@ Maps to Go:
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -18,6 +19,21 @@ from data_tool_mcp.errors import (
     ToolboxError,
     exception_to_jsonrpc_error,
 )
+
+
+def _render_tool_result(result: Any) -> str:
+    """将工具调用结果渲染为 MCP text content 字符串。
+
+    - dict/list → JSON 字符串(ensure_ascii=False,保持中文可读)
+    - str → 原样返回
+    - 其他类型 → JSON 序列化(含 default=str 兜底)
+    避免 str(result) 把 dict 变成 Python repr(单引号、非合法 JSON)。
+    """
+    if isinstance(result, str):
+        return result
+    if isinstance(result, (dict, list)):
+        return json.dumps(result, ensure_ascii=False, default=str)
+    return json.dumps(result, default=str, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +492,7 @@ class MCPProtocol:
                 access_token=self.access_token,
             )
             return {
-                "content": [{"type": "text", "text": str(result)}],
+                "content": [{"type": "text", "text": _render_tool_result(result)}],
             }
         except Exception as exc:
             success = False

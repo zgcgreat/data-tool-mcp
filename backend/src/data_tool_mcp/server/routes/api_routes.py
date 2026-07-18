@@ -150,10 +150,14 @@ def _check_tool_authorization(tool, rm, access_token: str) -> None:
 
 
 async def _invoke_tool(tool, params, rm, access_token: str) -> dict[str, Any]:
-    """调用工具并处理异常,返回 {"result": ...}。"""
+    """调用工具并处理异常,返回 {"result": ...}。
+
+    result 保持原始类型(dict/list/str/int 等),由 FastAPI 自动 JSON 序列化。
+    避免 str(result) 把结构化数据变成 Python repr(单引号、非合法 JSON)。
+    """
     try:
         result = await tool.invoke(params, source_provider=rm, access_token=access_token)
-        return {"result": str(result)}
+        return {"result": result}
     except ClientServerError as exc:
         # Maps to Go: error classification
         # AgentError → 200, ClientServerError → corresponding HTTP status
