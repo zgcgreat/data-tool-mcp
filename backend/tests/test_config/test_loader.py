@@ -55,3 +55,13 @@ class TestServerConfig:
         assert config.port == 8080
         assert config.address == "127.0.0.1"
         assert config.stdio is True
+
+    def test_source_cache_maxsize_default(self):
+        """默认 LRU 缓存大小为 128。"""
+        config = ServerConfig()
+        assert config.source_cache_maxsize == 128
+
+    def test_source_cache_maxsize_custom(self):
+        """2GB 内存环境建议设 32-48。"""
+        config = ServerConfig(source_cache_maxsize=32)
+        assert config.source_cache_maxsize == 32

@@ -135,7 +135,7 @@ class ServerConfig(BaseModel):
     prebuilt: str = ""
 
     # DB ConfigReader
-    config_db_url: str = ""  # TOOLBOX_CONFIG_DB_URL — e.g. mysql://user:pass@host:3306/configdb
+    config_db_url: str = ""  # DATA_TOOL_MCP_CONFIG_DB_URL — e.g. mysql://user:pass@host:3306/configdb
     env_passwords: str = ""  # ENV_PASSWORDS — JSON mapping ${VAR} → real value
 
     # 配置持久化存储（Admin UI CRUD 持久化）
@@ -144,15 +144,20 @@ class ServerConfig(BaseModel):
     #   store_url = mysql://host:port/db（不含账号密码）
     #   store_username / store_password 单独传
     # 也兼容旧式：直接把账号密码写进 store_url = mysql://user:pass@host/db
-    store_url: str = ""  # TOOLBOX_STORE_URL
-    store_username: str = ""  # TOOLBOX_STORE_USERNAME — MySQL 用户名（与 store_url 分离）
-    store_password: str = ""  # TOOLBOX_STORE_PASSWORD — MySQL 密码（与 store_url 分离）
+    store_url: str = ""  # DATA_TOOL_MCP_STORE_URL
+    store_username: str = ""  # DATA_TOOL_MCP_STORE_USERNAME — MySQL 用户名（与 store_url 分离）
+    store_password: str = ""  # DATA_TOOL_MCP_STORE_PASSWORD — MySQL 密码（与 store_url 分离）
 
     # 数据库连接池大小（多实例部署时按 实例数×pool_size×数据源数 估算 MySQL max_connections）
     db_pool_size: int = 5
 
     # DB 配置热重载轮询间隔（秒），方案 C: 可配以平衡一致性和 DB 负载
     reload_interval: float = 5.0
+
+    # Source LRU 缓存最大条目数（方案 C: 惰性加载 + 引用计数 + LRU 淘汰）
+    # 默认 128 覆盖活跃数据源;内存受限环境(如 2GB)建议调小到 32-48
+    # 估算: maxsize × maxOpenConns × 单连接内存(~3MB) = 缓存峰值占用
+    source_cache_maxsize: int = 128
 
     # Logging
     log_level: str = "INFO"
@@ -194,6 +199,6 @@ class ServerConfig(BaseModel):
     ignore_unknown_tools: bool = False
 
     # 启用的数据源类型白名单(空 = 全部启用;非空 = 仅列出的类型可用)
-    # 通过 --enabled-source-types 参数或 TOOLBOX_ENABLED_SOURCE_TYPES 环境变量设置
+    # 通过 --enabled-source-types 参数或 DATA_TOOL_MCP_ENABLED_SOURCE_TYPES 环境变量设置
     # 影响: /mcp-api/source-types 接口仅返回白名单内类型,创建数据源时拒绝被禁用类型
     enabled_source_types: list[str] = Field(default_factory=list)

@@ -6,7 +6,7 @@
 #   Admin UI     : http://localhost:8080/data-tool-mcp-ui/
 #
 # Enable global API-key auth:
-#   export TOOLBOX_API_KEY="$(openssl rand -hex 24)"
+#   export DATA_TOOL_MCP_API_KEY="$(openssl rand -hex 24)"
 #   docker compose up --build
 #
 # Build with extra DB drivers (postgres/redis/mongodb/etc.):
@@ -33,7 +33,7 @@ services:
     command: ["--prebuilt", "sqlite", "--address", "0.0.0.0", "--port", "5000"]
     environment:
       # Empty by default = no auth (intranet trust model). Set a strong key for any exposed deploy.
-      TOOLBOX_API_KEY: ${TOOLBOX_API_KEY:-}
+      DATA_TOOL_MCP_API_KEY: ${DATA_TOOL_MCP_API_KEY:-}
     ports:
       - "5000:5000"
     healthcheck:

@@ -17,7 +17,7 @@
 ## 默认实现说明
 
 默认基于 `cryptography.Fernet`（AES-128-CBC + HMAC-SHA256）：
-- 密钥来源：环境变量 `TOOLBOX_ENCRYPTION_KEY`（必须是 urlsafe-base64 编码的 32 字节）
+- 密钥来源：环境变量 `DATA_TOOL_MCP_ENCRYPTION_KEY`（必须是 urlsafe-base64 编码的 32 字节）
 - 开发回退：未配置时使用固定开发密钥（仅限本地开发，生产必须配置）
 
 ## 国密 SM4 替换示例
@@ -25,7 +25,7 @@
 替换为 SM4-CBC 时，可参考以下骨架：
 
     from gmssl import sm4  # 或企业内部 SM4 库
-    _KEY = os.environ["TOOLBOX_SM4_KEY"].encode()  # 16 字节
+    _KEY = os.environ["DATA_TOOL_MCP_SM4_KEY"].encode()  # 16 字节
 
     def encrypt(plaintext: str) -> str:
         iv = os.urandom(16)
@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 密钥配置（默认 Fernet 实现）
 # ---------------------------------------------------------------------------
-_ENCRYPTION_KEY_ENV = "TOOLBOX_ENCRYPTION_KEY"
+_ENCRYPTION_KEY_ENV = "DATA_TOOL_MCP_ENCRYPTION_KEY"
 _DEFAULT_KEY_FALLBACK = "dev-only-key-do-not-use-in-production-0123456789"
 _fernet = None
 
@@ -144,7 +144,7 @@ def validate_encryption_key() -> bool:
     key_env = os.environ.get(_ENCRYPTION_KEY_ENV, "")
     if not key_env:
         logger.warning(
-            "TOOLBOX_ENCRYPTION_KEY 未配置，使用开发回退密钥。"
+            "DATA_TOOL_MCP_ENCRYPTION_KEY 未配置，使用开发回退密钥。"
             "生产环境必须配置该环境变量，且多实例必须使用相同密钥，"
             "否则无法解密数据源密码。"
         )
@@ -199,7 +199,7 @@ def encrypt(plaintext: str) -> str:
     if not f:
         raise RuntimeError(
             "加密不可用(cryptography 未安装或 Fernet 密钥无效),"
-            "拒绝明文存储密码。请安装 cryptography 并配置 TOOLBOX_ENCRYPTION_KEY。"
+            "拒绝明文存储密码。请安装 cryptography 并配置 DATA_TOOL_MCP_ENCRYPTION_KEY。"
         )
     return _do_encrypt(f, plaintext, plaintext)
 

@@ -747,12 +747,12 @@ class ConfigStore:
         """初始化数据库引擎和会话工厂，创建表结构。"""
         import os
 
-        pool_size = int(os.environ.get("TOOLBOX_DB_POOL_SIZE", "5"))
+        pool_size = int(os.environ.get("DATA_TOOL_MCP_DB_POOL_SIZE", "5"))
         self._engine = create_async_engine(
             self._url,
             echo=False,
             pool_size=pool_size,
-            max_overflow=int(os.environ.get("TOOLBOX_DB_MAX_OVERFLOW", "10")),
+            max_overflow=int(os.environ.get("DATA_TOOL_MCP_DB_MAX_OVERFLOW", "10")),
             pool_recycle=3600,
             pool_pre_ping=True,
         )

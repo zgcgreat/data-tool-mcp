@@ -46,14 +46,14 @@ def _apply_env_line(line: str) -> None:
 
 
 def _resolve_store_password(raw: str) -> str:
-    """解析 TOOLBOX_STORE_PASSWORD 配置值。
+    """解析 DATA_TOOL_MCP_STORE_PASSWORD 配置值。
 
     支持两种形式:
       1. 明文密码: 直接返回
       2. 加密密文: 检测到有效密文时解密后返回
 
     这样企业部署时可在 env 中配置加密后的密文，避免明文密码暴露在
-    环境变量或 CI/CD 配置中。加密密钥由 TOOLBOX_ENCRYPTION_KEY 提供，
+    环境变量或 CI/CD 配置中。加密密钥由 DATA_TOOL_MCP_ENCRYPTION_KEY 提供，
     加解密实现见 utils/crypto.py（企业可替换为 SM4/KMS）。
     """
     if not raw:
@@ -84,7 +84,7 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--prebuilt", nargs="*", default=None, help="Prebuilt config name(s)")
     serve.add_argument(
         "--config-db-url",
-        default=os.environ.get("TOOLBOX_CONFIG_DB_URL"),
+        default=os.environ.get("DATA_TOOL_MCP_CONFIG_DB_URL"),
         help="MySQL URL for DB-backed config",
     )
     serve.add_argument(
@@ -96,31 +96,39 @@ def _build_parser() -> argparse.ArgumentParser:
     # 配置持久化存储
     serve.add_argument(
         "--store-url",
-        default=os.environ.get("TOOLBOX_STORE_URL"),
+        default=os.environ.get("DATA_TOOL_MCP_STORE_URL"),
         help="配置持久化存储 URL（留空=默认在当前目录创建 SQLite 文件 toolbox_data.db；"
         "MySQL 推荐 mysql://host:port/db 不含账号密码，配合 --store-username/--store-password）",
     )
     serve.add_argument(
         "--store-username",
-        default=os.environ.get("TOOLBOX_STORE_USERNAME"),
+        default=os.environ.get("DATA_TOOL_MCP_STORE_USERNAME"),
         help="配置持久化存储 MySQL 用户名（与 --store-url 分离，避免凭据写在 URL 中）",
     )
     serve.add_argument(
         "--store-password",
-        default=os.environ.get("TOOLBOX_STORE_PASSWORD"),
+        default=os.environ.get("DATA_TOOL_MCP_STORE_PASSWORD"),
         help="配置持久化存储 MySQL 密码（与 --store-url 分离）",
     )
     serve.add_argument(
         "--db-pool-size",
         type=int,
-        default=int(os.environ.get("TOOLBOX_DB_POOL_SIZE", "5")),
+        default=int(os.environ.get("DATA_TOOL_MCP_DB_POOL_SIZE", "5")),
         help="数据库连接池大小（默认 5，多实例部署时按 实例数×pool_size×数据源数 估算 MySQL max_connections）",
     )
     serve.add_argument(
         "--reload-interval",
         type=float,
-        default=float(os.environ.get("TOOLBOX_RELOAD_INTERVAL", "5")),
-        help="DB 配置热重载轮询间隔（秒，默认 5）。可设环境变量 TOOLBOX_RELOAD_INTERVAL",
+        default=float(os.environ.get("DATA_TOOL_MCP_RELOAD_INTERVAL", "5")),
+        help="DB 配置热重载轮询间隔（秒，默认 5）。可设环境变量 DATA_TOOL_MCP_RELOAD_INTERVAL",
+    )
+    serve.add_argument(
+        "--source-cache-maxsize",
+        type=int,
+        default=int(os.environ.get("DATA_TOOL_MCP_SOURCE_CACHE_MAXSIZE", "128")),
+        help="Source LRU 缓存最大条目数（默认 128）。内存受限环境(如 2GB)建议设 32-48。"
+        "估算公式: maxsize × maxOpenConns × 单连接内存(~3MB) = 缓存峰值。"
+        "可设环境变量 DATA_TOOL_MCP_SOURCE_CACHE_MAXSIZE",
     )
 
     # Network
@@ -150,9 +158,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # 格式: 逗号分隔,例如 postgres,mysql,redis。留空 = 全部启用
     serve.add_argument(
         "--enabled-source-types",
-        default=os.environ.get("TOOLBOX_ENABLED_SOURCE_TYPES"),
+        default=os.environ.get("DATA_TOOL_MCP_ENABLED_SOURCE_TYPES"),
         help="启用的数据源类型白名单(逗号分隔,留空=全部启用)。"
-        "示例: postgres,mysql,redis。可设环境变量 TOOLBOX_ENABLED_SOURCE_TYPES",
+        "示例: postgres,mysql,redis。可设环境变量 DATA_TOOL_MCP_ENABLED_SOURCE_TYPES",
     )
 
     # TLS
@@ -252,6 +260,7 @@ def _build_server_config(args: argparse.Namespace):
         store_password=_resolve_store_password(_or_default(args.store_password, "")),
         db_pool_size=args.db_pool_size,
         reload_interval=args.reload_interval,
+        source_cache_maxsize=args.source_cache_maxsize,
         enabled_source_types=_split_source_types(args.enabled_source_types),
     )
 
@@ -346,7 +355,7 @@ async def _prepare_runtime(config: "ServerConfig"):
     _validate_production_security(config)
     await _setup_telemetry(config)
     config = await load_config(config)
-    rm = ResourceManager()
+    rm = ResourceManager(source_cache_maxsize=config.source_cache_maxsize)
     await _initialize_resources(config, rm)
     store = await init_store(config.store_url, config.store_username, config.store_password)
     return config, rm, store
@@ -376,7 +385,7 @@ def _validate_production_security(config: "ServerConfig") -> None:
             "FATAL: 生产模式(监听 0.0.0.0 或 APP_ENV=production)下加密不可用。\n"
             "请确保:\n"
             "  1. 已安装 cryptography: pip install cryptography\n"
-            "  2. 已配置 TOOLBOX_ENCRYPTION_KEY 环境变量(urlsafe-base64 编码的 32 字节)\n"
+            "  2. 已配置 DATA_TOOL_MCP_ENCRYPTION_KEY 环境变量(urlsafe-base64 编码的 32 字节)\n"
             '     生成命令: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"\n'
             "多实例部署必须使用相同密钥,否则无法解密数据源密码。"
         )

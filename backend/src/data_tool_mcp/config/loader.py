@@ -2,7 +2,7 @@
 
 Supports three config sources (listed by priority):
   1. YAML files (--config / --configs / --config-folder) — highest priority
-  2. Database (--config-db-url) — set via env TOOLBOX_CONFIG_DB_URL
+  2. Database (--config-db-url) — set via env DATA_TOOL_MCP_CONFIG_DB_URL
   3. Prebuilt configs (--prebuilt) — lowest priority, loaded first
 
 When --config-db-url is set, the DB is the primary config source.
@@ -379,7 +379,7 @@ def _merge_prebuilt_configs(merged: ToolboxFile, prebuilt: str) -> None:
 
 async def _merge_db_config(merged: ToolboxFile, server_config: ServerConfig) -> None:
     """从 MySQL 数据库加载配置并合并到 merged。"""
-    db_url = server_config.config_db_url or os.environ.get("TOOLBOX_CONFIG_DB_URL", "")
+    db_url = server_config.config_db_url or os.environ.get("DATA_TOOL_MCP_CONFIG_DB_URL", "")
     if not db_url:
         return
     from data_tool_mcp.config.db_reader import load_config_from_db

@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS sources (
     db_port     INT          NOT NULL DEFAULT 0  COMMENT '数据库端口',
     db_name     VARCHAR(128) NOT NULL DEFAULT '' COMMENT '数据库名（sqlite 类型此处存文件路径 path）',
     db_user     VARCHAR(128) NOT NULL DEFAULT '' COMMENT '连接用户名',
-    db_password VARCHAR(512) NOT NULL DEFAULT '' COMMENT '连接密码（应用层加密存储，密钥由 TOOLBOX_ENCRYPTION_KEY 提供）',
+    db_password VARCHAR(512) NOT NULL DEFAULT '' COMMENT '连接密码（应用层加密存储，密钥由 DATA_TOOL_MCP_ENCRYPTION_KEY 提供）',
     params      TEXT                 COMMENT '扩展参数字段（JSON 字符串，存非结构化连接参数）',
     created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（行变更时自动维护）',

@@ -8,7 +8,7 @@ Expected table schema: see docker/init-mysql.sql
   toolsets    (id, system_id, name, tool_names TEXT, created_at, updated_at)
 
 Usage:
-  1. Set TOOLBOX_CONFIG_DB_URL=mysql://user:pass@host:3306/configdb
+  1. Set DATA_TOOL_MCP_CONFIG_DB_URL=mysql://user:pass@host:3306/configdb
   2. (Optional) Set ENV_PASSWORDS='{"MYSQL_PASSWORD":"realpass"}'
   3. Pass --config-db-url <url> to toolbox serve, or leave in env var
 """
@@ -110,11 +110,11 @@ def _convert_to_async_url(db_url: str) -> str:
 
 def _resolve_db_url(db_url: str | None) -> str:
     """获取并校验数据库 URL。"""
-    db_url = db_url or os.environ.get("TOOLBOX_CONFIG_DB_URL", "")
+    db_url = db_url or os.environ.get("DATA_TOOL_MCP_CONFIG_DB_URL", "")
     if not db_url:
         raise ValueError(
-            "TOOLBOX_CONFIG_DB_URL not set. "
-            "Provide --config-db-url or set the TOOLBOX_CONFIG_DB_URL environment variable."
+            "DATA_TOOL_MCP_CONFIG_DB_URL not set. "
+            "Provide --config-db-url or set the DATA_TOOL_MCP_CONFIG_DB_URL environment variable."
         )
     return db_url
 
@@ -202,7 +202,7 @@ async def load_config_from_db(
     async_url = _to_async_url(db_url)
 
     # MySQL 连接池配置：wait_timeout 默认 8 小时，但生产环境可能更短
-    pool_size = int(os.environ.get("TOOLBOX_DB_POOL_SIZE", "2"))
+    pool_size = int(os.environ.get("DATA_TOOL_MCP_DB_POOL_SIZE", "2"))
     engine = create_async_engine(
         async_url,
         pool_size=pool_size,
@@ -536,7 +536,7 @@ async def watch_config_changes(
     Runs forever until the surrounding task is cancelled.
     """
     async_url = _to_async_url(db_url)
-    pool_size = int(os.environ.get("TOOLBOX_DB_WATCH_POOL_SIZE", "1"))
+    pool_size = int(os.environ.get("DATA_TOOL_MCP_DB_WATCH_POOL_SIZE", "1"))
     engine = create_async_engine(
         async_url,
         pool_size=pool_size,

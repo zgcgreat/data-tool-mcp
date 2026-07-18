@@ -115,7 +115,7 @@ docker compose up --build
 Want auth? Set a key before starting:
 
 ```bash
-export TOOLBOX_API_KEY="$(openssl rand -hex 24)"
+export DATA_TOOL_MCP_API_KEY="$(openssl rand -hex 24)"
 docker compose up --build
 ```
 
@@ -236,7 +236,7 @@ toolsets:
 
 ### Persisting Admin-UI changes (store)
 
-Edits made in the Admin UI are saved to a store selected by `TOOLBOX_STORE_URL`:
+Edits made in the Admin UI are saved to a store selected by `DATA_TOOL_MCP_STORE_URL`:
 
 | Value | Meaning |
 |-------|---------|
@@ -248,9 +248,9 @@ For MySQL, prefer the **three-part form** so credentials aren't baked into the U
 
 ```ini
 # backend/.env
-TOOLBOX_STORE_URL=mysql://127.0.0.1:3306/data_tool_mcp   # address only
-TOOLBOX_STORE_USERNAME=root
-TOOLBOX_STORE_PASSWORD=yourpassword
+DATA_TOOL_MCP_STORE_URL=mysql://127.0.0.1:3306/data_tool_mcp   # address only
+DATA_TOOL_MCP_STORE_USERNAME=root
+DATA_TOOL_MCP_STORE_PASSWORD=yourpassword
 ```
 
 The MySQL database/tables must exist first:
@@ -333,7 +333,7 @@ toolbox serve -c config.yaml --port 8080
 toolbox serve --prebuilt postgres --port 15000
 toolbox serve --prebuilt sqlite --prebuilt redis
 toolbox serve --prebuilt sqlite --stdio
-toolbox serve --prebuilt sqlite --api-key "$TOOLBOX_API_KEY" --allowed-hosts my.host
+toolbox serve --prebuilt sqlite --api-key "$DATA_TOOL_MCP_API_KEY" --allowed-hosts my.host
 toolbox serve --prebuilt sqlite --tls-cert cert.pem --tls-key key.pem
 ```
 
@@ -349,7 +349,7 @@ the public internet without the steps below.
 
 **Harden before any untrusted exposure:**
 
-1. **Enable API-key auth** — pass `--api-key` (or `TOOLBOX_API_KEY`). Every request except health checks
+1. **Enable API-key auth** — pass `--api-key` (or `DATA_TOOL_MCP_API_KEY`). Every request except health checks
    then requires `X-API-Key` or `Authorization: Bearer <key>` (constant-time compare). The Admin API and MCP
    endpoints share this gate.
 2. **Restrict Host header** — pass `--allowed-hosts your.host` to block DNS-rebinding.
