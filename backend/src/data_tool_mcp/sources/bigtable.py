@@ -29,11 +29,11 @@ class BigtableSource(Source):
 
     async def connect(self) -> None:
         """建立数据库连接。"""
-        pass
+        pass  # GCP 无状态客户端：连接已在 initialize() 中建立，此处为有意空实现（no-op）
 
     async def close(self) -> None:
         """关闭数据库连接。"""
-        pass
+        pass  # GCP 无状态客户端：无需显式关闭，交由垃圾回收（no-op）
 
     async def execute_sql(self, sql: str) -> list[dict[str, Any]]:
         """通过 BigQuery 联邦查询执行 SQL 并返回结果。"""

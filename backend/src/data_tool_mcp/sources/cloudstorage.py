@@ -29,7 +29,7 @@ class CloudStorageSource(Source):
 
     async def connect(self) -> None:
         """建立数据库连接。"""
-        pass
+        pass  # GCP 无状态客户端：连接已在 initialize() 中建立，此处为有意空实现（no-op）
 
     async def close(self) -> None:
         """关闭数据库连接。"""

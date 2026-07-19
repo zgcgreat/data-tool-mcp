@@ -34,7 +34,7 @@ class SpannerSource(Source):
 
     async def close(self) -> None:
         """关闭数据库连接。"""
-        pass
+        pass  # GCP 无状态客户端：无需显式关闭，交由垃圾回收（no-op）
 
     async def execute_sql(
         self, sql: str, params: dict[str, Any] | None = None

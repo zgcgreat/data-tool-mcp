@@ -28,11 +28,11 @@ class CloudGDASource(Source):
 
     async def connect(self) -> None:
         """建立数据库连接。"""
-        pass
+        pass  # GCP 无状态客户端：连接已在 initialize() 中建立，此处为有意空实现（no-op）
 
     async def close(self) -> None:
         """关闭数据库连接。"""
-        pass
+        pass  # GCP 无状态客户端：无需显式关闭，交由垃圾回收（no-op）
 
     async def _request(self, method: str, path: str, body: dict | None = None) -> Any:
         """向 GDA REST API 发送带认证的请求。"""
