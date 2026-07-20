@@ -25,6 +25,7 @@ from data_tool_mcp.tools.base import (
     _get_typed_source_async,
     register_tool,
 )
+from data_tool_mcp.tools.template import render_sql_template
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +36,7 @@ from data_tool_mcp.tools.base import (
 class TDSQLListTool(BaseTool):
     """Generic TDSQL diagnostic tool that executes a fixed SQL query.
 
-    支持无参 (固定 SQL) 和带参 (如 EXPLAIN :sql) 两种模式,
+    支持无参 (固定 SQL) 和带参 (如 EXPLAIN {{.sql}}) 两种模式,
     与 MySQLListTool 行为一致。
     """
 
@@ -63,7 +64,14 @@ class TDSQLListTool(BaseTool):
             source_provider, self._source_name, self.name, SQLSource
         )
         try:
-            rows = await source.execute_sql(self._sql, params if params else None)
+            # Go 模板语法 ({{.param}}) 直接内联渲染,用于 EXPLAIN 等
+            # 不支持绑定参数的语句(与 PostgreSQL postgres-sql 工具一致)。
+            # :param 走 SQLAlchemy 绑定参数路径。
+            if "{{" in self._sql and params:
+                rendered = render_sql_template(self._sql, params)
+                rows = await source.execute_sql(rendered)
+            else:
+                rows = await source.execute_sql(self._sql, params if params else None)
             return {"rows": rows, "rowCount": len(rows)}
         finally:
             await source_provider.release_source(self._source_name)
@@ -99,7 +107,7 @@ _TDSQL_LIST_TOOLS: list[tuple[str, str, str, list[ParameterManifest]]] = [
     (
         "tdsql-list-all-locks",
         "List all locks in the TDSQL database",
-        "SELECT * FROM information_schema.INNODB_LOCKS",
+        "SELECT * FROM performance_schema.data_locks",
         [],
     ),
     (
@@ -126,7 +134,7 @@ _TDSQL_PARAM_TOOLS: list[tuple[str, str, str, list[ParameterManifest]]] = [
     (
         "tdsql-get-query-plan",
         "Get the query execution plan for a SQL statement on TDSQL",
-        "EXPLAIN :sql",
+        "EXPLAIN {{.sql}}",
         [
             ParameterManifest(
                 name="sql", type="string", description="SQL statement to explain", required=True

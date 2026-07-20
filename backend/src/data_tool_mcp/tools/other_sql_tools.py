@@ -18,6 +18,8 @@ from data_tool_mcp.tools.base import (
     ToolAnnotations,
     ToolConfig,
     ToolManifest,
+    _build_sql_tool_parameters,
+    _execute_sql_with_modes,
     _get_typed_source_async,
     register_tool,
 )
@@ -29,12 +31,29 @@ from data_tool_mcp.tools.base import (
 
 
 class GenericSQLTool(BaseTool):
-    """Run a read-only SQL query."""
+    """Run a read-only SQL query.
 
-    def __init__(self, cfg: ConfigBase, source_name: str):
+    Supports four modes (matching PgSQLTool):
+      1. statement + templateParameters → render template, then execute
+      2. statement + parameters         → execute with named bind params
+      3. statement only                 → execute fixed SQL directly
+      4. no statement                   → user provides 'sql' param
+    """
+
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        statement: str = "",
+        template_parameters: list[dict[str, Any]] | None = None,
+        parameters: list[dict[str, Any]] | None = None,
+    ):
         """初始化工具配置。"""
         super().__init__(cfg, annotations=ToolAnnotations(read_only_hint=True))
         self._source_name = source_name
+        self._statement = statement
+        self._template_parameters = template_parameters or []
+        self._parameters = parameters or []
 
     async def invoke(
         self,
@@ -47,36 +66,46 @@ class GenericSQLTool(BaseTool):
             source_provider, self._source_name, self.name, SQLSource
         )
         try:
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
+            rows = await _execute_sql_with_modes(
+                source, self._statement, self._template_parameters, self._parameters, params
+            )
             return {"rows": rows, "rowCount": len(rows)}
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
+        param_defs = self._template_parameters or self._parameters
+        parameters = _build_sql_tool_parameters(param_defs, self._statement, "SQL query to execute")
         return ToolManifest(
             description=self.description,
-            parameters=[
-                ParameterManifest(
-                    name="sql", type="string", description="SQL query to execute", required=True
-                )
-            ],
+            parameters=parameters,
             auth_required=self.auth_required,
         )
 
 
 class GenericExecuteSQLTool(BaseTool):
-    """Execute a SQL statement (may modify data)."""
+    """Execute a SQL statement (may modify data).
 
-    def __init__(self, cfg: ConfigBase, source_name: str):
+    Supports the same statement/templateParameters/parameters modes as GenericSQLTool.
+    """
+
+    def __init__(
+        self,
+        cfg: ConfigBase,
+        source_name: str,
+        statement: str = "",
+        template_parameters: list[dict[str, Any]] | None = None,
+        parameters: list[dict[str, Any]] | None = None,
+    ):
         """初始化工具配置。"""
         super().__init__(
             cfg, annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True)
         )
         self._source_name = source_name
+        self._statement = statement
+        self._template_parameters = template_parameters or []
+        self._parameters = parameters or []
 
     async def invoke(
         self,
@@ -89,23 +118,22 @@ class GenericExecuteSQLTool(BaseTool):
             source_provider, self._source_name, self.name, SQLSource
         )
         try:
-            sql = params.get("sql", "")
-            if not sql:
-                raise ValueError("missing 'sql' parameter")
-            rows = await source.execute_sql(sql)
+            rows = await _execute_sql_with_modes(
+                source, self._statement, self._template_parameters, self._parameters, params
+            )
             return {"rows": rows, "rowCount": len(rows)}
         finally:
             await source_provider.release_source(self._source_name)
 
     def manifest(self, sources: dict[str, Any] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""
+        param_defs = self._template_parameters or self._parameters
+        parameters = _build_sql_tool_parameters(
+            param_defs, self._statement, "SQL statement to execute"
+        )
         return ToolManifest(
             description=self.description,
-            parameters=[
-                ParameterManifest(
-                    name="sql", type="string", description="SQL statement to execute", required=True
-                )
-            ],
+            parameters=parameters,
             auth_required=self.auth_required,
         )
 
@@ -249,17 +277,45 @@ _TOOL_DEFS: list[tuple[str, str, str, dict[str, Any]]] = [
 
 
 def _make_other_sql_tool_config(tool_type: str, description: str, kind: str, extra: dict[str, Any]):
-    """Factory: create a ToolConfig class for an other-SQL tool."""
+    """Factory: create a ToolConfig class for an other-SQL tool.
+
+    支持从 yaml 注入 statement/templateParameters/parameters 字段,
+    与 PgSQLTool 的四模式行为对齐:
+      1. statement + templateParameters → render_sql_template
+      2. statement + parameters         → execute with named bind params
+      3. statement only                 → execute fixed SQL directly
+      4. no statement (kind=sql/exec)   → user provides 'sql' param
+    对 list-tables / list-query kind, 仍使用 extra 中的内置 sql。
+    """
     _default_desc = description
 
-    def _build_tool(cfg: ConfigBase, source: str) -> BaseTool:
+    def _build_tool(
+        cfg: ConfigBase,
+        source: str,
+        statement: str,
+        template_parameters: list[dict[str, Any]],
+        parameters: list[dict[str, Any]],
+    ) -> BaseTool:
         """构造工具实例。"""
-        sql = extra.get("sql", "")
-        builders: dict[str, Callable[[ConfigBase, str], BaseTool]] = {
-            "sql": lambda c, s: GenericSQLTool(cfg=c, source_name=s),
-            "exec": lambda c, s: GenericExecuteSQLTool(cfg=c, source_name=s),
-            "list-tables": lambda c, s: GenericListTablesTool(cfg=c, source_name=s, sql=sql),
-            "list-query": lambda c, s: GenericListQueryTool(cfg=c, source_name=s, sql=sql),
+        # list-tables / list-query kind 使用内置默认 SQL,不接受 yaml 注入
+        builtin_sql = extra.get("sql", "")
+        builders: dict[str, Callable[..., BaseTool]] = {
+            "sql": lambda c, s: GenericSQLTool(
+                cfg=c,
+                source_name=s,
+                statement=statement,
+                template_parameters=template_parameters,
+                parameters=parameters,
+            ),
+            "exec": lambda c, s: GenericExecuteSQLTool(
+                cfg=c,
+                source_name=s,
+                statement=statement,
+                template_parameters=template_parameters,
+                parameters=parameters,
+            ),
+            "list-tables": lambda c, s: GenericListTablesTool(cfg=c, source_name=s, sql=builtin_sql),
+            "list-query": lambda c, s: GenericListQueryTool(cfg=c, source_name=s, sql=builtin_sql),
         }
         builder = builders.get(kind)
         if builder is None:
@@ -272,6 +328,9 @@ def _make_other_sql_tool_config(tool_type: str, description: str, kind: str, ext
         _name: str = field(init=True, repr=False)
         source: str = ""
         description: str = ""
+        statement: str = ""
+        template_parameters: list[dict[str, Any]] = field(default_factory=list)
+        parameters: list[dict[str, Any]] = field(default_factory=list)
 
         @property
         def tool_type(self) -> str:
@@ -285,12 +344,21 @@ def _make_other_sql_tool_config(tool_type: str, description: str, kind: str, ext
                 _name=name,
                 source=data.get("source", ""),
                 description=data.get("description", _default_desc),
+                statement=data.get("statement", ""),
+                template_parameters=data.get("templateParameters", []),
+                parameters=data.get("parameters", []),
             )
 
         async def initialize(self):
             """创建并初始化工具实例。"""
             cfg = ConfigBase(name=self._name, description=self.description)
-            return _build_tool(cfg, self.source)
+            return _build_tool(
+                cfg,
+                self.source,
+                self.statement,
+                self.template_parameters,
+                self.parameters,
+            )
 
     _OtherSQLToolConfig.__name__ = (
         f"{tool_type.replace('-', '_').title().replace('_', '')}ToolConfig"

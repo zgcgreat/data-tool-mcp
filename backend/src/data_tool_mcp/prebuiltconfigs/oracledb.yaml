@@ -40,7 +40,7 @@ statement: |
         t.last_analyzed
   FROM  user_tables t
   LEFT JOIN user_segments s ON t.table_name = s.segment_name AND s.segment_type IN ('TABLE', 'TABLE PARTITION', 'TABLE SUBPARTITION')
-  WHERE (:1 IS NULL OR INSTR(',' || :1 || ',', ',' || t.table_name || ',') > 0)
+  WHERE (:table_names_csv IS NULL OR INSTR(',' || :table_names_csv || ',', ',' || t.table_name || ',') > 0)
   GROUP BY t.table_name, t.num_rows, t.last_analyzed
 parameters:
 - name: table_names_csv
@@ -80,19 +80,13 @@ type: oracle-sql
 source: oracle-source
 description: 使用 EXPLAIN PLAN 为单条 SQL 语句生成完整的执行计划。可用于在不执行的情况下分析查询性能。需要 SQL 语句作为参数输入。
 statement: |
-  DECLARE
-      plan_output CLOB;
-  BEGIN
-      EXECUTE IMMEDIATE 'EXPLAIN PLAN FOR ' || :query;
-      SELECT DBMS_XPLAN.DISPLAY() INTO plan_output FROM DUAL;
-      -- The result of a PL/SQL block with an OUT parameter is returned by the driver.
-      -- We use a dummy SELECT to conform to tool structure, but the actual output is plan_output.
-      :plan := plan_output;
-  END;
-parameters:
+  EXPLAIN PLAN FOR {{.query}};
+  SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY());
+templateParameters:
 - name: query
   type: string
   description: 要为其生成计划的 SQL 语句（省略 EXPLAIN 关键字）。
+  required: true
 ---
 kind: tool
 name: list_top_sql_by_resource
@@ -110,13 +104,13 @@ statement: |
   FROM
       v$sql
   ORDER BY
-      CASE UPPER(:1)
+      CASE UPPER(:metric)
         WHEN 'CPU_TIME' THEN cpu_time
         WHEN 'DISK_READS' THEN disk_reads
         WHEN 'BUFFER_GETS' THEN buffer_gets
         ELSE elapsed_time
       END DESC
-  FETCH FIRST :2 ROWS ONLY
+  FETCH FIRST :limit ROWS ONLY
 parameters:
 - name: metric
   type: string

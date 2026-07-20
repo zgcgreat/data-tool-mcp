@@ -569,9 +569,25 @@ def _build_sql_tool_parameters(
     return []
 
 
-def _bind_param_values(parameters: list[dict[str, Any]], params: dict[str, Any]) -> list[Any]:
-    """根据 parameters 定义从 params 提取绑定值列表。"""
-    return [params.get(p["name"]) for p in parameters]
+def _bind_param_values(parameters: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any]:
+    """根据 parameters 定义从 params 提取命名绑定参数字典。
+
+    SQLAlchemy text() 仅支持命名绑定 (:name),不支持位置绑定 (:1, :2)。
+    因此 yaml 中的 SQL 必须使用 :name 形式的绑定参数。
+
+    当用户未提供某参数时,回填 yaml 中定义的 default 值。
+    仅有 default 但用户未传且无 default 时返回 None,由 SQLAlchemy 视为 NULL。
+    """
+    result: dict[str, Any] = {}
+    for p in parameters:
+        name = p["name"]
+        if name in params:
+            result[name] = params[name]
+        elif "default" in p:
+            result[name] = p["default"]
+        else:
+            result[name] = None
+    return result
 
 
 async def _execute_user_sql(source: Any, params: dict[str, Any]) -> list[dict[str, Any]]:
