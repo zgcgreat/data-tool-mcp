@@ -10,6 +10,7 @@ import json
 import sys
 
 from data_tool_mcp.server.mcp.protocol import JSONRPCRequest, JSONRPCResponse, MCPProtocol
+from data_tool_mcp.utils.errors import format_error_message
 
 
 class STDIOTransport:
@@ -56,7 +57,7 @@ class STDIOTransport:
         except json.JSONDecodeError:
             self._write_error_response(-32700, "Parse error")
         except Exception as exc:
-            self._write_error_response(-32603, str(exc))
+            self._write_error_response(-32603, format_error_message(exc))
 
     async def _handle_jsonrpc(self, line: bytes) -> None:
         """解析 JSON、处理请求、写入响应。"""

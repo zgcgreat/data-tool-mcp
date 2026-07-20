@@ -113,7 +113,11 @@ def exception_to_jsonrpc_error(exc: Exception) -> dict:
     if isinstance(exc, ToolboxError):
         return exc.to_jsonrpc_error()
     # Generic exception
+    # 通过 format_error_message 清洗 — 剥离 sqlalche.me 跳转链接、内部
+    # [SQL: ...] 回显等,避免向 JSON-RPC 客户端泄漏技术细节
+    from data_tool_mcp.utils.errors import format_error_message
+
     return {
         "code": JSONRPCError.INTERNAL_ERROR,
-        "message": str(exc),
+        "message": format_error_message(exc),
     }

@@ -23,6 +23,7 @@ from data_tool_mcp.admin._common import (
     logger,
 )
 from data_tool_mcp.admin._constants import TOOLSET_TYPE_ORDER
+from data_tool_mcp.utils.errors import format_error_message
 
 
 # ---------------------------------------------------------------------------
@@ -152,14 +153,18 @@ def _build_tool_detail(rm, name: str, tool) -> dict[str, Any]:
 
 
 async def _invoke_tool_safe(tool, params: dict[str, Any], rm) -> dict[str, Any]:
-    """调用工具并处理异常:ValueError 转 400,其他转 500。"""
+    """调用工具并处理异常:ValueError 转 400,其他转 500。
+
+    错误消息通过 format_error_message 清洗 — 剥离 sqlalche.me 跳转链接、
+    内部 [SQL: ...] 回显等,并附加友好前缀。
+    """
     try:
         result = await tool.invoke(params, source_provider=rm)
         return {"result": result}
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=format_error_message(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=format_error_message(exc))
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ from data_tool_mcp.admin._common import (
     is_store_usable,
     logger,
 )
+from data_tool_mcp.utils.errors import format_error_message
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +109,7 @@ async def _check_source_health(rm, store, name: str, timeout: float = 5.0) -> di
         source = await _get_source_for_action(rm, store, name)
     except Exception as exc:
         item["status"] = "unknown"
-        item["lastError"] = f"acquire source failed: {exc}"
+        item["lastError"] = f"acquire source failed: {format_error_message(exc)}"
         return item
     if source is None:
         item["status"] = "unknown"
@@ -134,7 +135,7 @@ async def _check_source_health(rm, store, name: str, timeout: float = 5.0) -> di
     except Exception as exc:
         item["status"] = "unhealthy"
         item["latency"] = None
-        item["lastError"] = str(exc)
+        item["lastError"] = format_error_message(exc)
     finally:
         try:
             await rm.release_source(name)

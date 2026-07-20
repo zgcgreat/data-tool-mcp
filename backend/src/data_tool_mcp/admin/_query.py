@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from data_tool_mcp.admin._constants import DEFAULT_TABLES_SQL, DIALECT_TABLES_SQL
+from data_tool_mcp.utils.errors import format_error_message
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +60,7 @@ async def _run_sql_query(source, statement: str) -> dict[str, Any]:
     try:
         rows, duration_ms = await _execute_sql_with_timing(source, statement)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=format_error_message(exc))
     return _build_sql_query_response(rows, duration_ms)
 
 
@@ -97,5 +98,5 @@ async def _query_source_tables(source) -> dict[str, Any]:
     try:
         rows = await source.execute_sql(sql)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=format_error_message(exc))
     return {"tables": _extract_table_names(rows)}

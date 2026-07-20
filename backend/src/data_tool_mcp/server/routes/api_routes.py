@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from data_tool_mcp.errors import ClientServerError
+from data_tool_mcp.utils.errors import format_error_message
 
 router = APIRouter(prefix="/api", tags=["api"])
 
@@ -177,4 +178,6 @@ async def _invoke_tool(tool, params, rm, access_token: str) -> dict[str, Any]:
         raise HTTPException(status_code=exc.http_status, detail=exc.message)
     except Exception as exc:
         # Unknown errors → 500
-        raise HTTPException(status_code=500, detail=str(exc))
+        # 错误消息通过 format_error_message 清洗 — 剥离 sqlalche.me 跳转链接、
+        # 内部 [SQL: ...] 回显等,并附加友好前缀
+        raise HTTPException(status_code=500, detail=format_error_message(exc))

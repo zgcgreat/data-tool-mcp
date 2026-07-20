@@ -37,6 +37,7 @@ from data_tool_mcp.admin._constants import (
 from data_tool_mcp.config.store import get_store
 from data_tool_mcp.sources import decode_source_config
 from data_tool_mcp.tools import decode_tool_config
+from data_tool_mcp.utils.errors import format_error_message
 
 
 # ---------------------------------------------------------------------------
@@ -466,9 +467,9 @@ async def _build_source_or_raise(
     try:
         return await _build_source(src_type, name, config_data)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=format_error_message(exc))
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"{error_prefix}: {exc}")
+        raise HTTPException(status_code=400, detail=f"{error_prefix}: {format_error_message(exc)}")
 
 
 async def _persist_source(
@@ -769,7 +770,7 @@ def _validate_name_param(name: str) -> None:
     try:
         validate_resource_name(name, "source")
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=format_error_message(exc))
 
 
 def _validate_update_source_input(
@@ -840,7 +841,7 @@ async def _save_source_to_store(
         await store.save_source(name, src_type, config_data)
         return True
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=format_error_message(exc))
     except Exception as exc:
         logger.warning("持久化数据源 %r 失败: %s", name, exc)
         return False
@@ -1005,7 +1006,7 @@ async def _measure_source_connect_latency(source) -> dict[str, Any]:
         latency = int((time.monotonic() - start) * 1000)
         return {"ok": True, "latency": latency, "error": None}
     except Exception as exc:
-        return {"ok": False, "latency": 0, "error": str(exc)}
+        return {"ok": False, "latency": 0, "error": format_error_message(exc)}
 
 
 # ---------------------------------------------------------------------------

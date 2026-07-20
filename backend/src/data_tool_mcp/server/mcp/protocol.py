@@ -19,6 +19,7 @@ from data_tool_mcp.errors import (
     ToolboxError,
     exception_to_jsonrpc_error,
 )
+from data_tool_mcp.utils.errors import format_error_message
 
 
 def _render_tool_result(result: Any) -> str:
@@ -738,10 +739,16 @@ class MCPProtocol:
         }
 
     def _handle_tool_invoke_error(self, exc: Exception):
-        """处理工具调用异常,返回 (error_msg, response_dict)。"""
+        """处理工具调用异常,返回 (error_msg, response_dict)。
+
+        通用异常分支通过 format_error_message 清洗 — 剥离 sqlalche.me
+        跳转链接、内部 [SQL: ...] 回显,并附加友好前缀,避免向 MCP 客户端
+        泄漏内部技术细节。
+        """
         if isinstance(exc, ToolboxError):
             return exc.message, self._tool_error_response(exc.message)
-        return str(exc), self._tool_error_response(str(exc))
+        friendly = format_error_message(exc)
+        return friendly, self._tool_error_response(friendly)
 
     def _tool_error_response(self, error_msg: str) -> dict[str, Any]:
         """构建工具调用错误响应 dict。"""
