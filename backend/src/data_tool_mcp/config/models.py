@@ -118,11 +118,14 @@ class ServerConfig(BaseModel):
     cert_file: str = ""
     key_file: str = ""
 
-    # Feature flags
+    # Features
     stdio: bool = False
     disable_reload: bool = False
     enable_api: bool = False
     enable_draft_specs: bool = False
+    # 多实例部署模式下禁用 SSE(返回 410 Gone),引导客户端使用 Streamable HTTP
+    # SSE session 存储在实例内存,多实例下 /message 必定 404;Streamable HTTP 无状态可负载均衡
+    disable_sse: bool = False
 
     # CORS
     allowed_origins: list[str] = Field(default_factory=list)

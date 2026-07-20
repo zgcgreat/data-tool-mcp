@@ -139,12 +139,17 @@ class ConfigBase:
     """Shared YAML fields that every tool's Config has.
 
     Maps to Go ConfigBase struct.
+
+    toolset_names: 该工具所属的 custom toolset 名称列表。
+    来源:prebuilt YAML 中 kind: toolset 块反向注入,持久化到 tools.toolset_names 列。
+    运行时由 ResourceManager._add_tool_to_all_toolsets 读取,自动维护 custom toolset。
     """
 
     name: str
     description: str = ""
     auth_required: list[str] = field(default_factory=list)
     scopes_required: list[str] = field(default_factory=list)
+    toolset_names: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +350,15 @@ class BaseTool(Tool):
     def scopes_required(self) -> list[str]:
         """返回工具所需的 OAuth 作用域列表。"""
         return self._cfg.scopes_required
+
+    @property
+    def toolset_names(self) -> list[str]:
+        """返回工具所属的 custom toolset 名称列表。
+
+        来源:ConfigBase.toolset_names(由 prebuilt YAML kind: toolset 块反向注入)。
+        ResourceManager._add_tool_to_all_toolsets 读取此属性维护 custom toolset。
+        """
+        return getattr(self._cfg, "toolset_names", []) or []
 
     def manifest(self, sources: dict[str, Source] | None = None) -> ToolManifest:
         """返回工具清单，包含名称、描述和参数定义。"""

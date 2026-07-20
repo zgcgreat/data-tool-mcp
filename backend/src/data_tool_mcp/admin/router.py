@@ -43,8 +43,10 @@ from data_tool_mcp.admin._sources import (
     _check_source_uniqueness,
     _delete_old_source_record,
     _filter_schemas_by_whitelist,
+    _get_old_source_cfg,
     _get_password_ciphertext,
     _get_source_config_or_empty,
+    _get_source_for_action,
     _get_tools_for_source,
     _load_all_source_configs,
     _load_source_config,
@@ -76,9 +78,12 @@ from data_tool_mcp.admin._stats import (
 from data_tool_mcp.admin._tools import (
     _aggregate_systems,
     _build_tool_detail,
+    _build_tool_detail_response_from_store,
     _build_tool_list_item,
+    _build_tools_response_from_store,
     _build_toolsets_from_rm,
     _build_toolsets_from_store,
+    _get_tool_for_action,
     _invoke_tool_safe,
 )
 from data_tool_mcp.config.store import get_store
@@ -98,9 +103,9 @@ async def dashboard(request: Request) -> dict[str, Any]:
     config = get_config(request)
     store = get_store()
     # 今日请求数 — 优先从数据库 mcp_request_logs 表查询（持久化，重启不丢）
-    # 回退到内存计数器（未启用持久化时）
+    # 回退到内存计数器(仅当 store 不可用时); None 表示 store 不可用,0 表示今日确无请求
     today_requests = await _query_today_requests_from_store(store)
-    if today_requests == 0:
+    if today_requests is None:
         from data_tool_mcp.server.stats import get_request_counter
 
         today_requests = get_request_counter().get_today_count()
@@ -123,12 +128,19 @@ async def dashboard(request: Request) -> dict[str, Any]:
 
 @router.get("/health")
 async def health(request: Request) -> dict[str, Any]:
-    """返回数据源健康状态和服务运行状态。"""
+    """返回数据源健康状态和服务运行状态。
+
+    对每个数据源执行真实健康检测(source.connect() 测量延迟),带 5s 超时;
+    并发检测(最大并发 10)避免单个慢源阻塞整个响应。
+    """
+    from data_tool_mcp.admin._stats import _build_source_health_list
+
     rm = get_rm(request)
     store = get_store()
     # 数据源名列表 — 优先从数据库查询（多实例一致性），回退到 rm 内存
     source_names = await _load_source_names(rm, store)
-    source_health = [_build_source_health_item(name) for name in source_names]
+    # 并发执行真实健康检测(带超时)
+    source_health = await _build_source_health_list(rm, store, source_names)
     return {"sources": source_health, "server": "running"}
 
 
@@ -246,8 +258,9 @@ async def update_source(request: Request, name: str) -> dict[str, Any]:
     # 存在性检查: 优先用 store, 回退到 rm
     if not await _check_source_exists(rm, store, name):
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
-    # 失效旧 source 缓存(关闭旧连接池)
-    old_cfg = _get_source_config_or_empty(rm, name)
+    # 失效旧 source 缓存(关闭旧连接池);多实例一致性: 优先从 store 获取 old_cfg
+    # 避免本实例 rm 未热重载时 old_cfg 为空,导致 _delete_old_source_record 用空 sid/env 误删同名数据源
+    old_cfg = await _get_old_source_cfg(rm, store, name)
     # V1: 校验 systemId / environment / type 白名单,防止绕过创建时的约束
     src_type = _validate_update_source_input(body, config, old_cfg)
     await rm.invalidate_source(name)
@@ -282,7 +295,8 @@ async def delete_source(request: Request, name: str):
     if not await _check_source_exists(rm, store, name):
         return
     # 持久化删除前先取出 system_id + environment，用于精确删除 store 中记录
-    old_cfg = _get_source_config_or_empty(rm, name)
+    # 多实例一致性: 优先从 store 获取 old_cfg,避免 rm 未热重载时 sid/env 为空误删同名数据源
+    old_cfg = await _get_old_source_cfg(rm, store, name)
     sid, env = get_source_env_keys_from_cfg(old_cfg)
     await rm.remove_source(name)
     # Remove tools bound to this source (auto-generated or manual) and
@@ -298,9 +312,9 @@ async def test_source(request: Request, name: str) -> dict[str, Any]:
     """测试数据源连通性,返回 ok/latency/error。"""
     _validate_name_param(name)
     rm = get_rm(request)
-    if not rm.has_source(name):
-        raise HTTPException(status_code=404, detail=f"source {name!r} not found")
-    source = await rm.get_source(name)
+    store = get_store()
+    # 多实例一致性: store 优先 + rm 未命中时主动从 store 注入配置触发惰性初始化
+    source = await _get_source_for_action(rm, store, name)
     if source is None:
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
     try:
@@ -312,16 +326,28 @@ async def test_source(request: Request, name: str) -> dict[str, Any]:
 
 @router.get("/tools")
 async def list_tools(request: Request) -> list[dict[str, Any]]:
-    """列出所有工具及其分类信息。"""
+    """列出所有工具及其分类信息(优先从 store,回退到 rm 内存)。"""
     rm = get_rm(request)
+    store = get_store()
+    if is_store_usable(store):
+        result = await _build_tools_response_from_store(rm, store)
+        if result is not None:
+            return result
+    # store 不可用或查询失败时回退到 rm
     tools = rm.get_tools_map()
     return [_build_tool_list_item(rm, name, tool) for name, tool in tools.items()]
 
 
 @router.get("/tools/{name}")
 async def get_tool(request: Request, name: str) -> dict[str, Any]:
-    """获取指定工具详情(含 inputSchema)。"""
+    """获取指定工具详情(含 inputSchema)。优先从 store,回退到 rm 内存。"""
     rm = get_rm(request)
+    store = get_store()
+    if is_store_usable(store):
+        result = await _build_tool_detail_response_from_store(rm, store, name)
+        if result is not None:
+            return result
+    # store 不可用/查询失败/工具不存在时回退到 rm
     tool = rm.get_tool(name)
     if not tool:
         raise HTTPException(status_code=404, detail=f"tool {name!r} not found")
@@ -332,7 +358,9 @@ async def get_tool(request: Request, name: str) -> dict[str, Any]:
 async def invoke_tool(request: Request, name: str) -> dict[str, Any]:
     """调用指定工具并返回结果。"""
     rm = get_rm(request)
-    tool = rm.get_tool(name)
+    store = get_store()
+    # 多实例一致性: rm 未命中时从 store 按需加载并注册到 rm(0 延迟)
+    tool = await _get_tool_for_action(rm, store, name)
     if not tool:
         raise HTTPException(status_code=404, detail=f"tool {name!r} not found")
     body = await request.json()
@@ -359,23 +387,59 @@ async def delete_tool(request: Request, name: str):
 async def get_config_endpoint(request: Request) -> dict[str, Any]:
     """返回服务端配置概览(YAML + parsed)。"""
     config = get_config(request)
+    rm = get_rm(request)
+    store = get_store()
     prebuilt = config.prebuilt.split(",") if config.prebuilt else []
+    # 多实例一致性: source/tool 计数优先从 store 查询(参考 /dashboard),
+    # 回退到本地 config.source_configs / config.tool_configs(单机模式)
+    if is_store_usable(store):
+        try:
+            source_count = await store.count_sources()
+            tool_count = await store.count_tools()
+        except Exception as exc:
+            logger.warning("查询 config 计数失败,回退本地: %s", exc)
+            source_count = len(config.source_configs)
+            tool_count = len(config.tool_configs)
+    else:
+        source_count = len(config.source_configs)
+        tool_count = len(config.tool_configs)
+    # toolsets 表已移除:custom toolset 计数从 tool_configs 的 toolsetNames 反向聚合
+    # 多实例一致性: 优先从 store.load_tools 反向聚合,回退到本地 tool_configs
+    custom_toolset_names: set[str] = set()
+    if is_store_usable(store):
+        try:
+            tools_list = await store.load_tools()
+            for t in tools_list:
+                ts_names = t.get("toolsetNames") or []
+                if isinstance(ts_names, list):
+                    custom_toolset_names.update(ts_names)
+        except Exception as exc:
+            logger.warning("查询 config toolset 计数失败,回退本地: %s", exc)
+            for tool_cfg in config.tool_configs.values():
+                ts_names = (tool_cfg or {}).get("toolsetNames") or []
+                if isinstance(ts_names, list):
+                    custom_toolset_names.update(ts_names)
+    else:
+        for tool_cfg in config.tool_configs.values():
+            ts_names = (tool_cfg or {}).get("toolsetNames") or []
+            if isinstance(ts_names, list):
+                custom_toolset_names.update(ts_names)
     parsed = {
         "address": config.address,
         "port": config.port,
         "log_level": config.log_level,
-        "sources": len(config.source_configs),
-        "tools": len(config.tool_configs),
-        "toolsets": len(config.toolset_configs),
+        "sources": source_count,
+        "tools": tool_count,
+        "toolsets": len(custom_toolset_names),
     }
     yaml_lines = [
         "# Server Config",
         f"address: {config.address}",
         f"port: {config.port}",
         f"log_level: {config.log_level}",
-        f"sources: {len(config.source_configs)} configured",
-        f"tools: {len(config.tool_configs)} configured",
-        f"toolsets: {len(config.toolset_configs)} configured",
+        f"sources: {source_count} configured",
+        f"tools: {tool_count} configured",
+        f"toolsets: {len(custom_toolset_names)} configured (custom)",
     ]
     return {
         "yaml": "\n".join(yaml_lines),
@@ -398,7 +462,9 @@ async def execute_query(request: Request) -> dict[str, Any]:
     statement = body.get("statement", "")
     _validate_query_input(source_name, statement)
     rm = get_rm(request)
-    source = await rm.get_source(source_name)
+    store = get_store()
+    # 多实例一致性: store 优先 + rm 未命中时主动从 store 注入配置触发惰性初始化
+    source = await _get_source_for_action(rm, store, source_name)
     if source is None:
         raise HTTPException(status_code=404, detail=f"source {source_name!r} not found")
     try:
@@ -413,7 +479,9 @@ async def list_source_tables(request: Request, name: str) -> dict[str, Any]:
     """List tables in a SQL data source, for the query console sidebar."""
     _validate_name_param(name)
     rm = get_rm(request)
-    source = await rm.get_source(name)
+    store = get_store()
+    # 多实例一致性: store 优先 + rm 未命中时主动从 store 注入配置触发惰性初始化
+    source = await _get_source_for_action(rm, store, name)
     if source is None:
         raise HTTPException(status_code=404, detail=f"source {name!r} not found")
     try:
@@ -441,12 +509,14 @@ async def mcp_test(request: Request) -> dict[str, Any]:
     body = await request.json()
     toolset_name, system_id, environment = _parse_mcp_test_input(body)
     rm = get_rm(request)
+    store = get_store()
 
     # 确定最终用于过滤的 toolset 名称:
     #   选了数据源 → 用数据源名(数据源本身就是一个 toolset)
     #   仅选系统编号+环境 → 优先用 {system_id}-{environment} 格式
     effective_toolset = _resolve_effective_toolset(toolset_name, system_id, environment)
-    _validate_toolset_exists(rm, effective_toolset)
+    # store 优先 / rm 回退:多实例一致性(创建数据源后立即在其他实例可查,0 延迟)
+    await _validate_toolset_exists(rm, store, effective_toolset)
 
     from data_tool_mcp.server.mcp.protocol import MCPProtocol
 
@@ -465,9 +535,9 @@ async def list_toolsets(request: Request) -> list[dict[str, Any]]:
     store = get_store()
     if is_store_usable(store):
         result = await _build_toolsets_from_store(store)
-        if result:
+        if result is not None:
             return result
-    # store 不可用或返回空列表时回退到 rm 内存
+    # store 不可用或查询失败时回退到 rm 内存
     rm = get_rm(request)
     return _build_toolsets_from_rm(rm)
 

@@ -325,14 +325,20 @@ class ResourceManager:
             self._tool_types[name] = tool_type
 
     def _add_tool_to_all_toolsets(self, name: str, tool: Tool) -> None:
-        """将工具添加到默认、数据源同名、{system_id}、{system_id}-{environment} toolset。"""
+        """将工具添加到默认、数据源同名、{system_id}、{system_id}-{environment} 和 custom toolset。
+
+        custom toolset 来源:tool.toolset_names(由 ConfigBase 透传,
+        从 prebuilt YAML 的 kind: toolset 块反向注入)。
+        """
         self._add_tool_to_toolset("", name)
         src = self._tool_source_name(tool)
-        if not src:
-            return
-        self._add_tool_to_toolset(src, name)
-        self._add_tool_to_system_toolset(src, name)
-        self._add_tool_to_system_env_toolset(src, name)
+        if src:
+            self._add_tool_to_toolset(src, name)
+            self._add_tool_to_system_toolset(src, name)
+            self._add_tool_to_system_env_toolset(src, name)
+        # custom toolset(替代独立 toolsets 表)
+        for ts_name in getattr(tool, "toolset_names", []) or []:
+            self._add_tool_to_toolset(ts_name, name)
 
     def _tool_source_name(self, tool: Tool) -> str | None:
         """获取工具关联的数据源名称。"""
@@ -585,7 +591,7 @@ class ResourceManager:
         """无 toolset 但有工具时创建默认 toolset。"""
         if self._toolsets or not self._tools:
             return
-        self._toolsets[""] = Toolset(name="", tool_names=list(self._tools.keys()))
+        self._toolsets[""] = Toolset(name="", tools=list(self._tools.keys()))
 
     def _ensure_default_promptset_if_needed(self) -> None:
         """无 promptset 但有 prompt 时创建默认 promptset。"""

@@ -2,8 +2,10 @@
 
 表结构与 docker/init-mysql.sql 完全对齐：
   - sources      (id, system_id, name, type, host, port, database, username, password, params, ...)
-  - tools        (id, system_id, name, type, source_name, description, params, ...)
-  - toolsets     (id, system_id, name, tool_names, ...)
+  - tools        (id, system_id, name, type, source_name, description, params, toolset_names, ...)
+
+toolsets 表已移除：custom toolset 归属由 tools.toolset_names 字段(JSON 数组)隐式表达，
+运行时从 tools 表动态聚合 5 类 toolset(all/source/system/system-env/custom)。
 
 system_id 为 VARCHAR(10) 字符串，由用户在创建数据源时指定，
 替代了原 Go 版本中基于 departments 表的多租户隔离设计。
@@ -20,7 +22,7 @@ system_id 为 VARCHAR(10) 字符串，由用户在创建数据源时指定，
 
 类型说明：
   - params: TEXT（存 JSON 字符串，读取时解析）
-  - tool_names: TEXT（存逗号分隔字符串，读取时解析为列表）
+  - toolset_names: TEXT（存 JSON 数组字符串，如 ["data","monitor"]，读取时解析为列表）
   - updated_at: 应用层 onupdate=func.now() 维护
 """
 
@@ -86,6 +88,7 @@ class ToolRecord(Base):
 
     source_name 引用 sources.name，params 存额外工具参数。
     system_id + environment 冗余存储，便于按系统+环境查询工具。
+    toolset_names 存该工具所属的 custom toolset 名称列表(JSON 数组字符串)。
 
     注意：数据库列名加 `tool_` 前缀避开保留字（name/type/description）。
     """
@@ -102,26 +105,7 @@ class ToolRecord(Base):
     source_name = Column("src_name", String(128), nullable=False, default="")
     description = Column("tool_desc", Text, default="")
     params = Column(Text, default="{}")  # JSON 字符串
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
-
-class ToolsetRecord(Base):
-    """工具集表 — 将工具聚合为 toolset。
-
-    tool_names 用逗号分隔字符串存储。
-    system_id + environment 为业务隔离维度。
-
-    注意：数据库列名 `set_name` 避开保留字 `name`。
-    """
-
-    __tablename__ = "toolsets"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    system_id = Column(String(10), nullable=False, default="", index=True)
-    environment = Column(String(16), nullable=False, default="", index=True)
-    name = Column("set_name", String(128), nullable=False)
-    tool_names = Column(Text, default="")  # 逗号分隔
+    toolset_names = Column(Text, default=None)  # JSON 数组字符串,如 ["data","monitor"]
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -263,6 +247,8 @@ def _row_to_tool_dict(r: ToolRecord) -> dict[str, Any]:
     }
     tool.update(_parse_params_or_empty(r.params))
     _set_system_env_if_truthy(tool, r)
+    # toolset_names: JSON 数组字符串 -> list[str]
+    tool["toolsetNames"] = _parse_toolset_names(r.toolset_names)
     return tool
 
 
@@ -276,6 +262,8 @@ def _tool_row_to_load_dict(r: ToolRecord) -> dict[str, Any]:
     }
     _set_system_env_if_truthy(tool, r)
     _merge_params_setdefault(tool, r.params)
+    # toolset_names: JSON 数组字符串 -> list[str]
+    tool["toolsetNames"] = _parse_toolset_names(r.toolset_names)
     return tool
 
 
@@ -284,24 +272,20 @@ def _safe_split_commas(value: str | None) -> list[str]:
     return (value or "").split(",")
 
 
-def _parse_tool_names(tool_names_str: str | None) -> list[dict[str, str]]:
-    """逗号分隔字符串 -> [{name: ...}, ...]（过滤空值）。"""
-    result: list[dict[str, str]] = []
-    for tn in _safe_split_commas(tool_names_str):
-        stripped = tn.strip()
-        if stripped:
-            result.append({"name": stripped})
-    return result
+def _parse_toolset_names(toolset_names_str: str | None) -> list[str]:
+    """JSON 数组字符串 -> list[str]（解析失败或空返回空列表）。
 
-
-def _row_to_toolset_dict(r: ToolsetRecord) -> dict[str, Any]:
-    """ToolsetRecord -> dict。"""
-    ts: dict[str, Any] = {
-        "name": r.name,
-        "tools": _parse_tool_names(r.tool_names),
-    }
-    _set_system_env_if_truthy(ts, r)
-    return ts
+    示例: '["data","monitor"]' -> ["data", "monitor"]
+    """
+    if not toolset_names_str:
+        return []
+    try:
+        result = json.loads(toolset_names_str)
+        if isinstance(result, list):
+            return [str(item) for item in result if item]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
 
 
 def _apply_system_env_filters(stmt: Any, model: Any, system_id: str, environment: str) -> Any:
@@ -401,6 +385,7 @@ _TOOL_STRUCTURED_KEYS = frozenset(
         "source_name",
         "description",
         "kind",
+        "toolsetNames",  # custom toolset 归属,序列化到独立列 toolset_names
     }
 )
 
@@ -416,6 +401,13 @@ def _tool_to_row_params(
     system_id = _get_str_field(config_data, "systemId").strip()
     environment = _get_str_field(config_data, "environment").strip()
     params = _build_params_json(config_data, _TOOL_STRUCTURED_KEYS)
+    # toolsetNames: list[str] -> JSON 字符串(空列表存 None 节省空间)
+    ts_names = config_data.get("toolsetNames") or []
+    if isinstance(ts_names, list):
+        ts_names_json = json.dumps(ts_names, ensure_ascii=False) if ts_names else None
+    else:
+        # 防御性:非列表值视为空
+        ts_names_json = None
     return {
         "system_id": system_id,
         "environment": environment,
@@ -424,6 +416,7 @@ def _tool_to_row_params(
         "source_name": source or "",
         "description": description or "",
         "params": params,
+        "toolset_names": ts_names_json,
     }
 
 
@@ -435,25 +428,7 @@ def _apply_tool_updates(existing: ToolRecord, row_params: dict[str, Any]) -> Non
     existing.params = row_params["params"]
     existing.system_id = row_params["system_id"]
     existing.environment = row_params["environment"]
-
-
-def _toolset_to_row_params(
-    name: str,
-    tool_names: list[str],
-    config_data: dict[str, Any],
-) -> dict[str, Any]:
-    """从 config_data 提取 ToolsetRecord 列参数。"""
-    return {
-        "system_id": _get_str_field(config_data, "systemId").strip(),
-        "environment": _get_str_field(config_data, "environment").strip(),
-        "name": name,
-        "tool_names": ",".join(tool_names),
-    }
-
-
-def _extract_tool_names(ts_data: dict[str, Any]) -> list[str]:
-    """从 toolset 配置中提取工具名列表。"""
-    return [t["name"] for t in ts_data.get("tools", []) if "name" in t]
+    existing.toolset_names = row_params["toolset_names"]
 
 
 def _build_userinfo_when_no_username(password: str, quote: Any) -> str:
@@ -842,43 +817,6 @@ class ConfigStore:
         async with self._session_factory() as session:
             return await session.scalar(select(sa_func.count(SourceRecord.id))) or 0
 
-    async def save_toolset(
-        self,
-        name: str,
-        tool_names: list[str],
-        config_data: dict[str, Any] | None = None,
-    ) -> None:
-        """保存或更新工具集配置。
-
-        tool_names 用逗号分隔字符串存储。system_id / environment 从 config_data 提取。
-        """
-        config_data = config_data or {}
-        row_params = _toolset_to_row_params(name, tool_names, config_data)
-
-        async with self._session_factory() as session:
-            existing = await session.scalar(
-                select(ToolsetRecord).where(
-                    ToolsetRecord.name == name,
-                    ToolsetRecord.system_id == row_params["system_id"],
-                    ToolsetRecord.environment == row_params["environment"],
-                )
-            )
-            if existing:
-                existing.tool_names = row_params["tool_names"]
-            else:
-                session.add(ToolsetRecord(**row_params))
-            await self._commit_with_integrity_check(
-                session,
-                f"工具集 {name!r} 在系统 {row_params['system_id']} 环境 {row_params['environment']} 下已存在（并发冲突）",
-            )
-
-    async def count_toolsets(self) -> int:
-        """返回工具集总数。"""
-        from sqlalchemy import func as sa_func
-
-        async with self._session_factory() as session:
-            return await session.scalar(select(sa_func.count(ToolsetRecord.id))) or 0
-
     async def count_tools(self) -> int:
         """返回工具总数。"""
         from sqlalchemy import func as sa_func
@@ -946,22 +884,6 @@ class ConfigStore:
                 sources.append(src)
             return sources
 
-    async def get_toolset(
-        self, name: str, system_id: str = "", environment: str = ""
-    ) -> dict[str, Any] | None:
-        """按名查询单个工具集配置。不存在时返回 None。"""
-        async with self._session_factory() as session:
-            stmt = select(ToolsetRecord).where(ToolsetRecord.name == name)
-            stmt = _apply_system_env_filters(stmt, ToolsetRecord, system_id, environment)
-            r = await session.scalar(stmt)
-            return _row_to_toolset_dict(r) if r else None
-
-    async def load_toolsets(self) -> list[dict[str, Any]]:
-        """加载所有工具集。"""
-        async with self._session_factory() as session:
-            result = await session.scalars(select(ToolsetRecord))
-            return [_row_to_toolset_dict(r) for r in result]
-
     async def delete_source(self, name: str, system_id: str = "", environment: str = "") -> None:
         """删除指定数据源配置。"""
         async with self._session_factory() as session:
@@ -1008,17 +930,18 @@ class ConfigStore:
         用于 `toolbox import` 子命令和首次启动时自动导入预置配置。
         幂等：同 (system_id, name) 的记录会更新而非重复创建。
 
-        返回: {"sources": N, "tools": N, "toolsets": N} 导入计数。
+        toolsets 表已移除:tf.toolsets 中的 custom toolset 归属应在调用前
+        反向注入到对应 tool 的 toolsetNames 字段(由 loader.py 完成)。
+
+        返回: {"sources": N, "tools": N} 导入计数。
         """
-        counts = {"sources": 0, "tools": 0, "toolsets": 0}
+        counts = {"sources": 0, "tools": 0}
         counts["sources"] = await self._import_sources(tf.sources)
         counts["tools"] = await self._import_tools(tf.tools)
-        counts["toolsets"] = await self._import_toolsets(tf.toolsets)
         logger.info(
-            "ToolboxFile 导入完成: %d sources, %d tools, %d toolsets",
+            "ToolboxFile 导入完成: %d sources, %d tools",
             counts["sources"],
             counts["tools"],
-            counts["toolsets"],
         )
         return counts
 
@@ -1091,39 +1014,6 @@ class ConfigStore:
             _apply_tool_updates(existing, row_params)
         else:
             session.add(ToolRecord(**row_params))
-
-    async def _import_toolsets(self, toolsets: dict[str, Any]) -> int:
-        """批量导入工具集配置(单 session 批量提交,避免 N+1 次往返)。"""
-        count = 0
-        async with self._session_factory() as session:
-            for name, ts_data in toolsets.items():
-                tool_names = _extract_tool_names(ts_data)
-                await self._save_toolset_in_session(session, name, tool_names, ts_data)
-                count += 1
-            await session.commit()
-        return count
-
-    async def _save_toolset_in_session(
-        self,
-        session: AsyncSession,
-        name: str,
-        tool_names: list[str],
-        config_data: dict[str, Any],
-    ) -> None:
-        """在已有 session 中保存工具集(不提交,由调用方统一提交)。"""
-        row_params = _toolset_to_row_params(name, tool_names, config_data)
-        existing = await session.scalar(
-            select(ToolsetRecord).where(
-                ToolsetRecord.name == name,
-                ToolsetRecord.system_id == row_params["system_id"],
-                ToolsetRecord.environment == row_params["environment"],
-            )
-        )
-        if existing:
-            # toolset 仅 tool_names 字段可更新(system_id/environment 为键不可变)
-            existing.tool_names = row_params["tool_names"]
-        else:
-            session.add(ToolsetRecord(**row_params))
 
     async def load_sources(self) -> list[dict[str, Any]]:
         """加载所有数据源，合并结构化字段和 params。"""

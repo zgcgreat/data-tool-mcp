@@ -70,12 +70,40 @@ def _filter_tool_docs(docs: list) -> list[dict[str, Any]] | None:
     return tools or None
 
 
-def _load_prebuilt_tools(src_type: str) -> list[dict[str, Any]] | None:
+def _build_tool_to_toolsets_map(docs: list) -> dict[str, list[str]]:
+    """从 yaml 文档列表反向构造 {tool_yaml_name: [toolset_name, ...]} 映射。
+
+    遍历 kind: toolset 文档,将 toolset 名称反向注入到其所属工具的列表中。
+    用于在创建 tool 时注入 toolsetNames 字段(替代独立的 toolsets 表)。
+    """
+    tool_to_toolsets: dict[str, list[str]] = {}
+    for doc in docs:
+        if not (isinstance(doc, dict) and doc.get("kind") == "toolset"):
+            continue
+        ts_name = doc.get("name")
+        if not ts_name:
+            continue
+        for tool_ref in doc.get("tools", []) or []:
+            tool_yaml_name = (
+                tool_ref.get("name") if isinstance(tool_ref, dict) else None
+            )
+            if tool_yaml_name:
+                tool_to_toolsets.setdefault(tool_yaml_name, []).append(ts_name)
+    return tool_to_toolsets
+
+
+def _load_prebuilt_tools(
+    src_type: str,
+) -> tuple[list[dict[str, Any]] | None, dict[str, list[str]]]:
     """Extract tool definitions from prebuiltconfigs/<src_type>.yaml.
 
-    Returns the list of `kind: tool` docs (with the original tool name and
-    full config such as `statement`/`templateParameters`), or None when there
-    is no prebuilt yaml for this source type.
+    Returns:
+        (tool_docs, tool_to_toolsets_map)
+        - tool_docs: list of `kind: tool` docs (with the original tool name
+          and full config such as `statement`/`templateParameters`), or None
+          when there is no prebuilt yaml for this source type.
+        - tool_to_toolsets_map: {tool_yaml_name: [toolset_name, ...]},
+          反向映射工具到其所属 custom toolset(从 kind: toolset 块推导)。
 
     Using the prebuilt yaml as the source of truth guarantees the admin UI
     auto-generates EXACTLY the same tools `--prebuilt <src_type>` would, and
@@ -84,11 +112,13 @@ def _load_prebuilt_tools(src_type: str) -> list[dict[str, Any]] | None:
     yaml_name = PREBUILT_YAML_OVERRIDES.get(src_type, src_type)
     path = os.path.join(PREBUILT_DIR, f"{yaml_name}.yaml")
     if not os.path.exists(path):
-        return None
+        return None, {}
     docs = _read_yaml_docs(path)
     if docs is None:
-        return None
-    return _filter_tool_docs(docs)
+        return None, {}
+    tool_docs = _filter_tool_docs(docs)
+    tool_to_toolsets = _build_tool_to_toolsets_map(docs)
+    return tool_docs, tool_to_toolsets
 
 
 # ---------------------------------------------------------------------------
@@ -166,14 +196,23 @@ def _build_prebuilt_tool_doc(
     name: str,
     system_id: str,
     environment: str,
+    tool_to_toolsets: dict[str, list[str]],
 ) -> tuple[str | None, str | None, dict[str, Any] | None]:
-    """从 prebuilt doc 构造 (tool_name, tool_type, tool_data);缺失字段返回 (None, None, None)。"""
+    """从 prebuilt doc 构造 (tool_name, tool_type, tool_data);缺失字段返回 (None, None, None)。
+
+    tool_to_toolsets 为 {tool_yaml_name: [toolset_name, ...]} 反向映射,
+    用于注入 toolsetNames 字段(替代独立的 toolsets 表)。
+    """
     yaml_name = doc.get("name")
     tool_type = doc.get("type")
     if not yaml_name or not tool_type:
         return None, None, None
     tool_name = f"{name}-{yaml_name}"
     tool_data = _build_tool_data(doc, name, tool_name, tool_type, system_id, environment)
+    # 注入 toolsetNames(基于 yaml_name 反查)
+    ts_names = tool_to_toolsets.get(yaml_name, [])
+    if ts_names:
+        tool_data["toolsetNames"] = list(ts_names)
     return tool_name, tool_type, tool_data
 
 
@@ -185,10 +224,23 @@ async def _try_add_tool(
     source_name: str,
     persist: bool,
 ) -> bool:
-    """尝试初始化并注册一个工具,成功返回 True,失败仅告警。"""
+    """尝试初始化并注册一个工具,成功返回 True,失败仅告警。
+
+    tool_data 中的 toolsetNames(custom toolset 归属)会透传到 Tool 实例,
+    由 ResourceManager._add_tool_to_all_toolsets 读取并维护 custom toolset。
+    """
     try:
         tool_config = decode_tool_config(tool_type, tool_name, tool_data)
         tool = await tool_config.initialize()
+        # 透传 toolsetNames 到 Tool 实例(替代独立 toolsets 表)
+        ts_names = tool_data.get("toolsetNames") or []
+        if ts_names:
+            # BaseTool 已有 toolset_names property,通过 _cfg 透传;
+            # 直接 setattr 兼容非 BaseTool 实现或 _cfg 不可写的场景
+            try:
+                tool._cfg.toolset_names = list(ts_names)
+            except (AttributeError, TypeError):
+                setattr(tool, "toolset_names", list(ts_names))
         rm.add_tool(tool_name, tool, tool_type)
         if persist:
             await _persist_tool(tool_name, tool_type, source_name, tool_data)
@@ -204,10 +256,11 @@ async def _try_create_prebuilt_tool(
     name: str,
     system_id: str,
     environment: str,
+    tool_to_toolsets: dict[str, list[str]],
 ) -> str | None:
     """尝试基于单个 prebuilt doc 创建工具,返回创建的工具名(或 None)。"""
     tool_name, tool_type, tool_data = _build_prebuilt_tool_doc(
-        doc, name, system_id, environment
+        doc, name, system_id, environment, tool_to_toolsets
     )
     if _tool_already_exists(tool_name, rm):
         return None
@@ -222,11 +275,14 @@ async def _create_prebuilt_tools(
     name: str,
     system_id: str,
     environment: str,
+    tool_to_toolsets: dict[str, list[str]],
 ) -> list[str]:
     """基于 prebuilt yaml 文档列表创建工具。"""
     created: list[str] = []
     for doc in prebuilt:
-        tool_name = await _try_create_prebuilt_tool(rm, doc, name, system_id, environment)
+        tool_name = await _try_create_prebuilt_tool(
+            rm, doc, name, system_id, environment, tool_to_toolsets
+        )
         if tool_name:
             created.append(tool_name)
     return created
@@ -306,9 +362,11 @@ async def _auto_create_tools(rm, src_type: str, name: str) -> list[str]:
     """
     src_cfg = rm.get_source_config(name) or {}
     system_id, environment = extract_env_keys(src_cfg)
-    prebuilt = _load_prebuilt_tools(src_type)
+    prebuilt, tool_to_toolsets = _load_prebuilt_tools(src_type)
     if prebuilt is not None:
-        return await _create_prebuilt_tools(rm, prebuilt, name, system_id, environment)
+        return await _create_prebuilt_tools(
+            rm, prebuilt, name, system_id, environment, tool_to_toolsets
+        )
     return await _create_default_tools(rm, src_type, name, system_id, environment)
 
 
@@ -470,6 +528,40 @@ async def _load_source_config(rm, store, name: str) -> dict[str, Any] | None:
     if src_cfg is not None:
         return src_cfg
     return _load_source_config_from_rm(rm, name)
+
+
+async def _get_source_for_action(rm, store, name: str):
+    """多实例一致性辅助:获取 source 实例用于后续操作(test/query/tables)。
+
+    流程:
+      1. store 优先存在性检查;不存在直接返回 None(404)
+      2. rm.get_source 命中直接返回(惰性初始化已建立连接池)
+      3. rm 未命中但 store 命中:从 store 读取配置注入 rm,触发下次 get_source 惰性初始化
+
+    多实例场景: 实例 A 创建数据源写入 store,实例 B 在 5s 热重载窗口内
+    rm 内存未同步,通过本函数可从 store 立即获取并初始化 source(0 延迟)。
+    """
+    if not await _check_source_exists(rm, store, name):
+        return None
+    source = await rm.get_source(name)
+    if source is not None:
+        return source
+    # rm 未缓存但 store 命中:主动注入配置触发惰性初始化
+    src_cfg = await _load_source_config_from_store(store, name)
+    if src_cfg is None:
+        return None
+    rm.add_source_config(name, src_cfg)
+    return await rm.get_source(name)
+
+
+async def _get_old_source_cfg(rm, store, name: str) -> dict[str, Any]:
+    """获取更新/删除前的数据源配置(用于提取 system_id + environment)。
+
+    多实例一致性: 优先从 store 获取(事实源),回退到 rm 内存。
+    rm 未热重载时不能只读 rm,否则 sid/env 为空会误删同名数据源。
+    """
+    src_cfg = await _load_source_config(rm, store, name)
+    return src_cfg or {}
 
 
 def _get_password_from_cfg(src_cfg: dict[str, Any]) -> str:

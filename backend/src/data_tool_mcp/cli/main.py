@@ -151,6 +151,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--enable-draft-specs", action="store_true", help="Enable draft MCP protocol specs"
     )
     serve.add_argument(
+        "--disable-sse",
+        action="store_true",
+        default=os.environ.get("DATA_TOOL_MCP_DISABLE_SSE", "").lower()
+        in ("1", "true", "yes"),
+        help="禁用 SSE 端点(多实例部署推荐启用,返回 410 引导客户端走 Streamable HTTP)。"
+        "可设环境变量 DATA_TOOL_MCP_DISABLE_SSE=1",
+    )
+    serve.add_argument(
         "--ignore-unknown-tools", action="store_true", help="Ignore unknown tool types"
     )
 
@@ -235,6 +243,7 @@ def _build_server_config(args: argparse.Namespace):
         disable_reload=args.disable_reload,
         enable_api=args.enable_api,
         enable_draft_specs=args.enable_draft_specs,
+        disable_sse=args.disable_sse,
         cert_file=_or_default(args.tls_cert, ""),
         key_file=_or_default(args.tls_key, ""),
         config_file=_or_default(args.config, ""),
@@ -445,7 +454,23 @@ async def _close_sources(sources_map: dict) -> None:
 
 
 async def _start_db_reload_watcher(config: "ServerConfig", rm: "ResourceManager") -> None:
-    """启用 DB 配置热重载（MySQL 轮询模式，若启用且配置了 config_db_url）。"""
+    """启用 DB 配置热重载（MySQL 轮询模式，若启用且配置了 config_db_url）。
+
+    架构限制(多实例部署):
+      本机制为"轮询拉取"模式,默认 5 秒间隔(DATA_TOOL_MCP_RELOAD_INTERVAL 可配)。
+      多实例部署下,实例 A 写入 store 后,实例 B 的 rm 内存缓存最长需要 5s 才能同步。
+
+      影响范围:
+        - Admin API 读操作: 已通过 "store 优先 / rm 回退" 模式规避(0 延迟)
+        - Admin API 写操作(DELETE/PUT): 已通过 _get_old_source_cfg 从 store 获取最新配置
+        - MCP tools/list, tools/call: 已通过 _ensure_tools_loaded_for_toolset 按需加载
+        - 剩余窗口影响: 实例 B 的 rm 缓存中可能短暂存在已被实例 A 删除的 source/tool,
+          但因 _check_source_exists/_check_toolset_exists 等存在性检查都走 store 优先,
+          实际不会返回脏数据,只会导致 rm 缓存中的旧对象在下次淘汰时被清理。
+
+      如需立即跨实例同步,可引入 Redis pub/sub 或类似机制主动 invalidate,
+      但这属于架构升级,当前轮询模式已能满足多实例一致性要求。
+    """
     if config.disable_reload or not config.config_db_url:
         return
     from data_tool_mcp.config.db_reader import watch_config_changes
@@ -561,13 +586,29 @@ def _extract_names(items: list) -> list:
 
 
 def _build_toolsets(toolset_configs):
-    """从配置构建 toolset 映射。"""
-    from data_tool_mcp.resources import Toolset
+    """从配置构建 toolset 映射。
 
-    result = {}
-    for name, ts_data in toolset_configs.items():
-        result[name] = Toolset(name=name, tools=_extract_names(ts_data.get("tools", [])))
-    return result
+    已废弃:toolsets 表已移除,toolset_configs 始终为空。
+    保留函数以维持向后兼容(如外部直接调用),返回空 dict。
+    """
+    return {}
+
+
+def _inject_toolset_names(tools_map, tool_configs) -> None:
+    """将 tool_configs 中的 toolsetNames 透传到 tools_map 中的 Tool 实例。
+
+    toolsets 表已移除:custom toolset 归属由 tool.toolset_names 属性表达,
+    ResourceManager._add_tool_to_all_toolsets 读取此属性维护 custom toolset。
+    """
+    for name, tool in tools_map.items():
+        cfg = tool_configs.get(name) or {}
+        ts_names = cfg.get("toolsetNames") or []
+        if not ts_names:
+            continue
+        try:
+            tool._cfg.toolset_names = list(ts_names)
+        except (AttributeError, TypeError):
+            setattr(tool, "toolset_names", list(ts_names))
 
 
 def _build_promptsets(promptset_configs):
@@ -603,8 +644,12 @@ async def _initialize_resources(config: "ServerConfig", rm: "ResourceManager") -
         ignore,
         lambda n, t, e: f"Skipping unknown tool type {t!r}: {e}",
     )
+    # 透传 toolsetNames 到 Tool 实例(替代独立 toolsets 表)
+    _inject_toolset_names(tools_map, config.tool_configs)
 
-    toolsets_map = _build_toolsets(config.toolset_configs)
+    # toolsets 表已移除:toolsets_map 传空 dict,
+    # 由 rm.ensure_default_toolset() 和 _add_tool_to_all_toolsets 动态聚合
+    toolsets_map = {}
 
     prompts_map, _ = await _init_decoded_items(
         config.prompt_configs,
@@ -670,10 +715,21 @@ def _load_one_source(rm, src_data, logger):
 
 
 async def _try_add_tool(rm, name, tool_type, tool_data, decode_fn, logger):
-    """尝试解码、初始化并添加持久化工具，失败时记录警告。"""
+    """尝试解码、初始化并添加持久化工具，失败时记录警告。
+
+    持久化的 toolsetNames(custom toolset 归属)透传到 Tool 实例,
+    由 ResourceManager._add_tool_to_all_toolsets 读取并维护 custom toolset。
+    """
     try:
         tool_config = decode_fn(tool_type, name, tool_data)
         tool = await tool_config.initialize()
+        # 透传 toolsetNames 到 Tool 实例(替代独立 toolsets 表)
+        ts_names = tool_data.get("toolsetNames") or []
+        if ts_names:
+            try:
+                tool._cfg.toolset_names = list(ts_names)
+            except (AttributeError, TypeError):
+                setattr(tool, "toolset_names", list(ts_names))
         rm.add_tool(name, tool, tool_type)
         logger.info("从存储加载工具: %s (%s)", name, tool_type)
     except Exception as exc:

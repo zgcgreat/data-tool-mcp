@@ -464,10 +464,35 @@ def _validate_resource_names(merged: ToolboxFile) -> None:
 
 
 def _apply_configs_to_server(server_config: ServerConfig, merged: ToolboxFile) -> None:
-    """将合并后的配置写回 server_config。"""
+    """将合并后的配置写回 server_config。
+
+    toolsets 表已移除:merged.toolsets 中的 custom toolset 归属反向注入到
+    对应 tool 的 toolsetNames 字段,持久化到 tools.toolset_names 列。
+    """
+    # 反向构造 tool_yaml_name -> [toolset_name] 映射
+    tool_to_toolsets: dict[str, list[str]] = {}
+    for ts_name, ts_data in merged.toolsets.items():
+        for tool_ref in ts_data.get("tools", []) or []:
+            tool_yaml_name = (
+                tool_ref.get("name") if isinstance(tool_ref, dict) else None
+            )
+            if tool_yaml_name:
+                tool_to_toolsets.setdefault(tool_yaml_name, []).append(ts_name)
+
+    # 注入到 tool_configs(基于 yaml_name 匹配)
+    for tool_name, tool_cfg in merged.tools.items():
+        ts_names = tool_to_toolsets.get(tool_name, [])
+        if ts_names and isinstance(tool_cfg, dict):
+            existing_ts_names = tool_cfg.get("toolsetNames") or []
+            # 合并去重(避免重复注入)
+            merged_names = list(dict.fromkeys(existing_ts_names + ts_names))
+            tool_cfg["toolsetNames"] = merged_names
+
     server_config.source_configs = merged.sources
     server_config.tool_configs = merged.tools
-    server_config.toolset_configs = merged.toolsets
+    # toolset_configs 置空:toolsets 表已移除,custom toolset 归属已注入 toolsetNames
+    # 保留字段以避免破坏 ServerConfig schema 兼容性
+    server_config.toolset_configs = {}
     server_config.prompt_configs = merged.prompts
     server_config.promptset_configs = merged.promptsets
     server_config.embedding_model_configs = merged.embeddingModels

@@ -251,38 +251,45 @@ class MCPProtocol:
 
         # Extract and propagate trace context from _meta
         # Maps to Go: extractMeta + otel propagation
-        self._attach_trace_context(request.meta)
+        # 保存 attach 返回的 token,在 finally 中 detach 避免 context 泄漏
+        trace_token = self._attach_trace_context(request.meta)
 
-        handler, handler_name = self._resolve_handler(request.method)
-        if handler is None:
-            return self._notification_or_error(
-                is_notification,
-                self._method_not_found_error(request.method, handler_name),
-                request.id,
-            )
-
-        result, error_dict = await self._safe_invoke_handler(handler, request.params)
-        return self._build_response(result, error_dict, request.id, is_notification)
-
-    def _attach_trace_context(self, meta: RequestMetaObject) -> None:
-        """提取并传播 W3C Trace Context。"""
-        if not meta.traceparent:
-            return
-        self._propagate_trace_context(meta.traceparent, meta.tracestate)
-
-    def _propagate_trace_context(self, traceparent: str, tracestate: str) -> None:
-        """使用 OpenTelemetry 传播 trace context。"""
         try:
-            self._do_propagate_trace(traceparent, tracestate)
+            handler, handler_name = self._resolve_handler(request.method)
+            if handler is None:
+                return self._notification_or_error(
+                    is_notification,
+                    self._method_not_found_error(request.method, handler_name),
+                    request.id,
+                )
+
+            result, error_dict = await self._safe_invoke_handler(handler, request.params)
+            return self._build_response(result, error_dict, request.id, is_notification)
+        finally:
+            self._detach_trace_context(trace_token)
+
+    def _attach_trace_context(self, meta: RequestMetaObject):
+        """提取并传播 W3C Trace Context。返回 detach token(或 None)。"""
+        if not meta.traceparent:
+            return None
+        return self._propagate_trace_context(meta.traceparent, meta.tracestate)
+
+    def _propagate_trace_context(self, traceparent: str, tracestate: str):
+        """使用 OpenTelemetry 传播 trace context。返回 detach token(或 None)。"""
+        try:
+            return self._do_propagate_trace(traceparent, tracestate)
         except ImportError:
             # OpenTelemetry not available, skip propagation
-            pass
+            return None
         except Exception:
             # Propagation failed, continue without trace context
-            pass
+            return None
 
-    def _do_propagate_trace(self, traceparent: str, tracestate: str) -> None:
-        """实际执行 trace context 传播(可能抛 ImportError 或其他异常)。"""
+    def _do_propagate_trace(self, traceparent: str, tracestate: str):
+        """实际执行 trace context 传播(可能抛 ImportError 或其他异常)。
+
+        返回 otel_context.attach 的 token,调用方需在 finally 中 detach。
+        """
         from opentelemetry import context as otel_context
         from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
@@ -292,7 +299,22 @@ class MCPProtocol:
         }
         ctx = TraceContextTextMapPropagator().extract(carrier=carrier)
         if ctx is not None:
-            otel_context.attach(ctx)
+            return otel_context.attach(ctx)
+        return None
+
+    def _detach_trace_context(self, token) -> None:
+        """detach trace context,避免 otel context 泄漏。token 为 None 时 no-op。"""
+        if token is None:
+            return
+        try:
+            from opentelemetry import context as otel_context
+
+            otel_context.detach(token)
+        except ImportError:
+            pass
+        except Exception:
+            # detach 失败不影响主流程
+            pass
 
     def _resolve_handler(self, method: str):
         """根据方法名解析 handler,返回 (handler, handler_name)。未找到时 handler 为 None。"""
@@ -401,11 +423,13 @@ class MCPProtocol:
 
         If toolset_name is set, only return tools in that toolset.
         Maps to Go: handleToolsList (filters by toolset).
+
+        多实例一致性: rm 内存未热重载时,从 store 按需加载工具(0 延迟)。
         """
         t0 = time.monotonic()
         success = True
         try:
-            tools = self._get_tools_for_list()
+            tools = await self._get_tools_for_list()
             tool_list = [self._build_tool_entry(tool) for tool in tools.values()]
             return {"tools": tool_list}
         except Exception:
@@ -418,11 +442,118 @@ class MCPProtocol:
                 latency_ms=int((time.monotonic() - t0) * 1000),
             )
 
-    def _get_tools_for_list(self) -> dict[str, Any]:
-        """获取 tools/list 用的工具映射,按 toolset 过滤(若设置)。"""
+    async def _get_tools_for_list(self) -> dict[str, Any]:
+        """获取 tools/list 用的工具映射,按 toolset 过滤(若设置)。
+
+        多实例一致性: rm 内存可能未热重载,通过 _ensure_tools_loaded_for_toolset
+        从 store 按需加载缺失的工具(0 延迟)。
+        """
         if not self.toolset_name:
+            # 无 toolset 过滤:确保 rm 内存已加载所有工具
+            await self._ensure_all_tools_loaded()
             return self.rm.get_tools_map()
+        # 有 toolset 过滤:确保该 toolset 的工具已加载
+        await self._ensure_tools_loaded_for_toolset(self.toolset_name)
         return {t.name: t for t in self.rm.get_toolset_tools(self.toolset_name)}
+
+    async def _ensure_all_tools_loaded(self) -> None:
+        """确保 rm 内存中已加载所有工具(从 store 按需补齐)。"""
+        store = self._get_store()
+        if store is None:
+            return
+        try:
+            tools_list = await store.load_tools()
+        except Exception as exc:
+            logger.warning("从 store 加载工具列表失败: %s", exc)
+            return
+        existing = self.rm.get_tools_map()
+        missing_names = [
+            t["name"] for t in tools_list
+            if t.get("name") and t["name"] not in existing
+        ]
+        for name in missing_names:
+            await self._load_tool_from_store(store, name)
+
+    async def _ensure_tools_loaded_for_toolset(self, toolset_name: str) -> None:
+        """确保指定 toolset 的工具已加载到 rm 内存(从 store 按需补齐)。
+
+        5 种 toolset 类型:
+          - all(toolset_name=""):全部工具
+          - source:source_name == toolset_name 的工具
+          - system:system_id == toolset_name 的工具
+          - system-env:{system_id}-{environment} == toolset_name 的工具
+          - custom:toolsetNames 包含 toolset_name 的工具
+        """
+        store = self._get_store()
+        if store is None:
+            return
+        try:
+            tools_list = await store.load_tools()
+        except Exception as exc:
+            logger.warning("从 store 加载工具列表失败: %s", exc)
+            return
+        existing = self.rm.get_tools_map()
+        for t in tools_list:
+            name = t.get("name", "")
+            if not name or name in existing:
+                continue
+            if self._tool_matches_toolset(t, toolset_name):
+                await self._load_tool_from_store(store, name)
+
+    def _tool_matches_toolset(self, tool_data: dict, toolset_name: str) -> bool:
+        """判断 store 中的工具数据是否属于指定 toolset。"""
+        if not toolset_name:
+            return True  # all toolset
+        # source toolset
+        if tool_data.get("source", "") == toolset_name:
+            return True
+        # system toolset
+        sid = str(tool_data.get("systemId", "") or "").strip()
+        if sid and sid == toolset_name:
+            return True
+        # system-env toolset
+        env = str(tool_data.get("environment", "") or "").strip()
+        if sid and env and f"{sid}-{env}" == toolset_name:
+            return True
+        # custom toolset
+        ts_names = tool_data.get("toolsetNames") or []
+        if isinstance(ts_names, list) and toolset_name in ts_names:
+            return True
+        return False
+
+    def _get_store(self):
+        """获取 ConfigStore(若启用持久化)。"""
+        from data_tool_mcp.config.store import get_store
+
+        store = get_store()
+        if store is None or not store.is_persistent:
+            return None
+        return store
+
+    async def _load_tool_from_store(self, store, name: str) -> None:
+        """从 store 加载单个工具到 rm 内存(按需加载,避免多实例热重载延迟)。
+
+        副作用治理: 加载工具前先确保 source 配置已注入 rm,否则 _add_tool_to_all_toolsets
+        无法创建 system/system-env toolset,会导致 /{systemId}/sse 路径查不到该工具。
+        """
+        try:
+            tool_data = await store.get_tool(name)
+        except Exception as exc:
+            logger.warning("从 store 加载工具 %r 失败: %s", name, exc)
+            return
+        if tool_data is None:
+            return
+        try:
+            from data_tool_mcp.admin._sources import _try_add_tool
+            from data_tool_mcp.admin._tools import _ensure_source_config_in_rm
+
+            tool_type = tool_data.get("type", "")
+            source_name = tool_data.get("source", "")
+            # 加载工具前先确保 source 配置已注入 rm(多实例一致性)
+            await _ensure_source_config_in_rm(self.rm, store, source_name)
+            await _try_add_tool(self.rm, name, tool_type, tool_data, source_name, persist=False)
+        except Exception as exc:
+            logger.warning("按需加载工具 %r 到 rm 失败: %s", name, exc)
 
     def _build_tool_entry(self, tool) -> dict[str, Any]:
         """构建单个工具的 manifest 条目。"""
@@ -523,9 +654,14 @@ class MCPProtocol:
         return tool, source_name, None
 
     async def _check_toolset_allowed(self, tool_name: str, t0: float):
-        """检查 toolset 隔离。被拦截时返回错误响应 dict,否则返回 None。"""
+        """检查 toolset 隔离。被拦截时返回错误响应 dict,否则返回 None。
+
+        多实例一致性: toolset 内的工具可能未热重载到 rm,先确保 toolset 已加载。
+        """
         if not self.toolset_name:
             return None
+        # 确保 toolset 的工具已加载到 rm(避免热重载窗口内误判 tool 不在 toolset)
+        await self._ensure_tools_loaded_for_toolset(self.toolset_name)
         if tool_name in self._get_allowed_tool_names():
             return None
         await self._log_request(
@@ -545,8 +681,16 @@ class MCPProtocol:
         """解析工具并执行 auth 校验。
         成功返回 (tool, source_name);工具不存在返回 (error_dict, None);
         auth 失败抛出 ClientServerError。
+
+        多实例一致性: rm.get_tool 未命中时,从 store 按需加载工具实例(0 延迟)。
         """
         tool = self.rm.get_tool(tool_name)
+        if not tool:
+            # rm 未命中:尝试从 store 按需加载
+            store = self._get_store()
+            if store is not None:
+                await self._load_tool_from_store(store, tool_name)
+                tool = self.rm.get_tool(tool_name)
         if not tool:
             await self._log_request(
                 method="tools/call",

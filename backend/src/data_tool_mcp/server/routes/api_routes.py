@@ -67,7 +67,7 @@ async def get_tool(request: Request, tool_name: str) -> dict[str, Any]:
     Maps to Go: toolGetHandler (GET /api/tool/{toolName})
     """
     rm = request.app.state.resource_manager
-    tool = _get_tool_or_404(rm, tool_name)
+    tool = await _get_tool_or_404(request, rm, tool_name)
     return _build_tool_manifest(tool)
 
 
@@ -78,7 +78,7 @@ async def invoke_tool(request: Request, tool_name: str) -> dict[str, Any]:
     Maps to Go: toolInvokeHandler (POST /api/tool/{toolName}/invoke)
     """
     rm = request.app.state.resource_manager
-    tool = _get_tool_or_404(rm, tool_name)
+    tool = await _get_tool_or_404(request, rm, tool_name)
 
     # Extract access token for tools that require client authorization
     access_token = extract_access_token(request)
@@ -91,9 +91,22 @@ async def invoke_tool(request: Request, tool_name: str) -> dict[str, Any]:
     return await _invoke_tool(tool, params, rm, access_token)
 
 
-def _get_tool_or_404(rm, tool_name: str):
-    """获取工具,不存在则抛 404。"""
+async def _get_tool_or_404(request: Request, rm, tool_name: str):
+    """获取工具,不存在则抛 404。
+
+    多实例一致性: rm 未命中时从 store 按需加载(复用 admin/_tools 的辅助函数)。
+    """
     tool = rm.get_tool(tool_name)
+    if tool:
+        return tool
+    # rm 未命中:尝试从 store 按需加载
+    from data_tool_mcp.config.store import get_store
+
+    store = get_store()
+    if store and store.is_persistent:
+        from data_tool_mcp.admin._tools import _get_tool_for_action
+
+        tool = await _get_tool_for_action(rm, store, tool_name)
     if not tool:
         raise HTTPException(status_code=404, detail=f"tool not found: {tool_name}")
     return tool

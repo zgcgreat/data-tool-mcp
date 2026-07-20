@@ -179,6 +179,26 @@ def _accepted() -> JSONResponse:
     return JSONResponse(content={}, status_code=202)
 
 
+def _sse_deprecated() -> JSONResponse:
+    """SSE 已禁用时返回 410 Gone,引导客户端使用 Streamable HTTP。
+
+    多实例部署下 SSE session 存储在实例内存,跨实例 /message 请求会 404;
+    启用 --disable-sse 后所有 SSE 与 /message 端点统一返回 410。
+    """
+    return JSONResponse(
+        status_code=410,
+        content={
+            "error": "SSE transport deprecated in multi-instance mode; use Streamable HTTP (POST /) instead"
+        },
+    )
+
+
+def _is_sse_disabled(request: Request) -> bool:
+    """检查 ServerConfig.disable_sse 是否启用。"""
+    config = getattr(request.app.state, "config", None)
+    return bool(config and getattr(config, "disable_sse", False))
+
+
 async def _handle_streamable_request(protocol: MCPProtocol, request: Request) -> JSONResponse:
     """处理 Streamable HTTP 请求,返回 JSONResponse。"""
     transport = StreamableHTTPTransport(protocol)
@@ -218,6 +238,8 @@ def register_routes(app: FastAPI) -> None:
 
         Go: r.Get("/sse", func(...) { sseHandler(s, w, r) })
         """
+        if _is_sse_disabled(request):
+            return _sse_deprecated()
         rm: ResourceManager = request.app.state.resource_manager
         base_url = _get_base_url(request)
         protocol = _build_protocol(rm, request)
@@ -237,6 +259,8 @@ def register_routes(app: FastAPI) -> None:
         event_queue.  Returns HTTP 202 (Accepted) for successful enqueuing,
         including for notifications (no response body).
         """
+        if _is_sse_disabled(request):
+            return _sse_deprecated()
         rm: ResourceManager = request.app.state.resource_manager
         session, err = await _get_session_or_error(sse_manager, request)
         if err:
@@ -264,6 +288,8 @@ def register_routes(app: FastAPI) -> None:
 
         Go: r.Route("/{toolsetName}") → nested /sse
         """
+        if _is_sse_disabled(request):
+            return _sse_deprecated()
         rm: ResourceManager = request.app.state.resource_manager
         err = _check_toolset(rm, toolsetName)
         if err:
@@ -279,6 +305,8 @@ def register_routes(app: FastAPI) -> None:
     @app.post("/{toolsetName}/message", tags=["MCP-SSE"])
     async def toolset_message_endpoint(toolsetName: str, request: Request):
         """Message endpoint for toolset-scoped SSE transport."""
+        if _is_sse_disabled(request):
+            return _sse_deprecated()
         rm: ResourceManager = request.app.state.resource_manager
         err = _check_toolset(rm, toolsetName)
         if err:
@@ -311,7 +339,13 @@ def register_routes(app: FastAPI) -> None:
 
     # -- System + Environment + Source scoped routes (/{systemId}/{environment}/{sourceName}/) --
     # URL 中同时包含系统编号、环境和数据源名,实际按数据源名过滤工具。
-    # 三段式路由必须注册在两段式路由之前,避免被 /{toolsetName}/... 误匹配。
+    #
+    # 路由顺序说明:
+    #   FastAPI/Starlette 按注册顺序匹配路由,但仅相同段数的路径才会冲突。
+    #   本组路由为 4 段(如 /{a}/{b}/{c}/sse),与上方 2 段的 /{toolsetName}/sse
+    #   以及下方 3 段的 /{systemId}/{sourceName}/sse 段数不同,不会相互冲突。
+    #   注册顺序保持"先 toolset 后 system+env+source 再 system+source"仅为可读性,
+    #   后续若新增同段数路由(如 /{a}/{b}/sse),必须确认不会与已有路由产生歧义。
 
     @app.get("/{systemId}/{environment}/{sourceName}/sse", tags=["MCP-SSE"])
     async def system_env_source_sse_endpoint(
@@ -321,7 +355,16 @@ def register_routes(app: FastAPI) -> None:
 
         URL: /{systemId}/{environment}/{sourceName}/sse
         过滤逻辑: 使用 sourceName 对应的 toolset。
+
+        设计耦合说明(L5):
+          protocol.toolset_name = sourceName(用于 toolset 过滤,匹配 rm 中的 source toolset)
+          transport.toolset_name = "{systemId}/{environment}/{sourceName}"(用于 SSE session URL 构造)
+          两者刻意不同: protocol 需要的是 rm 内的 toolset 标识(数据源名),
+          transport 需要的是 URL 路径标识(复合路径,确保 /message 端点 URL 正确)。
+          这是有意的设计耦合,非 bug;后续若调整 SSE session 机制需同步此处。
         """
+        if _is_sse_disabled(request):
+            return _sse_deprecated()
         rm: ResourceManager = request.app.state.resource_manager
         err = _check_source_access(rm, sourceName, system_id=systemId, environment=environment)
         if err:
@@ -330,7 +373,7 @@ def register_routes(app: FastAPI) -> None:
         protocol = _build_protocol(
             rm, request, toolset_name=sourceName, system_id=systemId, environment=environment
         )
-        # toolset_name 使用复合路径,确保 message endpoint URL 为 /{systemId}/{environment}/{sourceName}/message
+        # transport 的 toolset_name 用复合路径,确保 message endpoint URL 为 /{systemId}/{environment}/{sourceName}/message
         transport = SSETransport(
             protocol,
             base_url=base_url,
@@ -345,6 +388,8 @@ def register_routes(app: FastAPI) -> None:
         systemId: str, environment: str, sourceName: str, request: Request
     ):
         """Message endpoint for system+environment+source-scoped SSE transport."""
+        if _is_sse_disabled(request):
+            return _sse_deprecated()
         rm: ResourceManager = request.app.state.resource_manager
         err = _check_source_access(rm, sourceName, system_id=systemId, environment=environment)
         if err:
@@ -389,6 +434,7 @@ def register_routes(app: FastAPI) -> None:
 
     # -- System + Source scoped routes (/{systemId}/{sourceName}/) --
     # URL 中同时包含系统编号和数据源名,实际按数据源名过滤工具。
+    # 路由段数为 3(如 /{a}/{b}/sse),与 4 段的 system+env+source 和 2 段的 toolset 不冲突。
 
     @app.get("/{systemId}/{sourceName}/sse", tags=["MCP-SSE"])
     async def system_source_sse_endpoint(systemId: str, sourceName: str, request: Request):
@@ -397,6 +443,8 @@ def register_routes(app: FastAPI) -> None:
         URL: /{systemId}/{sourceName}/sse
         过滤逻辑: 使用 sourceName 对应的 toolset。
         """
+        if _is_sse_disabled(request):
+            return _sse_deprecated()
         rm: ResourceManager = request.app.state.resource_manager
         err = _check_source_access(rm, sourceName, system_id=systemId)
         if err:
@@ -416,6 +464,8 @@ def register_routes(app: FastAPI) -> None:
     @app.post("/{systemId}/{sourceName}/message", tags=["MCP-SSE"])
     async def system_source_message_endpoint(systemId: str, sourceName: str, request: Request):
         """Message endpoint for system+source-scoped SSE transport."""
+        if _is_sse_disabled(request):
+            return _sse_deprecated()
         rm: ResourceManager = request.app.state.resource_manager
         err = _check_source_access(rm, sourceName, system_id=systemId)
         if err:

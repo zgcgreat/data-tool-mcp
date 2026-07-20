@@ -4,8 +4,10 @@ Aligns with Go: internal/dbconfigreader/reader.go
 Expected table schema: see docker/init-mysql.sql
 
   sources     (id, system_id, name, type, host, port, database, username, password, params TEXT)
-  tools       (id, system_id, name, type, source_name, description, params TEXT)
-  toolsets    (id, system_id, name, tool_names TEXT, created_at, updated_at)
+  tools       (id, system_id, name, type, source_name, description, params TEXT, toolset_names TEXT)
+
+toolsets 表已移除:custom toolset 归属由 tools.toolset_names 字段(JSON 数组)表达,
+运行时由 ResourceManager 动态聚合 5 类 toolset(all/source/system/system-env/custom)。
 
 Usage:
   1. Set DATA_TOOL_MCP_CONFIG_DB_URL=mysql://user:pass@host:3306/configdb
@@ -317,8 +319,12 @@ def _build_source_config(
 
 
 def _build_tool_config(row: tuple) -> tuple[str, dict[str, Any]]:
-    """从 tools 表行构造 (name, config_dict)。"""
-    name, tool_type, source_name, description, params_json, environment_val = row
+    """从 tools 表行构造 (name, config_dict)。
+
+    row 字段顺序: tool_name, tool_type, src_name, tool_desc, params, environment, toolset_names
+    toolset_names 为 JSON 数组字符串(如 '["data","monitor"]'),解析为 list[str]。
+    """
+    name, tool_type, source_name, description, params_json, environment_val, toolset_names_json = row
     tool_config: dict[str, Any] = {
         "kind": "tool",
         "name": name,
@@ -328,21 +334,26 @@ def _build_tool_config(row: tuple) -> tuple[str, dict[str, Any]]:
         "environment": environment_val,
     }
     _merge_params_json(params_json, tool_config)
+    # toolset_names: JSON 数组字符串 -> list[str]
+    tool_config["toolsetNames"] = _parse_toolset_names_json(toolset_names_json)
     return name, tool_config
 
 
-def _split_comma_separated(value: str) -> list[str]:
-    """将逗号分隔字符串拆分为去空白项列表。"""
-    return [t.strip() for t in value.split(",") if t.strip()]
+def _parse_toolset_names_json(toolset_names_json: str | None) -> list[str]:
+    """将 toolset_names JSON 数组字符串解析为 list[str]。
 
-
-def _parse_tool_names(tool_names: Any) -> list[str]:
-    """将 tool_names 字段解析为字符串列表（逗号分隔字符串或可迭代对象）。"""
-    if not tool_names:
+    示例: '["data","monitor"]' -> ["data", "monitor"]
+    解析失败或空值返回空列表。
+    """
+    if not toolset_names_json:
         return []
-    if isinstance(tool_names, str):
-        return _split_comma_separated(tool_names)
-    return list(tool_names)
+    try:
+        result = json.loads(toolset_names_json)
+        if isinstance(result, list):
+            return [str(item) for item in result if item]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
 
 
 async def _load_system_sources(
@@ -372,10 +383,10 @@ async def _load_system_tools(
     tools: dict[str, Any],
     environment: str,
 ) -> None:
-    """加载单个系统的所有 tools。"""
+    """加载单个系统的所有 tools(含 toolset_names 字段)。"""
     env_clause = _build_env_filter(environment)
     sql = f"""
-        SELECT tool_name, tool_type, src_name, tool_desc, params, environment
+        SELECT tool_name, tool_type, src_name, tool_desc, params, environment, toolset_names
         FROM tools
         WHERE system_id = :system_id {env_clause}
         ORDER BY tool_name
@@ -384,32 +395,6 @@ async def _load_system_tools(
     for row in rows.fetchall():
         name, tool_config = _build_tool_config(row)
         tools[name] = tool_config
-
-
-async def _load_system_toolsets(
-    session: AsyncSession,
-    system_id: str,
-    toolsets: dict[str, Any],
-) -> None:
-    """加载单个系统的 toolset。"""
-    ts_row = await session.execute(
-        text("""
-            SELECT set_name, tool_names
-            FROM toolsets
-            WHERE system_id = :system_id
-        """),
-        {"system_id": system_id},
-    )
-    ts_row_data = ts_row.fetchone()
-    if not ts_row_data:
-        return
-    ts_name = ts_row_data[0]
-    tool_names = _parse_tool_names(ts_row_data[1])
-    toolsets[ts_name] = {
-        "kind": "toolset",
-        "name": ts_name,
-        "tools": [{"name": tn} for tn in tool_names],
-    }
 
 
 async def _load_system(
@@ -426,13 +411,16 @@ async def _load_system(
     Maps to Go: dbconfigreader.readDept()
 
     environment 为空字符串时加载该系统所有环境；非空时仅加载指定环境。
+
+    注意: toolsets 表已移除,toolsets 参数保留以维持调用签名兼容,
+    实际不再从 DB 加载 toolset 数据(custom toolset 归属已通过 tools.toolset_names
+    字段加载,运行时由 ResourceManager 动态聚合)。
     """
     await _load_system_sources(session, system_id, sources, env_passwords, environment)
     await _load_system_tools(session, system_id, tools, environment)
-    await _load_system_toolsets(session, system_id, toolsets)
 
 
-_WATCH_TABLES = ["sources", "tools", "toolsets"]
+_WATCH_TABLES = ["sources", "tools"]
 
 
 async def _collect_table_signatures(session: AsyncSession, tables: list[str]) -> dict[str, str]:
